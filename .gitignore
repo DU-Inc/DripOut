@@ -1,3 +1,5 @@
+# Secret
+.env
 # OSX
 #
 .DS_Store
@@ -72,3 +74,5 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+.gitsecret/keys/random_seed
+!*.secret
