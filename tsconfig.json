@@ -1,3 +1,15 @@
 {
-  "extends": "@react-native/typescript-config/tsconfig.json"
+  "extends": "@react-native/typescript-config/tsconfig.json", // Adjust this if needed
+
+  "include": [
+    "src",          // This includes all TypeScript files in the 'src' directory
+    "env.d.ts"      // This includes the custom type declaration for '@env'
+  ],
+
+  "compilerOptions": {
+    "paths": {
+      "@firebase/auth": ["./node_modules/@firebase/auth/dist/index.rn.d.ts"]
+    }
+  },
+
 }
