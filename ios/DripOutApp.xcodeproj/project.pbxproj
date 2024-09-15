@@ -191,7 +191,7 @@
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				00EEFC60759A1932668264C0 /* [CP] Embed Pods Frameworks */,
 				E235C05ADACE081382539298 /* [CP] Copy Pods Resources */,
-				92E65D5B52DC980874D5A59C /* [CP-User] [RNFB] Core Configuration */,
+				405257FC32BD23A9DAAFC557 /* [CP-User] [RNFB] Core Configuration */,
 			);
 			buildRules = (
 			);
@@ -293,7 +293,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-DripOutApp/Pods-DripOutApp-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		92E65D5B52DC980874D5A59C /* [CP-User] [RNFB] Core Configuration */ = {
+		405257FC32BD23A9DAAFC557 /* [CP-User] [RNFB] Core Configuration */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
