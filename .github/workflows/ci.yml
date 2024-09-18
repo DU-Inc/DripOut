@@ -103,7 +103,7 @@ jobs:
         uses: actions/setup-java@v2
         with: 
             java-version: '11'
-            distribution: 'temurin' # might need change
+            distribution: 'temurin' 
       - name: Install Android SDK
         run: sudo apt-get install android-sdk
       - name: Build Android
