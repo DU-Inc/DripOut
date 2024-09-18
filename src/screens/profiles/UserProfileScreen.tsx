@@ -3,13 +3,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Button, ActivityIndicator, ScrollView, Modal, TextInput, StyleSheet, Alert } from 'react-native';
 import { auth, db } from '../../Config/firebaseconfig';
-import { getUserProfile, createUserProfile, UserProfile } from '../../services/firestoreService';
-import { useNavigation } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList } from '../../types/NavigationTypes';
+import { createUserProfile, UserProfile } from '../../services/firestoreService';
 import { doc, onSnapshot } from 'firebase/firestore'; // Import onSnapshot for real-time updates
 
-type UserProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'UserProfileScreen'>;
+
 
 const UserProfileScreen: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);

@@ -3,13 +3,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Button, ActivityIndicator, ScrollView, Modal, TextInput, StyleSheet, Alert } from 'react-native';
 import { auth, db } from '../../Config/firebaseconfig';
-import { getUserPreferences, setUserPreferences, UserPreferences } from '../../services/firestoreService';
-import { useNavigation } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList } from '../../types/NavigationTypes';
+import { setUserPreferences, UserPreferences } from '../../services/firestoreService';
 import { doc, onSnapshot } from 'firebase/firestore'; // Import onSnapshot for real-time updates
 
-type PreferencesScreenNavigationProp = StackNavigationProp<RootStackParamList, 'UserPreferencesScreen'>;
+
 
 const UserPreferencesScreen: React.FC = () => {
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);

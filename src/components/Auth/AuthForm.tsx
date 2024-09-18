@@ -8,8 +8,8 @@ interface AuthFormProps {
   isSignUp: boolean;
   handleSignInSignUp: () => void;
   errorMessage: string;
-  email: string;
-  password: string;
+  email: string; 
+  password: string; 
   setEmail: (email: string) => void;
   setPassword: (password: string) => void;
   toggleForm: () => void;
@@ -20,8 +20,8 @@ const AuthForm: React.FC<AuthFormProps> = ({
   isSignUp,
   handleSignInSignUp,
   errorMessage,
-  email,
-  password,
+  email, // Add email prop here
+  password, // Add password prop here
   setEmail,
   setPassword,
   toggleForm,
@@ -37,7 +37,7 @@ const AuthForm: React.FC<AuthFormProps> = ({
           {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
 
           <StyledTextInput
-            value={email}
+            value={email} // Now using the email prop
             placeholder="Email"
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -46,7 +46,7 @@ const AuthForm: React.FC<AuthFormProps> = ({
           />
 
           <StyledTextInput
-            value={password}
+            value={password} // Now using the password prop
             placeholder="Password"
             onChangeText={setPassword}
             secureTextEntry

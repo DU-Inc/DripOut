@@ -1,5 +1,3 @@
-// App.tsx
-
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { ThemeProvider } from './src/styles/themeprovider';
