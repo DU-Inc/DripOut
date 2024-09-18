@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  # Full workflow runs on pull requests to main and dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+  push:
+    branches-ignore:
+      - main
+      - dev
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install dependencies
+        run: npm install
+      - name: Run ESLint
+        run: npm run lint
+
+  build-and-test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [14.x, 16.x]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v2
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install dependencies
+        run: npm install
+      - name: Build project
+        run: npm run build
+      - name: Run tests
+        run: npm run test
+
+  
+  basic-build:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install dependencies
+        run: npm install
+      - name: Build project
+        run: npm run build
+
+ 
+  ios-build:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install dependencies
+        run: npm install
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+      - name: Build iOS
+        run: |
+          xcodebuild -workspace ios/YourApp.xcworkspace \
+            -scheme YourApp \
+            -sdk iphonesimulator \
+            -configuration Release \
+            -destination 'platform=iOS Simulator,name=iPhone 11,OS=14.0' \
+            clean build
+      - name: Archive iOS Build
+        run: |
+          mkdir -p build/ios
+          xcodebuild -workspace ios/YourApp.xcworkspace \
+            -scheme YourApp \
+            -sdk iphonesimulator \
+            -configuration Release \
+            -archivePath build/ios/YourApp.xcarchive \
+            archive
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/ios/YourApp.xcarchive \
+            -exportOptionsPlist ios/exportOptions.plist \
+            -exportPath build/ios
+      - name: Upload IPA
+        uses: actions/upload-artifact@v2
+        with:
+          name: iOS-App.ipa
+          path: build/ios/YourApp.ipa
+
+  # Android Build Job (only runs on pull requests to main and dev)
+  android-build:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK for Android
+        uses: actions/setup-java@v2
+        with: 
+            java-version: '11'
+            distribution: 'temurin' # might need change
+      - name: Install Android SDK
+        run: sudo apt-get install android-sdk
+      - name: Build Android
+        run: ./gradlew assembleRelease
+      - name: Upload APK
+        uses: actions/upload-artifact@v2
+        with:
+          name: app-release.apk
+          path: android/app/build/outputs/apk/release/app-release.apk

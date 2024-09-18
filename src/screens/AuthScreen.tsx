@@ -17,7 +17,24 @@ const AuthScreen = ({ navigation }: { navigation: any }) => {
         await signIn(email, password, navigation);
       }
     } catch (err: any) {
-      setError(err.message);
+      switch(err.code){
+        case 'auth/wrong-password':
+        case 'auth/invalid-email':
+          setError('Incorrect email or password.Please try again.');
+          break;
+        case 'auth/user-not-found':
+          setError("No account found with this email. Please sign up.");
+          break;
+        case 'auth/email-already-in-use':
+          setError('This email is already in use. Please sign in.');
+          break;
+        case 'auth/invalid-credential':
+          setError('Incorrect email or password.Please try again.');
+          break;
+        default:
+          setError('An unexpected error occured. Please try again.')
+          break;
+      }
     }
   };
 
