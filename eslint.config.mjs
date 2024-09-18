@@ -1,13 +1,13 @@
 import js from '@eslint/js';
-import tsParser from '@typescript-eslint/parser'; // Import TypeScript parser
-import tsPlugin from '@typescript-eslint/eslint-plugin'; // Import TypeScript plugin
+import tsParser from '@typescript-eslint/parser'; 
+import tsPlugin from '@typescript-eslint/eslint-plugin'; 
 
 export default [
-  js.configs.recommended, // Use the recommended JavaScript rules
+  js.configs.recommended,
   {
-    files: ['**/*.ts', '**/*.tsx'], // Target TypeScript files
+    files: ['**/*.ts', '**/*.tsx'], 
     languageOptions: {
-      parser: tsParser, // Use TypeScript parser for TS files
+      parser: tsParser, 
       ecmaVersion: 2021,
       sourceType: 'module',
       globals: {
@@ -20,16 +20,17 @@ export default [
       },
     },
     plugins: {
-      '@typescript-eslint': tsPlugin, // Add TypeScript plugin for linting
+      '@typescript-eslint': tsPlugin, 
     },
     rules: {
-      '@typescript-eslint/no-unused-vars': 'off', // Disable warnings for unused variables in TypeScript
-      '@typescript-eslint/no-explicit-any': 'off', // Allow 'any' type in TypeScript
-      'no-console': 'off', // Allow console.log statements
+      'no-unused-vars': 'off', 
+      '@typescript-eslint/no-unused-vars': 'warn',
+      '@typescript-eslint/no-explicit-any': 'off', 
+      'no-console': 'off', 
     },
   },
   {
-    files: ['**/*.js', '**/*.jsx'], // Target JavaScript files
+    files: ['**/*.js', '**/*.jsx'], 
     languageOptions: {
       ecmaVersion: 2021,
       sourceType: 'module',
@@ -43,9 +44,9 @@ export default [
       },
     },
     rules: {
-      'no-undef': 'error', // Ensure variables are defined in JS
-      'no-unused-vars': 'off', // Disable warnings for unused variables in JS
-      'no-console': 'off', // Allow console.log statements
+      'no-undef': 'error', 
+      'no-unused-vars': 'warn', 
+      'no-console': 'off', 
     },
   },
 ];
