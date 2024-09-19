@@ -21,6 +21,7 @@ const HomeScreen: React.FC = () => {
           <NavigationButton screenName="UserProfileScreen" title="Go to Profile" />
           <NavigationButton screenName="UserPreferencesScreen" title="Go to Preferences" />
           <NavigationButton screenName="Home" title="Go to Home" />
+          <NavigationButton screenName="CameraScreen" title="Take a pictures for your avatar" />
         </View>
       </ScrollView>
     </SafeAreaView>

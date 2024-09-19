@@ -8,6 +8,7 @@ import UserProfileScreen from '../screens/profiles/UserProfileScreen';
 import UserPreferencesScreen from '../screens/profiles/UserPreferencesScreen';
 import { useAuthSession } from '../hooks/useAuthSession';
 import { RootStackParamList } from '../types/NavigationTypes'; // Centralized types for navigation
+import CameraScreen from '../screens/CameraScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -28,7 +29,10 @@ const AppNavigator: React.FC = () => {
         <>
           <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
           <Stack.Screen name="UserProfileScreen" component={UserProfileScreen} options={{ title: 'User Profile' }} />
-          <Stack.Screen name="UserPreferencesScreen" component={UserPreferencesScreen} options={{ title: 'User Preferences' }} />
+          <Stack.Screen name="UserPreferencesScreen" component={UserPreferencesScreen} options={{ title: 'User Preferences' }}/>
+          <Stack.Screen name="CameraScreen" component={CameraScreen} options={{ title: 'Scan for your avatar' }}
+           />
+         
         </>
       ) : (
         <Stack.Screen name="Auth" component={AuthScreen} options={{ headerShown: false }} />

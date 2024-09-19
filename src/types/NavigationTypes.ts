@@ -4,5 +4,6 @@ export type RootStackParamList = {
     Home: undefined;
     UserProfileScreen: undefined;
     UserPreferencesScreen: undefined;
+    CameraScreen: undefined;
   };
   
