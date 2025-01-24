@@ -37,8 +37,16 @@ export interface UserPreferences {
 // Function to create or update a user profile in Firestore
 export const createUserProfile = async (userId: string, profileData: UserProfile): Promise<void> => {
   try {
+    // Ensure undefined fields are removed before writing to Firestore
+    const cleanProfileData = Object.keys(profileData).reduce((acc, key) => {
+      if (profileData[key as keyof UserProfile] !== undefined) {
+        acc[key] = profileData[key as keyof UserProfile];
+      }
+      return acc;
+    }, {} as any);
+
     const userDocRef: DocumentReference<DocumentData> = doc(db, 'users', userId);
-    await setDoc(userDocRef, profileData, { merge: true }); // 'merge: true' ensures we don't overwrite existing data
+    await setDoc(userDocRef, cleanProfileData, { merge: true }); // 'merge: true' ensures we don't overwrite existing data
     console.log('User profile successfully written!');
   } catch (error) {
     console.error('Error writing user profile: ', error);

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Button, ActivityIndicator, ScrollView, Modal, TextInput, StyleSheet, Alert } from 'react-native';
 import { auth, db } from '../../Config/firebaseconfig';
 import { createUserProfile, UserProfile } from '../../services/firestoreService';
-import { doc, onSnapshot } from 'firebase/firestore'; // Import onSnapshot for real-time updates
+import { doc, onSnapshot, Timestamp  } from 'firebase/firestore'; // Import onSnapshot for real-time updates
 
 
 
@@ -19,7 +19,14 @@ const UserProfileScreen: React.FC = () => {
     if (userId) {
       const unsubscribe = onSnapshot(doc(db, 'users', userId), (docSnapshot) => {
         if (docSnapshot.exists()) {
-          setProfile(docSnapshot.data() as UserProfile);
+          const data = docSnapshot.data() as UserProfile;
+          
+          // Check if createdAt is a Firestore Timestamp and convert it to JavaScript Date
+          if (data.createdAt && data.createdAt instanceof Timestamp) {
+            data.createdAt = data.createdAt.toDate(); // Convert Firestore Timestamp to Date
+          }
+
+          setProfile(data);
         } else {
           setProfile(null); // No profile found
         }
@@ -65,7 +72,7 @@ const UserProfileScreen: React.FC = () => {
         createdAt: new Date(),
         isVerified: auth.currentUser?.emailVerified || false,
         userRole: 'user',
-        userAge: 0,
+        userAge: undefined,
         userMusic: '',
         userGender: '',
         userDisplayName: '',
@@ -88,13 +95,13 @@ const UserProfileScreen: React.FC = () => {
           <Text>Email: {profile.email}</Text>
           <Text>Username: {profile.username}</Text>
           {profile.createdAt && (
-            <Text>Created At: {new Date(profile.createdAt).toDateString()}</Text>
+            <Text>Created At: {new Date(profile.createdAt).toLocaleString()}</Text> 
           )}
           <Text>Full Name: {profile.fullName || 'Not set'}</Text>
           <Text>Profile Picture: {profile.profilePictureURL || 'Not set'}</Text>
           <Text>Is Verified: {profile.isVerified ? 'Yes' : 'No'}</Text>
           <Text>User Role: {profile.userRole}</Text>
-          <Text>Age: {profile.userAge ? profile.userAge.toString() : 'Not set'}</Text>
+          <Text>Age: {profile.userAge !== undefined ? profile.userAge.toString() : 'Not set'}</Text>
           <Text>Music Preference: {profile.userMusic || 'Not set'}</Text>
           <Text>Gender: {profile.userGender || 'Not set'}</Text>
           <Text>Display Name: {profile.userDisplayName || 'Not set'}</Text>
