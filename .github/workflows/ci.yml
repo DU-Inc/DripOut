@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+
+  push:
+    branches-ignore:
+      - main
+      - dev
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: npm ci 
+      - name: Run ESLint
+        run: npm run lint
+
+  build-and-test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x]  
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install dependencies
+        run: npm ci
+      - name: Build project
+        run: npm run build
+      - name: Run tests
+        run: npm run test
+
+  basic-build:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: npm ci
+      - name: Build project
+        run: npm run build
+
+  ios-build:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: npm ci
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+      - name: Build iOS
+        run: |
+          xcodebuild -workspace ios/DripOut.xcworkspace \
+            -scheme DripOut \
+            -sdk iphonesimulator \
+            -configuration Release \
+            -destination 'platform=iOS Simulator,name=iPhone 11,OS=14.0' \
+            clean build
+      - name: Archive iOS Build
+        run: |
+          mkdir -p build/ios
+          xcodebuild -workspace ios/DripOut.xcworkspace \
+            -scheme DripOut \
+            -sdk iphonesimulator \
+            -configuration Release \
+            -archivePath build/ios/DripOut.xcarchive \
+            archive
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/ios/DripOut.xcarchive \
+            -exportOptionsPlist ios/exportOptions.plist \
+            -exportPath build/ios
+      - name: Upload IPA
+        uses: actions/upload-artifact@v3
+        with:
+          name: iOS-App.ipa
+          path: build/ios/DripOut.ipa
+
+  android-build:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up JDK for Android
+        uses: actions/setup-java@v3
+        with: 
+            java-version: '11'
+            distribution: 'temurin' 
+      - name: Install Android SDK
+        run: sudo apt-get install android-sdk
+      - name: Grant execute permission for gradlew  
+        run: chmod +x android/gradlew
+      - name: Build Android
+        run: ./gradlew assembleRelease
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-release.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
