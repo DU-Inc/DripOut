@@ -5,6 +5,7 @@ import { db } from '../Config/firebaseconfig';
 
 // Define the full interface for User Profile
 export interface UserProfile {
+  bio: string;
   userID: string;
   email: string;
   username: string;

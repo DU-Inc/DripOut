@@ -6,6 +6,6 @@ module.exports = {
       path: '.env',
       allowUndefined: true,
     }],
-    'nativewind/babel',  
+    // 'nativewind/babel',  
   ],
 };
