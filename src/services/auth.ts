@@ -7,6 +7,7 @@ import {
 import { auth } from '../Config/firebaseconfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createUserProfile } from './firestoreService'; // Import the function to save user profiles
+import { authCache } from '../utils/authCacheManager';
 
 // Firebase Sign Up function
 export const signUp = async (
@@ -70,19 +71,21 @@ export const signIn = async (email: string, password: string, navigation: any) =
   try {
     console.log(`Attempting to sign in user: ${email}`);
     
-    // Sign in with email and password
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    
-    // Get the user's ID token for storage
     const token = await userCredential.user.getIdToken();
-    await AsyncStorage.setItem('firebaseUserToken', token);
+    
+    // Update both AsyncStorage and cache
+    await Promise.all([
+      AsyncStorage.setItem('firebaseUserToken', token),
+      authCache.setToken(token)
+    ]);
 
     console.log('Sign in successful. User:', userCredential.user.email);
     return userCredential;
 
   } catch (error) {
     console.error('Sign In Error:', error);
-    throw error; // Rethrow the error for error handling in the UI
+    throw error;
   }
 };
 
@@ -104,18 +107,14 @@ export const resetPassword = async (email: string) => {
 // Firebase Sign Out function
 export const signOutUser = async () => {
   try {
-    console.log('Attempting to sign out user.');
-    
-    // Sign out from Firebase
     await signOut(auth);
-
-    // Remove the stored token from AsyncStorage
-    await AsyncStorage.removeItem('firebaseUserToken');
-    
-    console.log('User signed out successfully');
-
+    // Clear both AsyncStorage and cache
+    await Promise.all([
+      AsyncStorage.removeItem('firebaseUserToken'),
+      authCache.invalidateCache()
+    ]);
   } catch (error) {
     console.error('Sign Out Error:', error);
-    throw error; // Rethrow the error for error handling in the UI
+    throw error;
   }
 };

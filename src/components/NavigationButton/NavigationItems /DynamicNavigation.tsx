@@ -11,20 +11,34 @@ export interface DynamicNavigationItem {
   color?: string; // optional custom color
   label?: string; // text label under the icon
   onPress?: () => void; // Optional press handler
+  screenName?: keyof RootStackParamList; // Optional screen to navigate to
 }
 
 interface DynamicNavigationProps {
-  icons: DynamicNavigationItem[]; // The full array of icons
+  icons?: DynamicNavigationItem[]; // The full array of icons
 }
 
 /**
  * Displays up to 5 icons. Each icon can also have a label below it.
  */
-const DynamicNavigation: React.FC<DynamicNavigationProps> = ({ icons }) => {
-  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>(); // Add navigation hook
+const DynamicNavigation: React.FC<DynamicNavigationProps> = ({ icons = [] }) => {
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
 
+  // Default icons configuration with recommendation button
+  const defaultIcons: DynamicNavigationItem[] = [
+    {
+      name: "search",
+      label: "Recommendations",
+      color: "#3498db",
+      screenName: "RecommendationScreen"
+    }
+  ];
+
+  // Use provided icons or default
+  const iconsToUse = icons.length > 0 ? icons : defaultIcons;
+  
   // Only show up to 5 icons
-  const limitedIcons = icons.slice(0, 5);
+  const limitedIcons = iconsToUse.slice(0, 5);
 
   return (
     <View style={styles.container}>
@@ -32,7 +46,10 @@ const DynamicNavigation: React.FC<DynamicNavigationProps> = ({ icons }) => {
         <TouchableOpacity
           key={idx}
           style={styles.itemButton}
-          onPress={icon.onPress || (() => {})} // Use onPress handler if provided
+          onPress={
+            icon.onPress || 
+            (icon.screenName ? () => navigation.navigate(icon.screenName) : () => {})
+          }
         >
           <Icon
             name={icon.name}

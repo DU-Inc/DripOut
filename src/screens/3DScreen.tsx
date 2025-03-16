@@ -62,7 +62,7 @@ const ThreeDScreen: React.FC = () => {
           <ThreeDBox
             width={0.8}
             height={0.65} // Fixed height
-            imageUrl="https://netrinoimages.s3.eu-west-2.amazonaws.com/2022/07/11/1233906/469853/stunningly_beautiful_woman_3d_model_c4d_max_obj_fbx_ma_lwo_3ds_3dm_stl_4815208_o.jpg"
+            imageUrl={require('../assets/images/3dimage.png')}
           />
         </View>
 

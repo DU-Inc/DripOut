@@ -5,7 +5,12 @@ import {
   StyleSheet,
   Animated,
   LayoutChangeEvent,
+  InteractionManager,
 } from 'react-native';
+
+// These are actually globals in React Native environment
+declare const setInterval: (callback: () => void, ms: number) => number;
+declare const clearInterval: (id: number) => void;
 import Icon from 'react-native-vector-icons/Ionicons';
 import ModalNavigation, {
   ModalNavigationHandles,
@@ -104,6 +109,7 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
     });
 
     // Poll logic every 200ms
+    // @ts-ignore
     const pollInterval = setInterval(() => {
       const now = Date.now();
 
@@ -126,12 +132,18 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
 
     return () => {
       scrollY.removeListener(listenerId);
+      // @ts-ignore
       clearInterval(pollInterval);
     };
   }, [scrollY, isHidden]);
 
   const handleToggleModal = () => {
     modalRef.current?.toggleModal();
+  };
+
+  const handleRecommendationNav = () => {
+    const navigation = require('@react-navigation/native').useNavigation();
+    navigation.navigate('RecommendationScreen');
   };
 
   return (
@@ -149,6 +161,12 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
       >
         <View style={styles.navBar} onLayout={handleContentLayout}>
           <View style={styles.additionalNavItems}>{children}</View>
+
+          <TouchableOpacity style={styles.navButton} onPress={handleRecommendationNav}>
+            <View style={styles.iconWrapper}>
+              <Icon name="search" size={24} color="#fff" />
+            </View>
+          </TouchableOpacity>
 
           <TouchableOpacity style={styles.navButton} onPress={handleToggleModal}>
             <View style={styles.iconWrapper}>

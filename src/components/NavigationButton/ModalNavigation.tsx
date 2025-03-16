@@ -24,11 +24,8 @@ import React, {
   // Only needed if you use manual nav (for other features)
   import { useNavigation } from '@react-navigation/native';
   import { StackNavigationProp } from '@react-navigation/stack';
-  type RootStackParamList = {
-    Auth: undefined;
-    Home: undefined;
-    // Add your other screens here
-  };
+  // Import from NavigationTypes to ensure consistency
+  import { RootStackParamList } from '../../types/NavigationTypes';
   
   // The methods we expose to the parent (BottomNavigationBar) via ref
   export interface ModalNavigationHandles {
@@ -167,19 +164,33 @@ import React, {
             ]}
           >
             <View style={styles.gridContainer}>
-              {/* Example icons (Cart, Profile, Preferences, Sign Out) */}
+              {/* Search/Recommendations */}
+              <TouchableOpacity 
+                style={styles.iconWrapper} 
+                onPress={() => {
+                  closeModal();
+                  navigation.navigate('RecommendationScreen');
+                }}
+              >
+                <Icon name="search" size={24} color="#fff" />
+              </TouchableOpacity>
+
+              {/* Cart */}
               <TouchableOpacity style={styles.iconWrapper} onPress={handlePressCart}>
                 <Icon name="cart-outline" size={24} color="#fff" />
               </TouchableOpacity>
   
+              {/* Profile */}
               <TouchableOpacity style={styles.iconWrapper} onPress={handlePressProfile}>
                 <Icon name="people-outline" size={24} color="#fff" />
               </TouchableOpacity>
   
+              {/* Preferences */}
               <TouchableOpacity style={styles.iconWrapper} onPress={handlePressPreferences}>
                 <Icon name="checkbox-outline" size={24} color="#fff" />
               </TouchableOpacity>
   
+              {/* Sign Out */}
               <TouchableOpacity style={styles.iconWrapper} onPress={handlePressSignOut}>
                 <Icon name="log-out-outline" size={24} color="#fff" />
               </TouchableOpacity>

@@ -7,6 +7,7 @@ import UserProfileScreen from "../screens/profiles/UserProfileScreen";
 import UserPreferencesScreen from "../screens/profiles/UserPreferencesScreen";
 import ThreeDScreen from "../screens/3DScreen"; // Import 3D screen
 import ClosetScreen from "../screens/ClosetScreen"; // Import ClosetScreen
+import RecommendationScreen from "../screens/RecommendationScreen"; // Import RecommendationScreen
 import { useAuthSession } from "../hooks/useAuthSession";
 import { RootStackParamList } from "../types/NavigationTypes"; // Centralized types for navigation
 
@@ -52,6 +53,11 @@ const AppNavigator: React.FC = () => {
             name="ClosetScreen"
             component={ClosetScreen} // Add ClosetScreen
             options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="RecommendationScreen"
+            component={RecommendationScreen}
+            options={{ title: "Fashion Recommendations" }}
           />
         </>
       ) : (

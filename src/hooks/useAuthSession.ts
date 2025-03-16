@@ -1,37 +1,57 @@
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { restoreAuthSession } from '../utils/restoreAuth';
-import { auth } from '../Config/firebaseconfig'; // Import initialized auth
+import { auth } from '../Config/firebaseconfig';
+import { authCache } from '../utils/authCacheManager.ts';
 
 //  include 'Loading'
 type InitialRouteType = 'Auth' | 'Home' | 'Loading';
 
 export const useAuthSession = () => {
   const [initialRoute, setInitialRoute] = useState<InitialRouteType>('Loading');
-  const [loading, setLoading] = useState(true); // New loading state
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const restoreSession = async () => {
-      setLoading(true); // Start loading when restoring the session
-      await restoreAuthSession(); // Restore the session
-      setLoading(false); // Done loading
+    let isMounted = true;
+
+    const initializeAuth = async () => {
+      try {
+        // Start parallel auth check
+        const token = await restoreAuthSession();
+        
+        if (!isMounted) return;
+
+        if (token) {
+          setInitialRoute('Home');
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+      }
     };
+
+    // Start auth initialization
+    initializeAuth();
 
     // Listen for auth state changes
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!isMounted) return;
+
       if (user) {
-        setInitialRoute('Home'); // Navigate to Home if user is authenticated
+        authCache.updateLastActivity();
+        setInitialRoute('Home');
       } else {
-        setInitialRoute('Auth'); // Otherwise, navigate to Auth
+        authCache.invalidateCache();
+        setInitialRoute('Auth');
       }
-      setLoading(false); // Stop loading once the auth state is determined
+      setLoading(false);
     });
 
-    restoreSession(); // Restore session on app load
-
-    // Clean up the listener when component unmounts
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
-  return { initialRoute, loading }; // Return both route and loading state
+  return { initialRoute, loading };
 };

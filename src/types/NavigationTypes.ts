@@ -7,4 +7,5 @@ export type RootStackParamList = {
   ThreeDScreen: undefined; // Existing 3D Screen
   ClosetScreen: undefined; // New Closet Screen
   CartScreen: undefined; // New Cart Screen
+  RecommendationScreen: undefined; // New Recommendation Screen
 };
