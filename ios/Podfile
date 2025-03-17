@@ -42,5 +42,24 @@ target 'DripOutApp' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+    
+    # Fix Xcode 14 warnings
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['EXPANDED_CODE_SIGN_IDENTITY'] = ""
+        config.build_settings['CODE_SIGNING_REQUIRED'] = "NO"
+        config.build_settings['CODE_SIGNING_ALLOWED'] = "NO"
+      end
+    end
+    
+    # Fix for PhaseScriptExecution issues (React Native Reanimated)
+    installer.pods_project.targets.each do |target|
+      if target.name == 'RNReanimated'
+        phase = target.shell_script_build_phases.find { |ph| ph.name == '[CP-User] Generate Specs' }
+        if phase
+          phase.execution_position = :before_compile
+        end
+      end
+    end
   end
 end

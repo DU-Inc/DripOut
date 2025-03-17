@@ -2,10 +2,15 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeProvider as StyledThemeProvider } from 'styled-components/native';
 import { lightTheme, darkTheme } from './themes';
+import { useColorScheme, AppState, AppStateStatus } from 'react-native';
+
+type ThemeMode = 'system' | 'light' | 'dark';
 
 type ThemeContextType = {
   isDarkMode: boolean;
   toggleTheme: () => void;
+  themeMode: ThemeMode;
+  setThemeMode: (mode: ThemeMode) => void;
 };
 
 interface ThemeProviderProps {
@@ -15,32 +20,93 @@ interface ThemeProviderProps {
 const ThemeContext = createContext<ThemeContextType>({
   isDarkMode: false,
   toggleTheme: () => {},
+  themeMode: 'system',
+  setThemeMode: () => {},
 });
 
 export const useTheme = () => useContext(ThemeContext);
 
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
-  const [isDarkMode, setIsDarkMode] = useState(false);
-
+  const systemColorScheme = useColorScheme();
+  const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(systemColorScheme === 'dark');
+  
+  // App state listener to update theme when app comes to foreground (in case system theme changed)
   useEffect(() => {
-    const loadTheme = async () => {
-      const savedTheme = await AsyncStorage.getItem('theme');
-      if (savedTheme !== null) {
-        setIsDarkMode(savedTheme === 'dark');
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active' && themeMode === 'system') {
+        setIsDarkMode(systemColorScheme === 'dark');
       }
     };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      subscription.remove();
+    };
+  }, [systemColorScheme, themeMode]);
+
+  // Load saved theme preference
+  useEffect(() => {
+    const loadTheme = async () => {
+      try {
+        const savedThemeMode = await AsyncStorage.getItem('themeMode');
+        if (savedThemeMode !== null) {
+          setThemeModeState(savedThemeMode as ThemeMode);
+          
+          if (savedThemeMode === 'system') {
+            setIsDarkMode(systemColorScheme === 'dark');
+          } else {
+            setIsDarkMode(savedThemeMode === 'dark');
+          }
+        } else {
+          // Default to system theme if no preference is saved
+          setThemeModeState('system');
+          setIsDarkMode(systemColorScheme === 'dark');
+        }
+      } catch (error) {
+        console.error('Failed to load theme:', error);
+      }
+    };
+    
     loadTheme();
-  }, []);
+  }, [systemColorScheme]);
+
+  // Update when system appearance changes (but only if using system theme)
+  useEffect(() => {
+    if (themeMode === 'system') {
+      setIsDarkMode(systemColorScheme === 'dark');
+    }
+  }, [systemColorScheme, themeMode]);
+
+  const setThemeMode = async (mode: ThemeMode) => {
+    try {
+      setThemeModeState(mode);
+      await AsyncStorage.setItem('themeMode', mode);
+      
+      if (mode === 'system') {
+        setIsDarkMode(systemColorScheme === 'dark');
+      } else {
+        setIsDarkMode(mode === 'dark');
+      }
+    } catch (error) {
+      console.error('Failed to save theme mode:', error);
+    }
+  };
 
   const toggleTheme = async () => {
-    const newTheme = !isDarkMode;
-    setIsDarkMode(newTheme);
-
-    await AsyncStorage.setItem('theme', newTheme ? 'dark' : 'light');
+    if (themeMode === 'system') {
+      // If currently using system theme, switch to explicitly light/dark
+      const newMode = systemColorScheme === 'dark' ? 'light' : 'dark';
+      await setThemeMode(newMode);
+    } else {
+      // Toggle between light and dark
+      const newMode = themeMode === 'dark' ? 'light' : 'dark';
+      await setThemeMode(newMode);
+    }
   };
 
   return (
-    <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>
+    <ThemeContext.Provider value={{ isDarkMode, toggleTheme, themeMode, setThemeMode }}>
       <StyledThemeProvider theme={isDarkMode ? darkTheme : lightTheme}>
         {children}
       </StyledThemeProvider>

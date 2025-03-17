@@ -6,6 +6,7 @@ module.exports = {
       path: '.env',
       allowUndefined: true,
     }],
-    'nativewind/babel',  
+    'nativewind/babel',
+    'react-native-reanimated/plugin',
   ],
 };

@@ -6,15 +6,21 @@ import {
   Animated,
   LayoutChangeEvent,
   InteractionManager,
+  Text,
+  Dimensions,
 } from 'react-native';
 
 // These are actually globals in React Native environment
 declare const setInterval: (callback: () => void, ms: number) => number;
 declare const clearInterval: (id: number) => void;
 import Icon from 'react-native-vector-icons/Ionicons';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../../types/NavigationTypes';
 import ModalNavigation, {
   ModalNavigationHandles,
 } from '../../components/NavigationButton/ModalNavigation';
+import { useTheme } from '../../styles/themeprovider';
 
 interface BottomNavigationBarProps {
   children?: ReactNode;
@@ -24,13 +30,17 @@ interface BottomNavigationBarProps {
 const BOTTOM_HIDDEN_OFFSET = 150;
 // A small threshold to detect if user is near the top
 const TOP_THRESHOLD = 5;
+const { width } = Dimensions.get('window');
 
 const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
   children,
   scrollY,
 }) => {
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
+  const { isDarkMode } = useTheme();
   const slideOffset = useRef(new Animated.Value(0)).current;
   const [isHidden, setIsHidden] = useState(false);
+  const [activeTab, setActiveTab] = useState('home');
   const [contentWidth, setContentWidth] = useState<number>(60);
 
   const modalRef = useRef<ModalNavigationHandles>(null);
@@ -141,10 +151,42 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
     modalRef.current?.toggleModal();
   };
 
-  const handleRecommendationNav = () => {
-    const navigation = require('@react-navigation/native').useNavigation();
-    navigation.navigate('RecommendationScreen');
+  const navigateTo = (screen: keyof RootStackParamList, tabName: string) => {
+    setActiveTab(tabName);
+    navigation.navigate(screen);
   };
+
+  // Define our colors based on theme - Enhanced for dark mode
+  const bgColor = isDarkMode ? 'rgba(10, 10, 15, 0.95)' : 'rgba(255, 255, 255, 0.92)';
+  const activeColor = isDarkMode ? '#9F91FF' : '#5245CC';
+  const inactiveColor = isDarkMode ? '#6D6D88' : '#AAAAAA';
+  const activeBgColor = isDarkMode ? 'rgba(124, 107, 255, 0.18)' : 'rgba(82, 69, 204, 0.08)';
+
+  // Enhanced styles specifically for dark mode
+  const navBarStyle = isDarkMode ? {
+    backgroundColor: 'rgba(22, 23, 31, 0.9)',
+    borderRadius: 24,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(124, 107, 255, 0.15)',
+    shadowColor: '#7C6BFF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 10
+  } : {};
+
+  // Enhanced center button for dark mode
+  const centerButtonStyle = isDarkMode ? {
+    backgroundColor: 'rgba(124, 107, 255, 1)',
+    borderWidth: 2,
+    borderColor: '#A394FF',
+    shadowColor: '#7C6BFF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 10
+  } : styles.centerButton;
 
   return (
     <>
@@ -152,26 +194,131 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
         style={[
           styles.container,
           {
-            width: contentWidth,
-            left: '50%',
-            marginLeft: -(contentWidth / 2),
+            width: '100%',
             transform: [{ translateY: slideOffset }],
+            backgroundColor: bgColor,
+            borderTopColor: isDarkMode ? 'rgba(124, 107, 255, 0.1)' : 'rgba(230, 230, 230, 0.8)',
+            borderTopWidth: isDarkMode ? 0 : 0.5,
+            paddingHorizontal: isDarkMode ? 10 : 0,
           },
         ]}
       >
-        <View style={styles.navBar} onLayout={handleContentLayout}>
-          <View style={styles.additionalNavItems}>{children}</View>
+        <View 
+          style={[
+            styles.navBar, 
+            navBarStyle
+          ]} 
+          onLayout={handleContentLayout}
+        >
+          {/* Main tabs with unique design */}
+          <TouchableOpacity 
+            style={[
+              styles.tabButton, 
+              activeTab === 'home' && { 
+                backgroundColor: activeBgColor,
+                ...(isDarkMode ? {
+                  borderRadius: 18,
+                  borderWidth: activeTab === 'home' ? 1 : 0,
+                  borderColor: 'rgba(124, 107, 255, 0.3)'
+                } : {})
+              }
+            ]} 
+            onPress={() => navigateTo('Home', 'home')}
+          >
+            <Icon 
+              name={activeTab === 'home' ? 'home' : 'home-outline'} 
+              size={24} 
+              color={activeTab === 'home' ? activeColor : inactiveColor} 
+            />
+          </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navButton} onPress={handleRecommendationNav}>
-            <View style={styles.iconWrapper}>
-              <Icon name="search" size={24} color="#fff" />
+          <TouchableOpacity 
+            style={[
+              styles.tabButton, 
+              activeTab === 'discover' && { 
+                backgroundColor: activeBgColor,
+                ...(isDarkMode ? {
+                  borderRadius: 18,
+                  borderWidth: activeTab === 'discover' ? 1 : 0,
+                  borderColor: 'rgba(124, 107, 255, 0.3)'
+                } : {})
+              }
+            ]} 
+            onPress={() => navigateTo('RecommendationScreen', 'discover')}
+          >
+            <Icon 
+              name="search" 
+              size={24} 
+              color={activeTab === 'discover' ? activeColor : inactiveColor} 
+            />
+          </TouchableOpacity>
+
+          {/* Center floating action button - Enhanced for dark mode */}
+          <TouchableOpacity 
+            style={[centerButtonStyle]}
+            onPress={() => navigateTo('ThreeDScreen', '3d')}
+          >
+            <View style={isDarkMode ? {
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: 'rgba(22, 23, 31, 0.8)',
+              justifyContent: 'center',
+              alignItems: 'center',
+            } : {}}>
+              <Icon 
+                name="cube" 
+                size={26} 
+                color={isDarkMode ? '#A394FF' : '#ffffff'} 
+                style={isDarkMode ? {
+                  textShadowColor: 'rgba(124, 107, 255, 0.8)',
+                  textShadowOffset: {width: 0, height: 0},
+                  textShadowRadius: 10
+                } : {}}
+              />
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navButton} onPress={handleToggleModal}>
-            <View style={styles.iconWrapper}>
-              <Icon name="apps-sharp" size={28} color="#fff" />
-            </View>
+          <TouchableOpacity 
+            style={[
+              styles.tabButton, 
+              activeTab === 'closet' && { 
+                backgroundColor: activeBgColor,
+                ...(isDarkMode ? {
+                  borderRadius: 18,
+                  borderWidth: activeTab === 'closet' ? 1 : 0,
+                  borderColor: 'rgba(124, 107, 255, 0.3)'
+                } : {})
+              }
+            ]} 
+            onPress={() => navigateTo('ClosetScreen', 'closet')}
+          >
+            <Icon 
+              name="shirt-outline" 
+              size={24} 
+              color={activeTab === 'closet' ? activeColor : inactiveColor} 
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[
+              styles.tabButton, 
+              activeTab === 'profile' && { 
+                backgroundColor: activeBgColor,
+                ...(isDarkMode ? {
+                  borderRadius: 18,
+                  borderWidth: activeTab === 'profile' ? 1 : 0,
+                  borderColor: 'rgba(124, 107, 255, 0.3)'
+                } : {})
+              }
+            ]} 
+            onPress={() => navigateTo('UserProfileScreen', 'profile')}
+          >
+            <Icon 
+              name="person-outline" 
+              size={24} 
+              color={activeTab === 'profile' ? activeColor : inactiveColor} 
+            />
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -186,29 +333,50 @@ export default BottomNavigationBar;
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 15,
-    backgroundColor: 'rgba(30, 30, 30, 0.8)',
-    borderRadius: 24,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopWidth: 0.5,
+    paddingBottom: 25, // Extra padding for iPhone home indicator area
+    paddingTop: 8,
     flexDirection: 'row',
-    alignItems: 'center',
-    zIndex: 10,
-    paddingVertical: 2,
-  },
-  navBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  additionalNavItems: {
-    flexDirection: 'row',
-  },
-  navButton: {
-    padding: 8,
-  },
-  iconWrapper: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 20,
-    padding: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 10,
+  },
+  navBar: {
+    width: '90%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    position: 'relative',
+  },
+  tabButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    minWidth: 60,
+  },
+  tabLabel: {
+    fontSize: 10,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  centerButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#7562FA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#7562FA',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    marginBottom: 10,
+    transform: [{ translateY: -10 }],
   },
 });

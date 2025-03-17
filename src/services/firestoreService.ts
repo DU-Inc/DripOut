@@ -14,8 +14,6 @@ export interface UserProfile {
   updatedAt?: Date; // Optional field for tracking profile updates
   isVerified: boolean;
   userRole: string; // e.g., 'user', 'store', 'brand'
-  userAge?: number; // Optional field for age
-  userMusic?: string; // Optional field for music preferences
   userGender?: string; // Optional field for gender
   userDisplayName?: string; // Optional field for display name
   userPronouns?: string; // Optional field for pronouns
