@@ -1,23 +1,25 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import SignIn from './SignIn'; // Assuming SignIn and SignUp are in the same directory
+import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import SignIn from './SignIn';
 import SignUp from './SignUp';
+import { useTheme } from '../../styles/themeprovider';
+import { lightTheme, darkTheme } from '../../styles/themes';
 
 interface AuthFormProps {
   isSignUp: boolean;
   handleSignInSignUp: () => void;
   errorMessage: string;
-  email: string;         // Mandatory
-  password: string;      // Mandatory
-  firstName: string;     // Mandatory for sign-up
-  lastName: string;      // Mandatory for sign-up
-  username: string;      // Mandatory for sign-up
-  dateOfBirth?: string;  // Optional for sign-up
-  setEmail: (email: string) => void;           // Mandatory setter
-  setPassword: (password: string) => void;     // Mandatory setter
-  setFirstName: (firstName: string) => void;   // Mandatory setter
-  setLastName: (lastName: string) => void;     // Mandatory setter
-  setUsername: (username: string) => void;     // Mandatory setter
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  username: string;
+  dateOfBirth?: string;
+  setEmail: (email: string) => void;
+  setPassword: (password: string) => void;
+  setFirstName: (firstName: string) => void;
+  setLastName: (lastName: string) => void;
+  setUsername: (username: string) => void;
   toggleForm: () => void;
   handleForgotPassword: () => void;
 }
@@ -28,7 +30,7 @@ const AuthForm: React.FC<AuthFormProps> = ({
   errorMessage,
   email,
   password,
-  firstName,  // Mandatory values
+  firstName,
   lastName,
   username,
   dateOfBirth,
@@ -40,8 +42,16 @@ const AuthForm: React.FC<AuthFormProps> = ({
   toggleForm,
   handleForgotPassword,
 }) => {
+  const { isDarkMode } = useTheme();
+  
+  // Custom colors for our unique luxury design
+  const mainColor = isDarkMode ? '#7C6BFF' : '#5245CC';
+  const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
+  const textColor = isDarkMode ? '#FFFFFF' : '#202020';
+  const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: bgColor }]}>
       {isSignUp ? (
         <SignUp
           handleSignUp={handleSignInSignUp}
@@ -50,11 +60,11 @@ const AuthForm: React.FC<AuthFormProps> = ({
           password={password}
           setEmail={setEmail}
           setPassword={setPassword}
-          firstName={firstName}       // Pass sign-up specific props
+          firstName={firstName}
           lastName={lastName}
           username={username}
           dateOfBirth={dateOfBirth}
-          setFirstName={setFirstName}  // Setters for sign-up fields
+          setFirstName={setFirstName}
           setLastName={setLastName}
           setUsername={setUsername}
         />
@@ -69,9 +79,17 @@ const AuthForm: React.FC<AuthFormProps> = ({
           handleForgotPassword={handleForgotPassword}
         />
       )}
-      <TouchableOpacity style={styles.toggleButton} onPress={toggleForm}>
-        <Text style={styles.toggleText}>
-          {isSignUp ? 'Already have an account? Sign In' : 'Don’t have an account? Sign Up'}
+      
+      <TouchableOpacity 
+        style={styles.toggleButton} 
+        onPress={toggleForm}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.toggleText, { color: mainColor }]}>
+          {isSignUp 
+            ? 'Already have an account? Sign In' 
+            : 'Don\'t have an account? Sign Up'
+          }
         </Text>
       </TouchableOpacity>
     </View>
@@ -83,13 +101,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
   toggleButton: {
-    marginTop: 20,
+    marginVertical: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
   },
   toggleText: {
-    color: 'blue',
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });
 

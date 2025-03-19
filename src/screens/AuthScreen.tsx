@@ -1,22 +1,30 @@
 import React, { useState } from 'react';
-import { View, Alert, StyleSheet } from 'react-native';
-import AuthForm from '../components/Auth/AuthForm'; // Your existing AuthForm component
-import { signUp, signIn, resetPassword } from '../services/auth'; // Your existing auth services
+import { View, Alert, StyleSheet, StatusBar, Image, SafeAreaView } from 'react-native';
+import AuthForm from '../components/Auth/AuthForm';
+import { signUp, signIn, resetPassword } from '../services/auth';
+import { useTheme } from '../styles/themeprovider';
+import { lightTheme, darkTheme } from '../styles/themes';
 
 const AuthScreen = ({ navigation }: { navigation: any }) => {
+  const { isDarkMode } = useTheme();
+  const theme = isDarkMode ? darkTheme : lightTheme;
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [firstName, setFirstName] = useState(''); // New field for sign-up
-  const [lastName, setLastName] = useState('');   // New field for sign-up
-  const [username, setUsername] = useState('');   // New field for sign-up
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [username, setUsername] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState('');
+
+  // Custom colors for our unique luxury design
+  const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
+  const statusBarStyle = isDarkMode ? 'light-content' : 'dark-content';
 
   const handleSignInSignUp = async () => {
     try {
       if (isSignUp) {
-        // Pass all the new sign-up fields
-        await signUp(email, password, navigation, firstName, lastName, username );
+        await signUp(email, password, navigation, firstName, lastName, username);
       } else {
         await signIn(email, password, navigation);
       }
@@ -43,42 +51,65 @@ const AuthScreen = ({ navigation }: { navigation: any }) => {
   };
 
   const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      setError('Please enter your email address first.');
+      return;
+    }
+    
     try {
       await resetPassword(email);
-      Alert.alert('Password reset link sent to your email.');
+      Alert.alert(
+        'Password Reset', 
+        'A password reset link has been sent to your email.',
+        [{ text: 'OK', style: 'default' }]
+      );
     } catch (err: any) {
-      setError(err.message);
+      if (err.code === 'auth/invalid-email') {
+        setError('Please enter a valid email address.');
+      } else if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email address.');
+      } else {
+        setError('Unable to send reset link. Please try again later.');
+      }
     }
   };
 
   return (
-    <View style={styles.container}>
-      <AuthForm
-        isSignUp={isSignUp}
-        handleSignInSignUp={handleSignInSignUp}
-        errorMessage={error}
-        email={email}
-        password={password}
-        setEmail={setEmail}
-        setPassword={setPassword}
-        firstName={firstName}    // Pass the new sign-up fields
-        lastName={lastName}
-        username={username}
-        setFirstName={setFirstName}  // Setters for the new sign-up fields
-        setLastName={setLastName}
-        setUsername={setUsername}
-        toggleForm={() => setIsSignUp(!isSignUp)}
-        handleForgotPassword={handleForgotPassword}
-      />
-    </View>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: bgColor }]}>
+      <StatusBar barStyle={statusBarStyle} backgroundColor={bgColor} />
+      <View style={styles.container}>
+        <AuthForm
+          isSignUp={isSignUp}
+          handleSignInSignUp={handleSignInSignUp}
+          errorMessage={error}
+          email={email}
+          password={password}
+          setEmail={setEmail}
+          setPassword={setPassword}
+          firstName={firstName}
+          lastName={lastName}
+          username={username}
+          setFirstName={setFirstName}
+          setLastName={setLastName}
+          setUsername={setUsername}
+          toggleForm={() => {
+            setIsSignUp(!isSignUp);
+            setError(''); // Clear errors when switching forms
+          }}
+          handleForgotPassword={handleForgotPassword}
+        />
+      </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
-    flex: 1, 
-    justifyContent: 'center', 
-    paddingHorizontal: 16,
+    flex: 1,
+    justifyContent: 'center',
   },
 });
 

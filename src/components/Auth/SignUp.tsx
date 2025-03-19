@@ -1,26 +1,25 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
-import { useTheme } from '../../styles/themeprovider'; // Assuming your ThemeProvider is in the same folder
-import { lightTheme, darkTheme } from '../../styles/themes'; // Import your themes
-import DateTimePicker from '@react-native-community/datetimepicker'; // Import the DateTimePicker
-import { Platform } from 'react-native';
-
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Dimensions, Animated, Easing, ScrollView } from 'react-native';
+import { useTheme } from '../../styles/themeprovider';
+import { lightTheme, darkTheme } from '../../styles/themes';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 interface SignUpProps {
   handleSignUp: () => void;
   errorMessage: string;
   email: string;
   password: string;
-  firstName: string;  // Add firstName as a prop
-  lastName: string;   // Add lastName as a prop
-  username: string;   // Add username as a prop
-  dateOfBirth?: string; // Add dateOfBirth as a prop (optional)
+  firstName: string;
+  lastName: string;
+  username: string;
+  dateOfBirth?: string;
   setEmail: (email: string) => void;
   setPassword: (password: string) => void;
-  setFirstName: (firstName: string) => void;  // Setter for first name
-  setLastName: (lastName: string) => void;    // Setter for last name
-  setUsername: (username: string) => void;    // Setter for username
-  setDateOfBirth?: (dateOfBirth: string) => void; // New setter for dateOfBirth
+  setFirstName: (firstName: string) => void;
+  setLastName: (lastName: string) => void;
+  setUsername: (username: string) => void;
+  setDateOfBirth?: (dateOfBirth: string) => void;
 }
 
 const SignUp: React.FC<SignUpProps> = ({
@@ -39,200 +38,462 @@ const SignUp: React.FC<SignUpProps> = ({
   setUsername,
   setDateOfBirth,
 }) => {
-  const { isDarkMode } = useTheme(); // Access the dark mode boolean from your context
-  const theme = isDarkMode ? darkTheme : lightTheme; // Select the appropriate theme based on dark mode
+  const { isDarkMode } = useTheme();
+  const theme = isDarkMode ? darkTheme : lightTheme;
 
+  // Animation values
+  const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const buttonScale = useState(new Animated.Value(1))[0];
+  
+  // Custom colors for our unique luxury design
+  const mainColor = isDarkMode ? '#7C6BFF' : '#5245CC';
+  const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
+  const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
+  const textColor = isDarkMode ? '#FFFFFF' : '#202020';
+  const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
+  const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
+  const errorBgColor = isDarkMode ? 'rgba(255, 84, 112, 0.1)' : 'rgba(231, 76, 60, 0.05)';
+  const validColor = isDarkMode ? '#56D6A0' : '#2ECC71';
+  const inputBgColor = isDarkMode ? 'rgba(22, 23, 31, 0.8)' : '#FFFFFF';
+
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+
+  // Form validation
   const isFormValid = firstName && lastName && username && email && password;
-
-  const screenWidth = Dimensions.get('window').width;
-
-  const [showDatePicker, setShowDatePicker] = useState(false); // For showing date picker
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined); // To store selected date
-
+  
   // Handle date selection
   const handleDateChange = (event: any, selected: Date | undefined) => {
-    setShowDatePicker(false); // Close the date picker after selection
+    setShowDatePicker(false);
     if (selected) {
       setSelectedDate(selected);
-      setDateOfBirth?.(selected.toDateString()); // Convert to string and store
+      setDateOfBirth?.(selected.toDateString());
     }
   };
 
+  // Handle button press animation
+  const animateButton = () => {
+    if (!isFormValid) return;
+    
+    Animated.sequence([
+      Animated.timing(buttonScale, {
+        toValue: 0.95,
+        duration: 100,
+        useNativeDriver: true,
+        easing: Easing.inOut(Easing.ease),
+      }),
+      Animated.timing(buttonScale, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+        easing: Easing.inOut(Easing.ease),
+      }),
+    ]).start(() => handleSignUp());
+  };
+
+  // Format date for display
+  const formatDate = (date: Date): string => {
+    const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+    return date.toLocaleDateString(undefined, options);
+  };
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.transparent }]}>
-      <Text style={[styles.title, { color: theme.colors.text, fontSize: theme.typography.h2.fontSize }]}>
-        Sign Up
-      </Text>
+    <ScrollView 
+      contentContainerStyle={[styles.scrollContainer, { backgroundColor: bgColor }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.container}>
+        <View style={styles.headerContainer}>
+          <Text style={[styles.title, { color: textColor }]}>
+            Create Account
+          </Text>
+          <Text style={[styles.subtitle, { color: subTextColor }]}>
+            Join DripOut and discover your perfect style
+          </Text>
+        </View>
 
-      {errorMessage ? <Text style={[styles.errorText, { color: theme.colors.error }]}>{errorMessage}</Text> : null}
+        {errorMessage ? (
+          <View style={[styles.errorContainer, { backgroundColor: errorBgColor, borderColor: theme.colors.error }]}>
+            <Icon name="alert-circle-outline" size={20} color={theme.colors.error} />
+            <Text style={[styles.errorText, { color: theme.colors.error }]}>{errorMessage}</Text>
+          </View>
+        ) : null}
 
-      <View style={styles.row}>
-        <TextInput
-          style={[
-            styles.input,
-            { 
-              marginRight: 5, 
-              minWidth: screenWidth * 0.3, 
-              maxWidth: screenWidth * 0.5, 
-              borderColor: theme.colors.border, 
-              color: theme.colors.text, 
-              backgroundColor: theme.colors.background, 
-              fontSize: theme.typography.body.fontSize 
-            }
-          ]}
-          value={firstName} // First name field
-          placeholder="First Name"
-          placeholderTextColor={theme.colors.placeholder}
-          onChangeText={setFirstName}
-          autoCapitalize="words"
-        />
-        <TextInput
-          style={[
-            styles.input,
-            { 
-              marginLeft: 5, 
-              minWidth: screenWidth * 0.3, 
-              maxWidth: screenWidth * 0.5, 
-              borderColor: theme.colors.border, 
-              color: theme.colors.text, 
-              backgroundColor: theme.colors.background, 
-              fontSize: theme.typography.body.fontSize 
-            }
-          ]}
-          value={lastName} // Last name field
-          placeholder="Last Name"
-          placeholderTextColor={theme.colors.placeholder}
-          onChangeText={setLastName}
-          autoCapitalize="words"
-        />
+        <View style={styles.formContainer}>
+          <View style={styles.row}>
+            <View style={styles.halfInputWrapper}>
+              <View style={[
+                styles.iconContainer, 
+                { backgroundColor: focusedInput === 'firstName' ? mainColor : 'rgba(150, 150, 150, 0.1)' }
+              ]}>
+                <Icon 
+                  name="person-outline" 
+                  size={18} 
+                  color={focusedInput === 'firstName' ? '#FFFFFF' : subTextColor} 
+                />
+              </View>
+              <TextInput
+                style={[
+                  styles.input,
+                  { 
+                    borderColor: focusedInput === 'firstName' ? mainColor : borderColor, 
+                    color: textColor,
+                    backgroundColor: cardBgColor,
+                  }
+                ]}
+                value={firstName}
+                placeholder="First Name"
+                placeholderTextColor={subTextColor}
+                onChangeText={setFirstName}
+                autoCapitalize="words"
+                onFocus={() => setFocusedInput('firstName')}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </View>
+
+            <View style={styles.halfInputWrapper}>
+              <TextInput
+                style={[
+                  styles.input,
+                  { 
+                    borderColor: focusedInput === 'lastName' ? mainColor : borderColor, 
+                    color: textColor,
+                    backgroundColor: cardBgColor,
+                  }
+                ]}
+                value={lastName}
+                placeholder="Last Name"
+                placeholderTextColor={subTextColor}
+                onChangeText={setLastName}
+                autoCapitalize="words"
+                onFocus={() => setFocusedInput('lastName')}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <View style={[
+              styles.iconContainer, 
+              { backgroundColor: focusedInput === 'username' ? mainColor : 'rgba(150, 150, 150, 0.1)' }
+            ]}>
+              <Icon 
+                name="at-outline" 
+                size={20} 
+                color={focusedInput === 'username' ? '#FFFFFF' : subTextColor} 
+              />
+            </View>
+            <TextInput
+              style={[
+                styles.input,
+                { 
+                  borderColor: focusedInput === 'username' ? mainColor : borderColor, 
+                  color: textColor,
+                  backgroundColor: cardBgColor,
+                }
+              ]}
+              value={username}
+              placeholder="Username"
+              placeholderTextColor={subTextColor}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+              onFocus={() => setFocusedInput('username')}
+              onBlur={() => setFocusedInput(null)}
+            />
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <View style={[
+              styles.iconContainer, 
+              { backgroundColor: focusedInput === 'email' ? mainColor : 'rgba(150, 150, 150, 0.1)' }
+            ]}>
+              <Icon 
+                name="mail-outline" 
+                size={20} 
+                color={focusedInput === 'email' ? '#FFFFFF' : subTextColor} 
+              />
+            </View>
+            <TextInput
+              style={[
+                styles.input,
+                { 
+                  borderColor: focusedInput === 'email' ? mainColor : borderColor, 
+                  color: textColor,
+                  backgroundColor: cardBgColor,
+                }
+              ]}
+              value={email}
+              placeholder="Email Address"
+              placeholderTextColor={subTextColor}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              onFocus={() => setFocusedInput('email')}
+              onBlur={() => setFocusedInput(null)}
+            />
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <View style={[
+              styles.iconContainer, 
+              { backgroundColor: focusedInput === 'password' ? mainColor : 'rgba(150, 150, 150, 0.1)' }
+            ]}>
+              <Icon 
+                name="lock-closed-outline" 
+                size={20} 
+                color={focusedInput === 'password' ? '#FFFFFF' : subTextColor} 
+              />
+            </View>
+            <TextInput
+              style={[
+                styles.input,
+                { 
+                  borderColor: focusedInput === 'password' ? mainColor : borderColor, 
+                  color: textColor,
+                  backgroundColor: cardBgColor,
+                }
+              ]}
+              value={password}
+              placeholder="Password"
+              placeholderTextColor={subTextColor}
+              onChangeText={setPassword}
+              secureTextEntry
+              onFocus={() => setFocusedInput('password')}
+              onBlur={() => setFocusedInput(null)}
+            />
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <View style={[
+              styles.iconContainer, 
+              { backgroundColor: focusedInput === 'dob' ? mainColor : 'rgba(150, 150, 150, 0.1)' }
+            ]}>
+              <Icon 
+                name="calendar-outline" 
+                size={20} 
+                color={focusedInput === 'dob' ? '#FFFFFF' : subTextColor} 
+              />
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.input, 
+                { 
+                  borderColor: focusedInput === 'dob' ? mainColor : borderColor, 
+                  backgroundColor: cardBgColor,
+                  justifyContent: 'center' 
+                }
+              ]}
+              onPress={() => {
+                setFocusedInput('dob');
+                setShowDatePicker(true);
+              }}
+            >
+              <Text style={{ color: selectedDate ? textColor : subTextColor }}>
+                {selectedDate ? formatDate(selectedDate) : 'Date of Birth'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {showDatePicker && (
+            <DateTimePicker
+              value={selectedDate || new Date()}
+              mode="date"
+              display="default"
+              onChange={handleDateChange}
+              maximumDate={new Date()}
+            />
+          )}
+
+          <Animated.View style={{ transform: [{ scale: buttonScale }], width: '100%', marginTop: 10 }}>
+            <TouchableOpacity
+              style={[
+                styles.button, 
+                { 
+                  backgroundColor: isFormValid ? mainColor : isDarkMode ? '#3F3F56' : '#CCCCCC',
+                  opacity: isFormValid ? 1 : 0.7
+                }
+              ]}
+              onPress={animateButton}
+              activeOpacity={0.8}
+              disabled={!isFormValid}
+            >
+              <Text style={styles.buttonText}>CREATE ACCOUNT</Text>
+              {isFormValid && <Icon name="checkmark-circle" size={20} color="#FFFFFF" style={styles.buttonIcon} />}
+            </TouchableOpacity>
+          </Animated.View>
+
+          {!isFormValid && (
+            <View style={styles.validationContainer}>
+              <Icon name="information-circle-outline" size={16} color={subTextColor} />
+              <Text style={[styles.validationText, { color: subTextColor }]}>
+                Please fill all required fields to create your account
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.footerContainer}>
+          <View style={[styles.divider, { backgroundColor: borderColor }]} />
+          <Text style={[styles.orText, { color: subTextColor }]}>or sign up with</Text>
+          <View style={[styles.divider, { backgroundColor: borderColor }]} />
+        </View>
+
+        <View style={styles.socialButtonsContainer}>
+          <TouchableOpacity 
+            style={[styles.socialButton, { borderColor: borderColor, backgroundColor: cardBgColor }]}
+          >
+            <Icon name="logo-google" size={20} color={isDarkMode ? '#FFFFFF' : '#DB4437'} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.socialButton, { borderColor: borderColor, backgroundColor: cardBgColor }]}
+          >
+            <Icon name="logo-apple" size={20} color={isDarkMode ? '#FFFFFF' : '#000000'} />
+          </TouchableOpacity>
+        </View>
       </View>
-
-      <TextInput
-        style={[
-          styles.input,
-          { 
-            minWidth: screenWidth * 0.5, 
-            maxWidth: screenWidth * 0.7, 
-            borderColor: theme.colors.border, 
-            color: theme.colors.text, 
-            backgroundColor: theme.colors.background, 
-            fontSize: theme.typography.body.fontSize 
-          }
-        ]}
-        value={username} // Username field
-        placeholder="Username"
-        placeholderTextColor={theme.colors.placeholder}
-        onChangeText={setUsername}
-        autoCapitalize="none"
-      />
-
-      <TextInput
-        style={[
-          styles.input,
-          { 
-            minWidth: screenWidth * 0.5, 
-            maxWidth: screenWidth * 0.7, 
-            borderColor: theme.colors.border, 
-            color: theme.colors.text, 
-            backgroundColor: theme.colors.background, 
-            fontSize: theme.typography.body.fontSize 
-          }
-        ]}
-        value={email} // Email field
-        placeholder="Email"
-        placeholderTextColor={theme.colors.placeholder}
-        onChangeText={setEmail}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
-
-      <TextInput
-        style={[
-          styles.input,
-          { 
-            minWidth: screenWidth * 0.5, 
-            maxWidth: screenWidth * 0.7, 
-            borderColor: theme.colors.border, 
-            color: theme.colors.text, 
-            backgroundColor: theme.colors.background, 
-            fontSize: theme.typography.body.fontSize 
-          }
-        ]}
-        value={password} // Password field
-        placeholder="Password"
-        placeholderTextColor={theme.colors.placeholder}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
-
-      {/* Date of Birth Field with DatePicker */}
-      <TouchableOpacity
-        style={[styles.input, { justifyContent: 'center', borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
-        onPress={() => setShowDatePicker(true)}
-      >
-        <Text style={{ color: theme.colors.text }}>
-          {selectedDate ? selectedDate.toDateString() : 'Select Date of Birth'}
-        </Text>
-      </TouchableOpacity>
-
-      {showDatePicker && (
-        <DateTimePicker
-          value={selectedDate || new Date()}
-          mode="date"
-          display="default"
-          onChange={handleDateChange}
-          maximumDate={new Date()} // Set maximum date to current date
-        />
-      )}
-
-      {isFormValid ? (
-        <TouchableOpacity style={[styles.button, { backgroundColor: theme.colors.primary }]} onPress={handleSignUp}>
-          <Text style={[styles.buttonText, { color: theme.colors.buttonText }]}>Sign Up</Text>
-        </TouchableOpacity>
-      ) : (
-        <Text style={[styles.notReadyText, { color: theme.colors.error }]}>You're not yet ready</Text>
-      )}
-    </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    flexGrow: 1,
+  },
   container: {
     flex: 1,
-    paddingHorizontal: 20,
-    justifyContent: 'center',
+    paddingHorizontal: 30,
+    paddingVertical: 40,
     alignItems: 'center',
   },
+  headerContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 30,
+  },
   title: {
-    fontWeight: 'bold',
-    marginBottom: 20,
+    fontSize: 30,
+    fontWeight: '700',
+    marginBottom: 8,
+    letterSpacing: 0.5,
   },
-  errorText: {
-    marginBottom: 10,
+  subtitle: {
+    fontSize: 16,
+    opacity: 0.8,
+    textAlign: 'center',
   },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    width: '95%',
-  },
-  input: {
-    height: 50,
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 15,
-  },
-  button: {
-    padding: 15,
-    borderRadius: 8,
+  formContainer: {
     width: '100%',
     alignItems: 'center',
   },
-  buttonText: {
-    fontWeight: 'bold',
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 16,
   },
-  notReadyText: {
+  halfInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '48%',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 16,
+  },
+  iconContainer: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    height: 46,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderLeftWidth: 4,
+  },
+  errorText: {
+    marginLeft: 8,
+    fontSize: 14,
+    flex: 1,
+  },
+  validationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 5,
+  },
+  validationText: {
     fontSize: 12,
+    marginLeft: 6,
+  },
+  button: {
+    flexDirection: 'row',
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 16,
+    letterSpacing: 1,
+  },
+  buttonIcon: {
+    marginLeft: 8,
+  },
+  footerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginVertical: 30,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+  },
+  orText: {
+    marginHorizontal: 15,
+    fontSize: 14,
+  },
+  socialButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  socialButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 10,
   },
 });
 
