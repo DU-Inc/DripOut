@@ -4,7 +4,8 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { ActivityIndicator, View } from "react-native";
 import Icon from 'react-native-vector-icons/Ionicons';
 import AuthScreen from "../screens/AuthScreen";
-import HomeScreen from "../screens/HomeScreen";
+import OverviewScreen from "../screens/OverviewScreen"; // Replace HomeScreen with OverviewScreen
+import SocialScreen from "../screens/SocialScreen"; // Import SocialScreen (renamed from HomeScreen)
 import UserProfileScreen from "../screens/profiles/UserProfileScreen";
 import UserPreferencesScreen from "../screens/profiles/UserPreferencesScreen";
 import SettingsScreen from "../screens/profiles/SettingsScreen"; // Import Settings screen
@@ -56,12 +57,26 @@ const MainTabNavigator = () => {
     >
       <Tab.Screen 
         name="HomeTab" 
-        component={HomeScreen} 
+        component={OverviewScreen} 
         options={{
           tabBarLabel: 'Home',
           tabBarIcon: ({ color, size, focused }) => (
             <Icon 
               name={focused ? "home" : "home-outline"} 
+              size={size} 
+              color={color} 
+            />
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="SocialTab" 
+        component={SocialScreen} 
+        options={{
+          tabBarLabel: 'Social',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Icon 
+              name={focused ? "people" : "people-outline"} 
               size={size} 
               color={color} 
             />

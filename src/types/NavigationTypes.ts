@@ -3,6 +3,7 @@
 // Define the tabs in the bottom navigator
 export type MainTabParamList = {
   HomeTab: undefined;
+  SocialTab: undefined;
   DiscoverTab: undefined;
   '3DTab': undefined;
   ClosetTab: undefined;
