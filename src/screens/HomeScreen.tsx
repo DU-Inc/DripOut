@@ -34,7 +34,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
-import BottomNavigationBar from '../components/NavigationButton/BottomNavigationBar';
+// No longer need custom bottom navigation bar with tab navigator
 import { useTheme } from '../styles/themeprovider';
 
 // Generate fashion inspiration posts for the feed
@@ -915,7 +915,7 @@ const HomeScreen: React.FC = () => {
         }
       />
 
-      <BottomNavigationBar scrollY={scrollY} />
+      {/* No longer need custom bottom navigation bar - using Tab Navigator */}
       </SafeAreaView>
     </GestureHandlerRootView>
   );

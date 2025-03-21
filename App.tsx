@@ -2,8 +2,8 @@ import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { ThemeProvider } from './src/styles/themeprovider';
 import AppNavigator from './src/navigations/AppNavigator'; // Import AppNavigator
-import BottomNavigationBar from './src/components/NavigationButton/BottomNavigationBar'; // Import the new component
 import { appStateManager } from './src/utils/appStateManager';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 const App: React.FC = () => {
   useEffect(() => {
@@ -14,11 +14,13 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <ThemeProvider>
-      <NavigationContainer>
-        <AppNavigator />
-      </NavigationContainer>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <NavigationContainer>
+          <AppNavigator />
+        </NavigationContainer>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 };
 

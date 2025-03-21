@@ -153,7 +153,50 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
 
   const navigateTo = (screen: keyof RootStackParamList, tabName: string) => {
     setActiveTab(tabName);
-    navigation.navigate(screen);
+    
+    // For screens in the tab navigator, navigate to MainTabs first
+    if (screen === 'Home' || screen === 'RecommendationScreen' || 
+        screen === 'ThreeDScreen' || screen === 'ClosetScreen' || 
+        screen === 'UserProfileScreen') {
+      
+      // Convert old screen names to new tab names
+      const screenToTabMap: Record<string, string> = {
+        'Home': 'HomeTab',
+        'RecommendationScreen': 'DiscoverTab',
+        'ThreeDScreen': '3DTab',
+        'ClosetScreen': 'ClosetTab',
+        'UserProfileScreen': 'ProfileTab'
+      };
+      
+      // Check if we're already on MainTabs
+      const currentState = navigation.getState();
+      const currentRoute = currentState.routes[currentState.index];
+      
+      if (currentRoute.name === 'MainTabs') {
+        // Already in tabs, just navigate to the specific tab
+        navigation.navigate('MainTabs', { 
+          screen: screenToTabMap[screen] as any,
+          // Reset tab navigation to initial state (no stacked screens)
+          params: {
+            resetStack: true
+          }
+        });
+      } else {
+        // Navigate to MainTabs and then to the specific tab
+        navigation.reset({
+          index: 0,
+          routes: [{ 
+            name: 'MainTabs', 
+            params: { 
+              screen: screenToTabMap[screen] as any
+            } 
+          }]
+        });
+      }
+    } else {
+      // For other screens not in the tab navigator, navigate directly
+      navigation.navigate(screen);
+    }
   };
 
   // Define our colors based on theme - Enhanced for dark mode
