@@ -21,6 +21,7 @@ import { UserProfile } from '../../services/firestoreService';
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
+import { resetOnboardingStatus } from '../../utils/resetOnboarding';
 
 // Set default text styles for SF Pro font family
 const defaultTextStyle = {
@@ -418,6 +419,28 @@ const SettingsScreen: React.FC = () => {
           </View>
         </View>
 
+        {/* Development Options */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionHeader, { color: subTextColor }]}>DEVELOPMENT</Text>
+          <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
+            {renderSettingItem(
+              'refresh-cw', 
+              'Reset Onboarding', 
+              'Show onboarding flow on next login', 
+              undefined, 
+              async () => {
+                await resetOnboardingStatus();
+                Alert.alert(
+                  'Onboarding Reset', 
+                  'You will see the onboarding flow next time you log in.',
+                  [{ text: 'OK' }]
+                );
+              },
+              secondaryColor
+            )}
+          </View>
+        </View>
+        
         {/* Account Actions */}
         <View style={styles.section}>
           <Text style={[styles.sectionHeader, { color: subTextColor }]}>ACCOUNT ACTIONS</Text>
