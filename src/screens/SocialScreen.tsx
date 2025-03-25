@@ -1,6 +1,6 @@
 // src/screens/SocialScreen.tsx
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   SafeAreaView,
   Animated,
@@ -19,8 +19,13 @@ import {
   Platform,
   UIManager,
   PanResponder,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { SocialStackParamList } from '../types/NavigationTypes';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -38,6 +43,16 @@ import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
 // No longer need custom bottom navigation bar with tab navigator
 import { useTheme } from '../styles/themeprovider';
+
+// Post authors/creators
+const creators = [
+  { username: 'minimal_maven', avatar: 'https://randomuser.me/api/portraits/women/44.jpg' },
+  { username: 'retroreviver', avatar: 'https://randomuser.me/api/portraits/men/32.jpg' },
+  { username: 'classic_couturier', avatar: 'https://randomuser.me/api/portraits/women/68.jpg' },
+  { username: 'scandi_style', avatar: 'https://randomuser.me/api/portraits/women/65.jpg' },
+  { username: 'urban_techninja', avatar: 'https://randomuser.me/api/portraits/men/78.jpg' },
+  { username: 'eco_elegance', avatar: 'https://randomuser.me/api/portraits/women/54.jpg' }
+];
 
 // Generate fashion inspiration posts for the feed
 const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
@@ -175,10 +190,11 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
   return {
     id: i.toString(),
     title: inspirationTitles[i],
+    creator: creators[i],
     gallery: [
-      `https://picsum.photos/800/1000?random=${i * 3 + 51}`,
-      `https://picsum.photos/800/1000?random=${i * 3 + 52}`,
-      `https://picsum.photos/800/1000?random=${i * 3 + 53}`
+      `https://picsum.photos/800/1000?random=${i * 3 + 31}`,
+      `https://picsum.photos/800/1000?random=${i * 3 + 32}`,
+      `https://picsum.photos/800/1000?random=${i * 3 + 33}`
     ],
     aesthetic: aesthetics[i],
     caption: postCaptions[i],
@@ -210,8 +226,8 @@ const SocialScreen: React.FC = () => {
   const [expandedPost, setExpandedPost] = useState<string | null>(null);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState<Record<string, number>>({});
   const [expandedComments, setExpandedComments] = useState<string | null>(null);
-  const [showMessagesModal, setShowMessagesModal] = useState(false);
-  
+  const navigation = useNavigation<StackNavigationProp<SocialStackParamList>>();
+
   // Use individual animation values for simplicity
   const [commentHeights] = useState<Record<string, number>>({});
   const commentAnimation = useRef(new Animated.Value(0)).current;
@@ -221,7 +237,6 @@ const SocialScreen: React.FC = () => {
   const panXValues = useRef<Record<string, Animated.Value>>({});
   const panResponders = useRef<Record<string, any>>({});
 
-  // Simulate refresh action
   const handleRefresh = () => {
     setRefreshing(true);
     setTimeout(() => {
@@ -240,12 +255,10 @@ const SocialScreen: React.FC = () => {
   const accentColor = isDarkMode ? '#FF4870' : '#FF3B5C';
   const saveColor = isDarkMode ? '#FFBA0D' : '#FFB100';
 
-  // Toggle post expansion (showing full caption)
   const toggleExpandPost = (postId: string) => {
     setExpandedPost(expandedPost === postId ? null : postId);
   };
   
-  // Toggle comments section expansion - simplified approach
   const toggleComments = (postId: string) => {
     // Configure layout animation for smooth transitions
     LayoutAnimation.configureNext({
@@ -290,7 +303,6 @@ const SocialScreen: React.FC = () => {
     }
   };
 
-  // Cycle through gallery images
   const cycleGalleryImage = (postId: string, direction: 'next' | 'prev') => {
     const post = FASHION_POSTS.find(p => p.id === postId);
     if (!post) return;
@@ -310,7 +322,6 @@ const SocialScreen: React.FC = () => {
     });
   };
 
-  // Initialize animations and pan responders for posts
   React.useEffect(() => {
     // Create animations for each post
     FASHION_POSTS.forEach((post, index) => {
@@ -337,7 +348,6 @@ const SocialScreen: React.FC = () => {
     });
   }, []);
   
-  // Create pan responder for post
   const createPanResponderForPost = (postId) => {
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -352,7 +362,6 @@ const SocialScreen: React.FC = () => {
     });
   };
   
-  // Handle swipe end
   const handleSwipeEnd = (postId, gestureState) => {
     const { dx } = gestureState;
     const currentImageIndex = activeGalleryIndex[postId] || 0;
@@ -377,7 +386,18 @@ const SocialScreen: React.FC = () => {
     }).start();
   };
 
-  // Render fashion inspiration post
+  // Create random user data for usernames - this is now ONLY used for generating mock data
+  useEffect(() => {
+    // In a real app, we would fetch user data from an API and store it in a global state
+    // or context. For now, we're just setting up sample data for the ViewUserProfileScreen
+    // to retrieve when needed.
+  }, []);
+  
+  const handleOpenUserProfile = (username: string) => {
+    console.log('Navigating to profile for:', username);
+    navigation.navigate('ViewUserProfile', { username });
+  };
+
   const renderFashionPost = ({ item, index }) => {
     // Use the pre-created animation value
     const animatedValue = postAnimations.current[item.id] || new Animated.Value(1);
@@ -419,9 +439,9 @@ const SocialScreen: React.FC = () => {
           }
         ]}
       >
-        {/* Card Header with title and publication date */}
+        {/* Card Header with title, user and publication date */}
         <View style={styles.inspirationHeader}>
-          <View>
+          <View style={styles.headerLeft}>
             <Text style={[styles.inspirationTitle, { color: textColor }]}>
               {item.title}
             </Text>
@@ -429,6 +449,20 @@ const SocialScreen: React.FC = () => {
               {item.publishedDate}
             </Text>
           </View>
+          
+          {/* User Profile Section */}
+          <TouchableOpacity 
+            style={styles.postUser}
+            onPress={() => handleOpenUserProfile(item.creator.username)}
+          >
+            <Image 
+              source={{ uri: item.creator.avatar }} 
+              style={styles.profileAvatar} 
+            />
+            <Text style={[styles.profileUsername, { color: textColor }]}>
+              @{item.creator.username}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Fashion Image Gallery with swipe */}
@@ -725,9 +759,17 @@ const SocialScreen: React.FC = () => {
                     ]}
                   >
                     <View style={styles.commentHeader}>
-                      <Text style={[styles.commentUsername, { color: textColor }]}>
-                        {comment.username}
-                      </Text>
+                      <TouchableOpacity 
+                        onPress={() => {
+                          console.log('Comment username clicked:', comment.username);
+                          handleOpenUserProfile(comment.username);
+                        }}
+                        style={{ padding: 4 }}
+                      >
+                        <Text style={[styles.commentUsername, { color: textColor }]}>
+                          {comment.username}
+                        </Text>
+                      </TouchableOpacity>
                       <Text style={[styles.commentTime, { color: subTextColor }]}>
                         {comment.timeAgo}
                       </Text>
@@ -782,7 +824,6 @@ const SocialScreen: React.FC = () => {
     );
   };
 
-  // Render a trending topic chip
   const renderTrendingTopic = ({ item }) => (
     <TouchableOpacity
       style={[
@@ -809,217 +850,111 @@ const SocialScreen: React.FC = () => {
     </TouchableOpacity>
   );
 
-  // Messages modal components
-  const renderMessagesModal = () => {
-    if (!showMessagesModal) return null;
-    
-    // Mock message data
-    const MESSAGES = [
-      {
-        id: '1',
-        user: 'sophia_style',
-        avatar: 'https://randomuser.me/api/portraits/women/32.jpg',
-        lastMessage: 'Thanks for the style tip! I tried that outfit combination yesterday.',
-        time: '5m',
-        unread: true
-      },
-      {
-        id: '2',
-        user: 'marcus_fashion',
-        avatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-        lastMessage: 'Have you seen the new collection from that sustainable brand?',
-        time: '27m',
-        unread: false
-      },
-      {
-        id: '3',
-        user: 'olivia_trends',
-        avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-        lastMessage: 'Loved your latest post! Mind sharing where you got that jacket?',
-        time: '2h',
-        unread: true
-      },
-      {
-        id: '4',
-        user: 'alex_stylist',
-        avatar: 'https://randomuser.me/api/portraits/men/22.jpg',
-        lastMessage: 'Would you be interested in collaborating on a style guide?',
-        time: '1d',
-        unread: false
-      },
-    ];
-    
-    return (
-      <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-        <View style={[styles.messagesModal, { backgroundColor: cardBgColor }]}>
-          <View style={styles.messagesHeader}>
-            <Text style={[styles.messagesTitle, { color: textColor }]}>Messages</Text>
-            <TouchableOpacity onPress={() => setShowMessagesModal(false)}>
-              <Icon name="close" size={24} color={textColor} />
-            </TouchableOpacity>
-          </View>
-          
-          <FlatList
-            data={MESSAGES}
-            keyExtractor={item => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity 
-                style={[
-                  styles.messageItem, 
-                  item.unread && { backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.08)' : 'rgba(82, 69, 204, 0.04)' }
-                ]}
-              >
-                <Image source={{ uri: item.avatar }} style={styles.messageAvatar} />
-                <View style={styles.messageContent}>
-                  <View style={styles.messageTop}>
-                    <Text style={[styles.messageUser, { color: textColor }]}>{item.user}</Text>
-                    <Text style={[styles.messageTime, { color: subTextColor }]}>{item.time}</Text>
-                  </View>
-                  <Text 
-                    style={[
-                      styles.messageText, 
-                      { color: item.unread ? textColor : subTextColor }
-                    ]} 
-                    numberOfLines={1}
-                  >
-                    {item.lastMessage}
-                  </Text>
-                </View>
-                {item.unread && (
-                  <View style={[styles.unreadIndicator, { backgroundColor: mainColor }]} />
-                )}
-              </TouchableOpacity>
-            )}
-            style={styles.messagesList}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              <View style={styles.emptyMessages}>
-                <Icon name="chatbubbles-outline" size={60} color={subTextColor} />
-                <Text style={[styles.emptyMessagesText, { color: subTextColor }]}>
-                  No messages yet
-                </Text>
-              </View>
-            }
-          />
-          
-          <TouchableOpacity 
-            style={[styles.newMessageButton, { backgroundColor: mainColor }]}
-          >
-            <FeatherIcon name="edit-2" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
         <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
 
-      {/* Header - Enhanced for dark mode with subtle gradient effect */}
-      <View 
-        style={[
-          styles.header, 
-          isDarkMode && { 
-            backgroundColor: 'rgba(22, 23, 31, 0.8)', 
-            borderBottomWidth: 1, 
-            borderBottomColor: 'rgba(124, 107, 255, 0.1)'
-          }
-        ]}
-      >
-        <View>
-          <Text style={[
-            styles.headerTitle, 
-            { color: textColor },
-            isDarkMode && { textShadowColor: 'rgba(124, 107, 255, 0.3)', textShadowOffset: {width: 0, height: 0}, textShadowRadius: 8 }
-          ]}>
-            Fashion Feed
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: subTextColor }]}>Community inspiration</Text>
-        </View>
-        <View style={styles.headerRightContainer}>
-          <TouchableOpacity 
-            style={styles.headerIconButton}
-            onPress={() => setShowMessagesModal(true)}
-          >
-            <FeatherIcon 
-              name="message-circle" 
-              size={22} 
-              color={isDarkMode ? '#B8B8CC' : textColor} 
-            />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[
-              styles.searchButton,
-              isDarkMode && { 
-                backgroundColor: 'rgba(40, 40, 60, 0.4)', 
-                borderWidth: 1,
-                borderColor: 'rgba(124, 107, 255, 0.2)'
-              }
-            ]}
-          >
-            <FeatherIcon name="search" size={22} color={isDarkMode ? '#B8B8CC' : textColor} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Main Content */}
-      <Animated.FlatList
-        data={FASHION_POSTS}
-        renderItem={renderFashionPost}
-        keyExtractor={item => item.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.listContent,
-          isDarkMode && { paddingTop: 4 }
-        ]}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
-        scrollEventThrottle={16}
-        refreshing={refreshing}
-        onRefresh={handleRefresh}
-        ListHeaderComponent={
-          <>
-            {/* Trending Topics Filter */}
-            <View style={styles.topicsContainer}>
-              <Text style={[styles.topicsHeading, { color: textColor }]}>
-                Trending Inspiration
-              </Text>
-              <FlatList
-                data={TRENDING_TOPICS}
-                renderItem={renderTrendingTopic}
-                keyExtractor={item => item}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.topicsList}
+        {/* Header - Enhanced for dark mode with subtle gradient effect */}
+        <View 
+          style={[
+            styles.header, 
+            isDarkMode && { 
+              backgroundColor: 'rgba(22, 23, 31, 0.8)', 
+              borderBottomWidth: 1, 
+              borderBottomColor: 'rgba(124, 107, 255, 0.1)'
+            }
+          ]}
+        >
+          <View>
+            <Text style={[
+              styles.headerTitle, 
+              { color: textColor },
+              isDarkMode && { textShadowColor: 'rgba(124, 107, 255, 0.3)', textShadowOffset: {width: 0, height: 0}, textShadowRadius: 8 }
+            ]}>
+              Fashion Feed
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: subTextColor }]}>Community inspiration</Text>
+          </View>
+          <View style={styles.headerRightContainer}>
+            <TouchableOpacity 
+              style={styles.headerIconButton}
+              onPress={() => navigation.navigate('Messages')}
+            >
+              <FeatherIcon 
+                name="message-circle" 
+                size={22} 
+                color={isDarkMode ? '#B8B8CC' : textColor} 
               />
-            </View>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[
+                styles.searchButton,
+                isDarkMode && { 
+                  backgroundColor: 'rgba(40, 40, 60, 0.4)', 
+                  borderWidth: 1,
+                  borderColor: 'rgba(124, 107, 255, 0.2)'
+                }
+              ]}
+            >
+              <FeatherIcon name="search" size={22} color={isDarkMode ? '#B8B8CC' : textColor} />
+            </TouchableOpacity>
+          </View>
+        </View>
 
-            {refreshing && (
-              <View style={styles.refreshIndicator}>
-                <ActivityIndicator size="small" color={isDarkMode ? '#9F91FF' : mainColor} />
-                <Text style={[
-                  styles.refreshText, 
-                  { color: isDarkMode ? '#B8B8CC' : subTextColor }
-                ]}>
-                  Refreshing...
+        {/* Main Content */}
+        <Animated.FlatList
+          data={FASHION_POSTS}
+          renderItem={renderFashionPost}
+          keyExtractor={item => item.id}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.listContent,
+            isDarkMode && { paddingTop: 4 }
+          ]}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: false }
+          )}
+          scrollEventThrottle={16}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          ListHeaderComponent={
+            <>
+              {/* Trending Topics Filter */}
+              <View style={styles.topicsContainer}>
+                <Text style={[styles.topicsHeading, { color: textColor }]}>
+                  Trending Inspiration
                 </Text>
+                <FlatList
+                  data={TRENDING_TOPICS}
+                  renderItem={renderTrendingTopic}
+                  keyExtractor={item => item}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.topicsList}
+                />
               </View>
-            )}
-          </>
-        }
-        ListFooterComponent={
-          <View style={{ height: 90 }} />
-        }
-      />
 
-      {/* Messages Modal */}
-      {renderMessagesModal()}
+              {refreshing && (
+                <View style={styles.refreshIndicator}>
+                  <ActivityIndicator size="small" color={isDarkMode ? '#9F91FF' : mainColor} />
+                  <Text style={[
+                    styles.refreshText, 
+                    { color: isDarkMode ? '#B8B8CC' : subTextColor }
+                  ]}>
+                    Refreshing...
+                  </Text>
+                </View>
+              )}
+            </>
+          }
+          ListFooterComponent={
+            <View style={{ height: 90 }} />
+          }
+        />
 
-      {/* No longer need custom bottom navigation bar - using Tab Navigator */}
+        {/* No longer need custom bottom navigation bar - using Tab Navigator */}
       </SafeAreaView>
     </GestureHandlerRootView>
   );
@@ -1108,8 +1043,29 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   inspirationHeader: {
-    paddingHorizontal: 18,
-    paddingVertical: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  postUser: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+  },
+  profileAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  profileUsername: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    fontWeight: '500',
   },
   inspirationTitle: {
     fontSize: 20,
@@ -1426,108 +1382,5 @@ const styles = StyleSheet.create({
     ...defaultTextStyle,
     marginLeft: 8,
     fontSize: 13,
-  },
-
-  // Messages modal
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 100,
-  },
-  messagesModal: {
-    width: '90%',
-    height: '80%',
-    borderRadius: 20,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 10,
-  },
-  messagesHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(150, 150, 150, 0.15)',
-  },
-  messagesTitle: {
-    ...defaultTextStyle,
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  messagesList: {
-    flex: 1,
-  },
-  messageItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(150, 150, 150, 0.1)',
-  },
-  messageAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 12,
-  },
-  messageContent: {
-    flex: 1,
-  },
-  messageTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  messageUser: {
-    ...defaultTextStyle,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  messageTime: {
-    ...defaultTextStyle,
-    fontSize: 12,
-  },
-  messageText: {
-    ...defaultTextStyle,
-    fontSize: 14,
-  },
-  unreadIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginLeft: 8,
-  },
-  emptyMessages: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  emptyMessagesText: {
-    ...defaultTextStyle,
-    fontSize: 16,
-    marginTop: 12,
-  },
-  newMessageButton: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 5,
   },
 });

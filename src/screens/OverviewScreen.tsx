@@ -17,6 +17,10 @@ import {
   FlatList
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { CompositeNavigationProp } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { RootStackParamList, MainTabParamList, SocialStackParamList } from '../types/NavigationTypes';
 import { useTheme } from '../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
@@ -126,8 +130,25 @@ const COMMUNITY_POSTS = [
   }
 ];
 
+// Type for user profile data
+export interface UserProfileData {
+  username: string;
+  displayName: string;
+  bio: string;
+  followers: number;
+  following: number;
+  posts: number;
+  verified: boolean;
+  avatarUrl: string;
+}
+
+type OverviewScreenNavigationProp = CompositeNavigationProp<
+  BottomTabNavigationProp<MainTabParamList, 'HomeTab'>,
+  StackNavigationProp<SocialStackParamList>
+>;
+
 const OverviewScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<OverviewScreenNavigationProp>();
   const { isDarkMode } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [activeFeature, setActiveFeature] = useState(0);
@@ -187,6 +208,16 @@ const OverviewScreen: React.FC = () => {
       </ImageBackground>
     </TouchableOpacity>
   );
+
+  // Open user profile screen
+  const handleOpenUserProfile = (username: string) => {
+    console.log('Navigating to profile for:', username);
+    // First navigate to SocialTab, then to ViewUserProfile
+    navigation.navigate('SocialTab', {
+      screen: 'ViewUserProfile',
+      params: { username }
+    });
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
@@ -398,8 +429,24 @@ const OverviewScreen: React.FC = () => {
               >
                 <View style={styles.postHeader}>
                   <View style={styles.postUser}>
-                    <Image source={{ uri: post.avatar }} style={styles.userAvatar} />
-                    <Text style={[styles.username, { color: textColor }]}>{post.username}</Text>
+                    <TouchableOpacity 
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        console.log('Avatar clicked:', post.username);
+                        handleOpenUserProfile(post.username);
+                      }}
+                    >
+                      <Image source={{ uri: post.avatar }} style={styles.userAvatar} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        console.log('Username text clicked:', post.username);
+                        handleOpenUserProfile(post.username);
+                      }}
+                    >
+                      <Text style={[styles.username, { color: textColor }]}>{post.username}</Text>
+                    </TouchableOpacity>
                   </View>
                   <Icon name="ellipsis-horizontal" size={18} color={subTextColor} />
                 </View>

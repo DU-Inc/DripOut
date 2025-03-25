@@ -1,9 +1,21 @@
 // src/types/NavigationTypes.ts
 
+// Define the social stack navigator params
+export type SocialStackParamList = {
+  SocialFeed: undefined;
+  ViewUserProfile: { username: string };
+  Messages: undefined;
+  Chat: {
+    username: string;
+    avatar: string;
+    userId?: string;
+  };
+};
+
 // Define the tabs in the bottom navigator
 export type MainTabParamList = {
   HomeTab: undefined;
-  SocialTab: undefined;
+  SocialTab: { screen?: keyof SocialStackParamList; params?: any } | undefined;
   DiscoverTab: undefined;
   '3DTab': undefined;
   ClosetTab: undefined;
@@ -13,9 +25,10 @@ export type MainTabParamList = {
 // Define the main stack navigator
 export type RootStackParamList = {
   Auth: undefined;
-  MainTabs: undefined; // The tab navigator is a single screen in the stack
+  MainTabs: undefined;
   UserPreferencesScreen: undefined;
   SettingsScreen: undefined;
+  ViewUserProfileScreen: { username: string }; // Screen to view other users' profiles
   
   // Legacy types for backward compatibility
   Home: undefined;

@@ -5,7 +5,7 @@ import { ActivityIndicator, View } from "react-native";
 import Icon from 'react-native-vector-icons/Ionicons';
 import AuthScreen from "../screens/AuthScreen";
 import OverviewScreen from "../screens/OverviewScreen"; // Replace HomeScreen with OverviewScreen
-import SocialScreen from "../screens/SocialScreen"; // Import SocialScreen (renamed from HomeScreen)
+import SocialNavigator from "./SocialNavigator"; // Import the new SocialNavigator
 import UserProfileScreen from "../screens/profiles/UserProfileScreen";
 import UserPreferencesScreen from "../screens/profiles/UserPreferencesScreen";
 import SettingsScreen from "../screens/profiles/SettingsScreen"; // Import Settings screen
@@ -71,7 +71,7 @@ const MainTabNavigator = () => {
       />
       <Tab.Screen 
         name="SocialTab" 
-        component={SocialScreen} 
+        component={SocialNavigator} 
         options={{
           tabBarLabel: 'Social',
           tabBarIcon: ({ color, size, focused }) => (

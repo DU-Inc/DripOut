@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   SafeAreaView,
   Animated,
@@ -19,6 +19,9 @@ import {
   PanResponder,
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../types/NavigationTypes';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -30,6 +33,19 @@ const defaultTextStyle = {
   fontFamily: Platform.OS === 'ios' ? 'System' : 'SF Pro Text', // System font on iOS is SF Pro
   letterSpacing: 0.1, // SF Pro typically has slightly tighter letter spacing
 };
+
+// Type for user profile data
+export interface UserProfileData {
+  username: string;
+  displayName: string;
+  bio: string;
+  followers: number;
+  following: number;
+  posts: number;
+  verified: boolean;
+  avatarUrl: string;
+}
+
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -67,6 +83,16 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
     'Scandinavian',
     'Tech Streetwear',
     'Sustainable Luxury'
+  ];
+  
+  // Post authors/creators
+  const creators = [
+    { username: 'minimal_maven', avatar: 'https://randomuser.me/api/portraits/women/44.jpg' },
+    { username: 'retroreviver', avatar: 'https://randomuser.me/api/portraits/men/32.jpg' },
+    { username: 'classic_couturier', avatar: 'https://randomuser.me/api/portraits/women/68.jpg' },
+    { username: 'scandi_style', avatar: 'https://randomuser.me/api/portraits/women/65.jpg' },
+    { username: 'urban_techninja', avatar: 'https://randomuser.me/api/portraits/men/78.jpg' },
+    { username: 'eco_elegance', avatar: 'https://randomuser.me/api/portraits/women/54.jpg' }
   ];
   
   // Caption and tags for each post
@@ -173,6 +199,7 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
   return {
     id: i.toString(),
     title: inspirationTitles[i],
+    creator: creators[i],
     gallery: [
       `https://picsum.photos/800/1000?random=${i * 3 + 51}`,
       `https://picsum.photos/800/1000?random=${i * 3 + 52}`,
@@ -206,6 +233,33 @@ const swipeThreshold = width * 0.3; // 30% of screen width
 // 2. Create a context for shared values that need to be accessed by nested functions
 // 3. Pass swipeThreshold as a parameter to functions that need it
 
+type Post = {
+  id: string;
+  title: string;
+  creator: {
+    username: string;
+    avatar: string;
+  };
+  gallery: string[];
+  aesthetic: string;
+  caption: string;
+  tags: string[];
+  outfitItems: Array<{name: string; brand: string}>;
+  publishedDate: string;
+  comments: Array<{
+    id: string;
+    username: string;
+    text: string;
+    timeAgo: string;
+    likes: number;
+  }>;
+  commentCount: number;
+  upvotes: number;
+  saves: number;
+  isSaved: boolean;
+  isUpvoted: boolean;
+};
+
 const HomeScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -223,6 +277,8 @@ const HomeScreen: React.FC = () => {
   const postAnimations = useRef<Record<string, Animated.Value>>({});
   const panXValues = useRef<Record<string, Animated.Value>>({});
   const panResponders = useRef<Record<string, any>>({});
+
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
 
   // Simulate refresh action
   const handleRefresh = () => {
@@ -382,6 +438,55 @@ const HomeScreen: React.FC = () => {
     }).start();
   };
 
+  // Create random user data for usernames
+  useEffect(() => {
+    // Create mock user data for each username in the posts
+    const userData: Record<string, UserProfileData> = {};
+    
+    // Extract all usernames from posts to create mock data
+    const allUsernames: string[] = [];
+    
+    // Add post creators to the username list
+    FASHION_POSTS.forEach(post => {
+      if (!allUsernames.includes(post.creator.username)) {
+        allUsernames.push(post.creator.username);
+      }
+    });
+    
+    // Add comment usernames
+    FASHION_POSTS.forEach(post => {
+      post.comments.forEach(comment => {
+        if (!allUsernames.includes(comment.username)) {
+          allUsernames.push(comment.username);
+        }
+      });
+    });
+    
+    // Create mock data for each unique username
+    allUsernames.forEach((username: string) => {
+      userData[username] = {
+        username,
+        displayName: username.split('_').map((part: string) => part.charAt(0).toUpperCase() + part.slice(1)).join(' '),
+        bio: `Fashion enthusiast and style curator. Sharing inspiration and trends.`,
+        followers: Math.floor(Math.random() * 9000) + 1000,
+        following: Math.floor(Math.random() * 500) + 100,
+        posts: Math.floor(Math.random() * 50) + 5,
+        verified: Math.random() > 0.7,
+        // Use the avatar from post creator if available, otherwise generate one
+        avatarUrl: FASHION_POSTS.find(post => post.creator.username === username)?.creator.avatar || 
+                  `https://randomuser.me/api/portraits/${Math.random() > 0.5 ? 'women' : 'men'}/${Math.floor(Math.random() * 99)}.jpg`
+      };
+    });
+    
+    // This line is now empty as we're not using setRandomUsersData
+  }, []);
+  
+  const handleOpenUserProfile = (username: string) => {
+    console.log('Navigating to profile for:', username);
+    // Navigate to the profile screen instead of opening a modal
+    navigation.navigate('ViewUserProfileScreen', { username });
+  };
+
   // Render fashion inspiration post
   const renderFashionPost = ({ item, index }) => {
     // Use the pre-created animation value
@@ -424,9 +529,9 @@ const HomeScreen: React.FC = () => {
           }
         ]}
       >
-        {/* Card Header with title and publication date */}
+        {/* Card Header with title, user and publication date */}
         <View style={styles.inspirationHeader}>
-          <View>
+          <View style={styles.headerLeft}>
             <Text style={[styles.inspirationTitle, { color: textColor }]}>
               {item.title}
             </Text>
@@ -434,6 +539,20 @@ const HomeScreen: React.FC = () => {
               {item.publishedDate}
             </Text>
           </View>
+          
+          {/* User Profile Section */}
+          <TouchableOpacity 
+            style={styles.postUser}
+            onPress={() => handleOpenUserProfile(item.creator.username)}
+          >
+            <Image 
+              source={{ uri: item.creator.avatar }} 
+              style={styles.profileAvatar} 
+            />
+            <Text style={[styles.profileUsername, { color: textColor }]}>
+              @{item.creator.username}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Fashion Image Gallery with swipe */}
@@ -730,9 +849,17 @@ const HomeScreen: React.FC = () => {
                     ]}
                   >
                     <View style={styles.commentHeader}>
-                      <Text style={[styles.commentUsername, { color: textColor }]}>
-                        {comment.username}
-                      </Text>
+                      <TouchableOpacity 
+                        onPress={() => {
+                          console.log('Comment username clicked:', comment.username);
+                          handleOpenUserProfile(comment.username);
+                        }}
+                        style={{ padding: 4 }}
+                      >
+                        <Text style={[styles.commentUsername, { color: textColor }]}>
+                          {comment.username}
+                        </Text>
+                      </TouchableOpacity>
                       <Text style={[styles.commentTime, { color: subTextColor }]}>
                         {comment.timeAgo}
                       </Text>
@@ -914,8 +1041,6 @@ const HomeScreen: React.FC = () => {
           <View style={{ height: 90 }} />
         }
       />
-
-      {/* No longer need custom bottom navigation bar - using Tab Navigator */}
       </SafeAreaView>
     </GestureHandlerRootView>
   );
@@ -1004,8 +1129,29 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   inspirationHeader: {
-    paddingHorizontal: 18,
-    paddingVertical: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  postUser: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+  },
+  profileAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  profileUsername: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    fontWeight: '500',
   },
   inspirationTitle: {
     fontSize: 20,
