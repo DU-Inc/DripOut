@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Alert } from 'react-native';
 import { useTheme } from '../styles/themeprovider';
 import { lightTheme, darkTheme } from '../styles/themes';
 import { useNavigation } from '@react-navigation/native';
@@ -8,6 +8,7 @@ import OnboardingBubbles from '../components/Onboarding/OnboardingBubbles';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useOnboardingContext } from '../context/OnboardingContext';
 
 type OnboardingBrandsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'OnboardingBrands'>;
 
@@ -15,6 +16,7 @@ const OnboardingBrandsScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
   const theme = isDarkMode ? darkTheme : lightTheme;
   const navigation = useNavigation<OnboardingBrandsScreenNavigationProp>();
+  const { selectedBrands } = useOnboardingContext();
 
   // Custom colors for a luxurious feel
   const mainColor = isDarkMode ? '#7C6BFF' : '#5245CC';
@@ -41,20 +43,44 @@ const OnboardingBrandsScreen: React.FC = () => {
             'Uniqlo', 'North Face', 'Patagonia', 'Vans', 'Converse', 
             'New Balance', 'Puma', 'Under Armour', 'Stone Island', 'Stüssy'
           ]}
+          onSelectionChange={() => {}}
         />
       </View>
 
+      <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Icon name="chevron-back" size={24} color={mainColor} />
+        </TouchableOpacity>
+      </View>
+      
       <View style={styles.footer}>
         <View style={styles.buttonRow}>
           <TouchableOpacity 
             style={styles.skipButton}
             onPress={async () => {
-              // Mark onboarding as completed
-              await AsyncStorage.setItem('onboardingCompleted', 'true');
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'MainTabs' }],
-              });
+              try {
+                // Mark onboarding as completed
+                await AsyncStorage.setItem('onboardingCompleted', 'true');
+                console.log("Skipping brands selection - navigating to main app");
+                
+                // Use navigate instead of reset
+                navigation.navigate('MainTabs');
+                
+                // Add fallback
+                setTimeout(() => {
+                  if (navigation.isFocused()) {
+                    console.log("Fallback navigation to sizing screen");
+                    navigation.navigate('OnboardingSizing');
+                  }
+                }, 300);
+              } catch (error) {
+                console.error("Navigation error:", error);
+                // Fallback to next screen
+                navigation.navigate('OnboardingSizing');
+              }
             }}
           >
             <Text style={[styles.skipText, { color: subTextColor }]}>Skip for now</Text>
@@ -62,7 +88,30 @@ const OnboardingBrandsScreen: React.FC = () => {
           
           <TouchableOpacity 
             style={[styles.button, { backgroundColor: mainColor }]}
-            onPress={() => navigation.navigate('OnboardingSizing')}
+            onPress={() => {
+              // Check if user has made any selections
+              if (selectedBrands.length === 0) {
+                // Show confirmation if no brands selected
+                Alert.alert(
+                  'No Brands Selected',
+                  'Are you sure you want to continue without selecting any brands? You can always update your preferences later.',
+                  [
+                    {
+                      text: 'Go Back',
+                      style: 'cancel',
+                    },
+                    {
+                      text: 'Continue',
+                      onPress: () => navigation.navigate('OnboardingSizing')
+                    },
+                  ]
+                );
+              } else {
+                // Proceed if brands are selected
+                navigation.navigate('OnboardingSizing');
+              }
+              console.log("Brands selected:", selectedBrands);
+            }}
           >
             <Text style={styles.buttonText}>Continue</Text>
             <Icon name="arrow-forward" size={20} color="#FFFFFF" style={styles.buttonIcon} />
@@ -81,6 +130,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 30,
     paddingBottom: 20,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  backButton: {
+    position: 'absolute',
+    left: 20,
+    top: 30,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   title: {

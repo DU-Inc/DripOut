@@ -17,6 +17,11 @@ export type RootStackParamList = {
   UserPreferencesScreen: undefined;
   SettingsScreen: undefined;
   
+  // Onboarding screens
+  Onboarding: undefined;
+  OnboardingBrands: undefined;
+  OnboardingSizing: undefined;
+  
   // Legacy types for backward compatibility
   Home: undefined;
   UserProfileScreen: undefined;

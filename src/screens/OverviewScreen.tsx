@@ -348,7 +348,11 @@ const OverviewScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
           
-          <View style={styles.styleBoardsGrid}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.styleBoardsGrid}
+          >
             {STYLE_BOARDS.map((board) => (
               <TouchableOpacity 
                 key={board.id}
@@ -367,7 +371,7 @@ const OverviewScreen: React.FC = () => {
                 </View>
               </TouchableOpacity>
             ))}
-          </View>
+          </ScrollView>
         </View>
         
         {/* Community Section */}
@@ -383,7 +387,11 @@ const OverviewScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
           
-          <View style={styles.communityPosts}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.communityPosts}
+          >
             {COMMUNITY_POSTS.map((post) => (
               <TouchableOpacity 
                 key={post.id}
@@ -426,7 +434,7 @@ const OverviewScreen: React.FC = () => {
                 </View>
               </TouchableOpacity>
             ))}
-          </View>
+          </ScrollView>
         </View>
         
         {/* Closet Section */}
@@ -725,17 +733,15 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   styleBoardsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 20,
+    paddingLeft: 20,
+    paddingRight: 10,
   },
   styleBoard: {
-    width: (width - 52) / 2,
+    width: width * 0.7,
     height: 180,
     borderRadius: 16,
     overflow: 'hidden',
-    marginHorizontal: 6,
-    marginBottom: 12,
+    marginRight: 16,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -767,12 +773,14 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   communityPosts: {
-    paddingHorizontal: 20,
+    paddingLeft: 20,
+    paddingRight: 10,
   },
   communityPost: {
+    width: width * 0.8, // Set width for horizontal scrolling
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 16,
+    marginRight: 16, // Add horizontal margin
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 8,

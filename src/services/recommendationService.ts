@@ -202,8 +202,16 @@ export async function checkApiHealth() {
 export interface Product {
   id: string;
   name: string;
-  price: number;
+  price?: number;
   images: string[];
+  sizes?: string[];
+  description?: string;
   url: string;
-  site: string;
+  site?: string;
+  colors?: string[];
+  materials?: string[];
+  care_instructions?: string;
+  details?: Record<string, any>;
+  metadata?: Record<string, any>;
+  raw_data?: Record<string, any>;
 }

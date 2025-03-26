@@ -285,13 +285,21 @@ const ProductDetailsModal = React.memo(({
             <View style={styles.modalSiteContainer}>
               <Icon name="globe-outline" size={16} color={subTextColor} />
               <Text style={[styles.modalSiteText, { color: subTextColor }]}>
-                {item.site}
+                {item.site || 'Unknown Store'}
               </Text>
             </View>
             
-            <Text style={[styles.modalPrice, { color: mainColor }]}>
-              ${(item.price !== undefined ? item.price.toFixed(2) : '0.00')}
-            </Text>
+            {item.price !== undefined && (
+              <Text style={[styles.modalPrice, { color: mainColor }]}>
+                ${(typeof item.price === 'number' ? item.price.toFixed(2) : '0.00')}
+              </Text>
+            )}
+            
+            {item.description && (
+              <Text style={[styles.modalDescription, { color: textColor }]} numberOfLines={3}>
+                {item.description}
+              </Text>
+            )}
             
             <TouchableOpacity 
               style={[styles.buyButton, { backgroundColor: mainColor }]}
@@ -409,15 +417,23 @@ const ProductItem = React.memo(({
         delayLongPress={200}
       >
         <View style={styles.imageContainer}>
-          <Image 
-            source={{ uri: item.images[0] }} 
-            style={styles.productImage} 
-          />
-          <View style={styles.priceTag}>
-            <Text style={styles.priceTagText}>
-              ${(item.price !== undefined ? item.price.toFixed(0) : '0')}
-            </Text>
-          </View>
+          {item.images && item.images.length > 0 ? (
+            <Image 
+              source={{ uri: item.images[0] }} 
+              style={styles.productImage} 
+            />
+          ) : (
+            <View style={[styles.productImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+              <Icon name="image-outline" size={40} color="#bbb" />
+            </View>
+          )}
+          {item.price !== undefined && (
+            <View style={styles.priceTag}>
+              <Text style={styles.priceTagText}>
+                ${(typeof item.price === 'number' ? item.price.toFixed(0) : '0')}
+              </Text>
+            </View>
+          )}
         </View>
         
         <View style={styles.productDetails}>
@@ -426,7 +442,7 @@ const ProductItem = React.memo(({
               {item.name}
             </Text>
             <Text style={[styles.productSite, { color: subTextColor }]}>
-              {item.site}
+              {item.site || 'Unknown Store'}
             </Text>
           </View>
           
@@ -521,7 +537,7 @@ const MOCK_PRODUCTS: Product[] = [
 const RecommendationScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
   const [query, setQuery] = useState('');
-  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS); // Initialize with mock data
+  const [products, setProducts] = useState<Product[]>([]); // Initialize with empty array
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState('all');
@@ -558,8 +574,6 @@ const RecommendationScreen: React.FC = () => {
 
   // Check API connection on component mount and fetch user profile
   useEffect(() => {
-    // Comment out API connection check while API is down
-    /*
     const checkConnection = async () => {
       console.log('🔄 RecommendationScreen: Checking API connection on component mount');
       try {
@@ -576,20 +590,10 @@ const RecommendationScreen: React.FC = () => {
     
     console.log('🏁 RecommendationScreen: Component mounted, starting initialization');
     checkConnection();
-    */
-    
-    // Just fetch user profile and use mock data for now
-    console.log('🏁 RecommendationScreen: Component mounted, using mock data');
     fetchUserProfile();
     
-    // Apply active filter to mock data
-    if (activeFilter !== 'all') {
-      const filtered = MOCK_PRODUCTS.filter(product => {
-        const name = product.name.toLowerCase();
-        return name.includes(activeFilter.toLowerCase());
-      });
-      setProducts(filtered);
-    }
+    // Initialize with empty products rather than mock data
+    setProducts([]);
   }, []);
 
   // Fetch the user's profile and preferences
@@ -658,22 +662,6 @@ const RecommendationScreen: React.FC = () => {
     setError(null);
     setLoading(true);
     
-    // MOCK DATA FOR TESTING - Remove or comment this section when API is back
-    setTimeout(() => {
-      const filteredMockProducts = MOCK_PRODUCTS.filter(product => 
-        product.name.toLowerCase().includes(query.toLowerCase()) || 
-        product.site.toLowerCase().includes(query.toLowerCase())
-      );
-      setProducts(filteredMockProducts);
-      if (filteredMockProducts.length === 0) {
-        setError('No products found matching your search. Try different keywords.');
-      }
-      setLoading(false);
-    }, 1500); // Simulate network delay
-    return;
-    
-    /*
-    // REAL API SEARCH IMPLEMENTATION - Uncomment when API is working again
     try {
       // First check API connection if needed
       let isConnected = apiConnected;
@@ -689,6 +677,7 @@ const RecommendationScreen: React.FC = () => {
         if (!isConnected) {
           console.log('❌ RecommendationScreen: API disconnected, aborting search');
           setError('Cannot connect to recommendation service. Please check your network or try again later.');
+          setLoading(false);
           return;
         }
       } else {
@@ -700,8 +689,8 @@ const RecommendationScreen: React.FC = () => {
       const results = await searchProducts(query, [0, 1000], 10, userProfile);
       console.log('📊 RecommendationScreen: Search complete, received', results?.length || 0, 'results');
       
-      setProducts(results);
-      if (results.length === 0) {
+      setProducts(results || []);
+      if (!results || results.length === 0) {
         console.log('ℹ️ RecommendationScreen: No products found for query');
         setError('No products found matching your search. Try different keywords.');
       }
@@ -712,7 +701,6 @@ const RecommendationScreen: React.FC = () => {
       console.log('🏁 RecommendationScreen: Search process complete');
       setLoading(false);
     }
-    */
   };
 
   const openProductUrl = (url: string) => {
@@ -767,29 +755,45 @@ const RecommendationScreen: React.FC = () => {
   );
 
   // Render trending searches - reusable section
-  // Update active filter handler to filter mock products
-  const handleFilterChange = (filterId: string) => {
+  // Handle filter change by triggering a new search with category
+  const handleFilterChange = async (filterId: string) => {
     setActiveFilter(filterId);
     
-    // Filter mock products based on the selected filter
-    if (filterId === 'all') {
-      setProducts(MOCK_PRODUCTS);
+    // If we have no products loaded yet or we're just switching back to "all",
+    // don't do anything - wait for user to search
+    if (products.length === 0 || filterId === 'all') {
+      return;
+    }
+    
+    // Otherwise, if we have products loaded, filter them client-side
+    const mappings: Record<string, string[]> = {
+      'shirts': ['shirt', 't-shirt', 'top', 'tee'],
+      'pants': ['jeans', 'pants', 'trousers', 'slacks', 'chinos'],
+      'dresses': ['dress', 'gown', 'skirt'],
+      'shoes': ['sneakers', 'shoes', 'boots', 'sandals'],
+      'accessories': ['watch', 'sunglasses', 'jewelry', 'hat', 'belt', 'bag', 'purse']
+    };
+    
+    const keywords = mappings[filterId] || [filterId];
+    
+    // Apply filtering to products based on product name or description
+    const filtered = products.filter(product => {
+      const name = product.name?.toLowerCase() || '';
+      const desc = product.description?.toLowerCase() || '';
+      
+      return keywords.some(keyword => 
+        name.includes(keyword.toLowerCase()) || 
+        desc.includes(keyword.toLowerCase())
+      );
+    });
+    
+    setProducts(filtered);
+    
+    // If no products match the filter, show an appropriate message
+    if (filtered.length === 0) {
+      setError(`No ${filterId} found in your search results. Try a different filter or search term.`);
     } else {
-      const mappings: Record<string, string[]> = {
-        'shirts': ['shirt', 't-shirt', 'top'],
-        'pants': ['jeans', 'pants', 'trousers'],
-        'dresses': ['dress'],
-        'shoes': ['sneakers', 'shoes'],
-        'accessories': ['watch', 'sunglasses', 'jewelry']
-      };
-      
-      const keywords = mappings[filterId] || [filterId];
-      const filtered = MOCK_PRODUCTS.filter(product => {
-        const name = product.name.toLowerCase();
-        return keywords.some(keyword => name.includes(keyword.toLowerCase()));
-      });
-      
-      setProducts(filtered);
+      setError(null);
     }
   };
 
@@ -1444,7 +1448,13 @@ const styles = StyleSheet.create({
   modalPrice: {
     fontSize: 24, // iOS large title
     fontWeight: '700',
-    marginBottom: 24,
+    marginBottom: 12, // Reduced margin to accommodate description
+  },
+  modalDescription: {
+    fontSize: 15,
+    lineHeight: 20,
+    marginBottom: 16,
+    opacity: 0.8,
   },
   buyButton: {
     flexDirection: 'row',

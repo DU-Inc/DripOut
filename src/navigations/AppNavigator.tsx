@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { ActivityIndicator, View } from "react-native";
 import Icon from 'react-native-vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import AuthScreen from "../screens/AuthScreen";
 import OverviewScreen from "../screens/OverviewScreen"; // Replace HomeScreen with OverviewScreen
 import SocialScreen from "../screens/SocialScreen"; // Import SocialScreen (renamed from HomeScreen)
@@ -12,9 +13,15 @@ import SettingsScreen from "../screens/profiles/SettingsScreen"; // Import Setti
 import ThreeDScreen from "../screens/3DScreen"; // Import 3D screen
 import ClosetScreen from "../screens/ClosetScreen"; // Import ClosetScreen
 import RecommendationScreen from "../screens/RecommendationScreen"; // Import RecommendationScreen
+import OnboardingScreen from "../screens/OnboardingScreen"; // Import Onboarding screen
+import OnboardingBrandsScreen from "../screens/OnboardingBrandsScreen"; // Import Onboarding Brands screen
+import OnboardingSizingScreen from "../screens/OnboardingSizingScreen"; // Import Onboarding Sizing screen
 import { useAuthSession } from "../hooks/useAuthSession";
 import { RootStackParamList, MainTabParamList } from "../types/NavigationTypes"; // Centralized types for navigation
 import { useTheme } from "../styles/themeprovider";
+import { auth } from "../Config/firebaseconfig";
+import { getUserPreferences } from "../services/firestoreService";
+import { OnboardingProvider } from "../context/OnboardingContext";
 
 // Create both stack and tab navigators
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -153,6 +160,7 @@ const MainTabNavigator = () => {
 const AppNavigator: React.FC = () => {
   const { initialRoute, loading } = useAuthSession();
 
+  // Display loading indicator during initialization
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
@@ -163,9 +171,40 @@ const AppNavigator: React.FC = () => {
 
   return (
     <Stack.Navigator>
-      {initialRoute === "Home" ? (
+      {initialRoute === "Auth" ? (
+        // Auth flow
+        <Stack.Screen
+          name="Auth"
+          component={AuthScreen}
+          options={{ headerShown: false }}
+        />
+      ) : initialRoute === "Onboarding" ? (
+        // Onboarding flow for new users
         <>
-          {/* Main Tab Navigator as the primary interface */}
+          <Stack.Screen
+            name="Onboarding"
+            component={OnboardingScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="OnboardingBrands"
+            component={OnboardingBrandsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="OnboardingSizing"
+            component={OnboardingSizingScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="MainTabs"
+            component={MainTabNavigator}
+            options={{ headerShown: false }}
+          />
+        </>
+      ) : initialRoute === "Home" ? (
+        // Main app flow for returning users
+        <>
           <Stack.Screen
             name="MainTabs"
             component={MainTabNavigator}
@@ -187,6 +226,7 @@ const AppNavigator: React.FC = () => {
           />
         </>
       ) : (
+        // Loading or other states
         <Stack.Screen
           name="Auth"
           component={AuthScreen}

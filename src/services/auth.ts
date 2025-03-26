@@ -56,6 +56,10 @@ export const signUp = async (
       userRole: 'user', // Default role
       userType: 'basic', // Default user type
     });
+    
+    // Set flag to identify new user for onboarding
+    await AsyncStorage.setItem('onboardingCompleted', 'false');
+    console.log("🟢🟢🟢 Set onboardingCompleted to FALSE for new user 🟢🟢🟢");
 
     console.log('Sign up successful. User:', userCredential.user.email);
     return userCredential;

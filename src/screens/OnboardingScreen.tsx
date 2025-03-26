@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Alert } from 'react-native';
 import { useTheme } from '../styles/themeprovider';
 import { lightTheme, darkTheme } from '../styles/themes';
 import { useNavigation } from '@react-navigation/native';
@@ -9,6 +9,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
 import { useOnboardingContext } from '../context/OnboardingContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 
 type OnboardingScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
 
@@ -29,6 +30,8 @@ const OnboardingScreen: React.FC = () => {
   const textColor = isDarkMode ? '#FFFFFF' : '#202020';
   const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
 
+  console.log("OnboardingScreen render");
+  
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
       <View style={styles.header}>
@@ -47,6 +50,7 @@ const OnboardingScreen: React.FC = () => {
             'Classic', 'Punk', 'Business', 'Retro', 'Sporty',
             'Urban', 'Chic', 'Elegant', 'Indie'
           ]}
+          onSelectionChange={() => {}}
         />
       </View>
 
@@ -55,12 +59,26 @@ const OnboardingScreen: React.FC = () => {
           <TouchableOpacity 
             style={styles.skipButton}
             onPress={async () => {
-              // Mark onboarding as completed
-              await AsyncStorage.setItem('onboardingCompleted', 'true');
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'MainTabs' }],
-              });
+              try {
+                // Mark onboarding as completed
+                await AsyncStorage.setItem('onboardingCompleted', 'true');
+                console.log("Skipping onboarding - navigating to main app");
+                
+                // Use replace instead of reset for more reliable navigation
+                navigation.navigate('MainTabs');
+                
+                // Add fallback in case direct navigation fails
+                setTimeout(() => {
+                  if (navigation.isFocused()) {
+                    console.log("Fallback navigation to brands screen");
+                    navigation.navigate('OnboardingBrands');
+                  }
+                }, 300);
+              } catch (error) {
+                console.error("Navigation error:", error);
+                // Fallback to next screen in onboarding flow
+                navigation.navigate('OnboardingBrands');
+              }
             }}
           >
             <Text style={[styles.skipText, { color: subTextColor }]}>Skip for now</Text>
@@ -68,7 +86,29 @@ const OnboardingScreen: React.FC = () => {
           
           <TouchableOpacity 
             style={[styles.button, { backgroundColor: mainColor }]}
-            onPress={() => navigation.navigate('OnboardingBrands')}
+            onPress={() => {
+              // Check if user has made any selections
+              if (selectedStyles.length === 0) {
+                // Show confirmation if no styles selected
+                Alert.alert(
+                  'No Styles Selected',
+                  'Are you sure you want to continue without selecting any styles? You can always update your preferences later.',
+                  [
+                    {
+                      text: 'Go Back',
+                      style: 'cancel',
+                    },
+                    {
+                      text: 'Continue',
+                      onPress: () => navigation.navigate('OnboardingBrands')
+                    },
+                  ]
+                );
+              } else {
+                // Proceed if styles are selected
+                navigation.navigate('OnboardingBrands');
+              }
+            }}
           >
             <Text style={styles.buttonText}>Continue</Text>
             <Icon name="arrow-forward" size={20} color="#FFFFFF" style={styles.buttonIcon} />
@@ -104,6 +144,7 @@ const styles = StyleSheet.create({
   bubblesContainer: {
     flex: 1,
     marginVertical: 20,
+    position: 'relative',
   },
   footer: {
     paddingHorizontal: 20,

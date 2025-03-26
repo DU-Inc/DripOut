@@ -4,6 +4,8 @@ import { ThemeProvider } from './src/styles/themeprovider';
 import AppNavigator from './src/navigations/AppNavigator'; // Import AppNavigator
 import { appStateManager } from './src/utils/appStateManager';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { OnboardingProvider } from './src/context/OnboardingContext';
 
 const App: React.FC = () => {
   useEffect(() => {
@@ -14,13 +16,17 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <NavigationContainer>
-          <AppNavigator />
-        </NavigationContainer>
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <OnboardingProvider>
+            <NavigationContainer>
+              <AppNavigator />
+            </NavigationContainer>
+          </OnboardingProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 };
 
