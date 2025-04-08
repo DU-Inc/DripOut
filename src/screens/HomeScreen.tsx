@@ -254,7 +254,7 @@ const HomeScreen: React.FC = () => {
   };
 
   // Colors based on theme
-  const mainColor = isDarkMode ? '#7C6BFF' : '#5245CC';
+  const mainColor = isDarkMode ? '#FF6B6B' : '#EF3D47';
   const bgColor = isDarkMode ? '#0A0A0F' : '#F7F7F7';
   const textColor = isDarkMode ? '#FFFFFF' : '#202020';
   const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
@@ -943,7 +943,7 @@ const HomeScreen: React.FC = () => {
 
             {refreshing && (
               <View style={styles.refreshIndicator}>
-                <ActivityIndicator size="small" color={isDarkMode ? '#9F91FF' : mainColor} />
+                <ActivityIndicator size="small" color={isDarkMode ? '#FF6B6B' : mainColor} />
                 <Text style={[
                   styles.refreshText, 
                   { color: isDarkMode ? '#B8B8CC' : subTextColor }

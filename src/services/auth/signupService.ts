@@ -1,5 +1,5 @@
 import { doc, setDoc, collection, query, where, getDocs, Timestamp, limit } from 'firebase/firestore';
-import { auth, db } from '../../config/firebaseconfig';
+import { auth, db } from '../../Config/firebaseconfig';
 import { sendAndStoreVerificationCode, verifyCode } from '../email/emailService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { appStateManager } from '../../utils/appStateManager';

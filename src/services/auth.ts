@@ -2,7 +2,7 @@ import {
   AuthError,
 } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs, limit, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../config/firebaseconfig';
+import { auth, db } from '../Config/firebaseconfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createUserProfile, updateBiometricPreference } from './firestoreService';
 import { authCache } from '../utils/authCacheManager';
@@ -460,8 +460,8 @@ export const signIn = async (identifier: string, password: string, useBiometric:
       // Update the user's last login timestamp in Firestore
       await updateDoc(doc(db, 'users', userId), {
         lastLoginAt: new Date(),
-        // If user is using biometric login, update that preference
-        ...(useBiometric !== undefined && { useBiometricAuth: useBiometric })
+        // TEMPORARILY DISABLED: Force biometric auth to false for debugging
+        useBiometricAuth: false
       });
     } else {
       // If user document doesn't exist (rare but possible), default to needing onboarding
@@ -479,7 +479,12 @@ export const signIn = async (identifier: string, password: string, useBiometric:
     }
     
     // Update app state based on user status
+    console.log("Auth service: Setting authenticated state to TRUE");
     appStateManager.setAuthenticated(true);
+    
+    // Verify the state was actually updated
+    console.log(`Auth service: Verified authenticated state is now: ${appStateManager.isAuthenticated()}`);
+    
     // Do not automatically set onboarding state - let the SignInScreen handle this
     // appStateManager.setOnboarding(needsOnboarding);
     

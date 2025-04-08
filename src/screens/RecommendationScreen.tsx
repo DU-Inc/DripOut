@@ -23,7 +23,7 @@ import FeatherIcon from 'react-native-vector-icons/Feather';
 import { useTheme } from '../styles/themeprovider';
 import { searchProducts, Product, checkApiHealth } from '../services/recommendationService';
 import { doc, getDoc } from 'firebase/firestore';
-import { db, auth } from '../config/firebaseconfig';
+import { db, auth } from '../Config/firebaseconfig';
 // No longer need custom bottom navigation bar with tab navigator
 
 // Get screen dimensions

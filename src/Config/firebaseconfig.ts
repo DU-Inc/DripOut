@@ -9,8 +9,8 @@ import {
   FIREBASE_APP_ID
 } from '@env';
 import { getFirestore } from 'firebase/firestore';
-import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
 import auth from '@react-native-firebase/auth';
+import { getStorage } from 'firebase/storage';
 
 // Check if all Firebase environment variables are present
 if (
@@ -38,15 +38,12 @@ const firebaseConfig = {
 console.log('Initializing Firebase app...');
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firebase Auth with AsyncStorage persistence
-// This is for the web SDK if you're using it alongside RN Firebase
-const webAuth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage)
-});
-console.log('Firebase Auth initialized with AsyncStorage persistence');
-
 // Initialize Firestore
 export const db = getFirestore(app);
 
-// Export auth from react-native-firebase
-export { auth, webAuth };
+// Initialize Firebase Storage
+export const storage = getStorage(app);
+
+// Export auth from react-native-firebase ONLY (standardizing on RN Firebase SDK)
+console.log('Using React Native Firebase Auth');
+export { auth };

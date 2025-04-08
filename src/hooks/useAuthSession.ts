@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { auth } from '../config/firebaseconfig';
+import { auth } from '../Config/firebaseconfig';
 import { restoreAuthSession } from '../utils/restoreAuth';
 import { authCache } from '../utils/authCacheManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';

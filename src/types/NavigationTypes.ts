@@ -22,6 +22,9 @@ export type RootStackParamList = {
   OnboardingBrands: undefined;
   OnboardingSizing: undefined;
   
+  // Social features
+  CreatePostScreen: undefined;
+  
   // Legacy types for backward compatibility
   Home: undefined;
   UserProfileScreen: undefined;

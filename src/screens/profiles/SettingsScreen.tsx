@@ -15,7 +15,7 @@ import {
   Platform
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { db } from '../../config/firebaseconfig';
+import { db } from '../../Config/firebaseconfig';
 import { doc, onSnapshot, updateDoc, Timestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { UserProfile } from '../../services/firestoreService';

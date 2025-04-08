@@ -129,7 +129,8 @@ const styles = StyleSheet.create({
 
 // Main RootNavigator component just renders the logic component
 const RootNavigator = () => {
-  console.log('Rendering RootNavigator -> NavigationLogic');
+  console.log('⚠️ Rendering RootNavigator -> NavigationLogic');
+  console.log('⚠️ NOTE: This component may not be used if App.tsx is using AppNavigator directly');
   return <NavigationLogic />;
 }
 

@@ -48,7 +48,7 @@ const OnboardingSizingScreen: React.FC = () => {
   const [currentOptions, setCurrentOptions] = useState<string[]>([]);
 
   // Custom colors for a luxurious feel
-  const mainColor = isDarkMode ? '#7C6BFF' : '#5245CC';
+  const mainColor = isDarkMode ? '#FF6B6B' : '#EF3D47';
   const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
   const textColor = isDarkMode ? '#FFFFFF' : '#202020';
   const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';

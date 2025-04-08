@@ -5,7 +5,7 @@ import { googleSignIn } from '../services/firebase';
 import { Platform } from 'react-native';
 import { FIREBASE_CLIENT_ID } from '@env';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../config/firebaseconfig';
+import { db } from '../Config/firebaseconfig';
 import { User } from 'firebase/auth';
 
 // Initialize Google Sign In

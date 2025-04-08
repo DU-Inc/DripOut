@@ -18,9 +18,11 @@ import OnboardingScreen from "../screens/OnboardingScreen"; // Import Onboarding
 import OnboardingBrandsScreen from "../screens/OnboardingBrandsScreen"; // Import Onboarding Brands screen
 import OnboardingSizingScreen from "../screens/OnboardingSizingScreen"; // Import Onboarding Sizing screen
 import HomeScreen from "../screens/HomeScreen";
+import CreatePostScreen from "../screens/CreatePostScreen"; // Import CreatePostScreen
 import { RootStackParamList, MainTabParamList } from "../types/NavigationTypes"; // Centralized types for navigation
 import { useTheme } from "../styles/themeprovider";
-import { auth } from "../config/firebaseconfig";
+import { auth } from "../Config/firebaseconfig";
+import { onAuthStateChanged, User, getAuth } from 'firebase/auth'; // Import getAuth
 import { getUserPreferences } from "../services/firestoreService";
 import { OnboardingProvider } from "../context/OnboardingContext";
 import { appStateManager } from "../utils/appStateManager";
@@ -197,113 +199,183 @@ const OnboardingNavigator = () => {
 const AppNavigator: React.FC = () => {
   const navigationRef = useNavigationContainerRef();
   const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(() => appStateManager.isAuthenticated());
+  // Initialize isAuthenticated based on Firebase Auth state eventually
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [isOnboarding, setIsOnboarding] = useState(() => appStateManager.isOnboarding());
   const [isSignupSuccess, setIsSignupSuccess] = useState(() => appStateManager.isSignupInProgress());
   const [showOptionsSheet, setShowOptionsSheet] = useState(false);
 
-  // Initialize appStateManager on first render
+  // Initialize appStateManager on first render and set up Firebase listener
   useEffect(() => {
-    const initializeAuth = async () => {
+    let isMounted = true; // Flag to prevent state updates on unmounted component
+
+    const initializeApp = async () => {
       try {
-        console.log('AppNavigator: Initializing auth state...');
-        
-        // Check for biometric credentials before initializing
-        // This helps to preload authentication data for faster sign-in experience
-        const biometricIdentifier = await AsyncStorage.getItem('biometricAuthIdentifier');
-        const biometricEnabled = await AsyncStorage.getItem('useBiometricAuth');
-        
-        if (biometricIdentifier && biometricEnabled === 'true') {
-          console.log('AppNavigator: Biometric credentials found, initializing with priority');
-        }
-        
-        // Initialize the appStateManager to check for existing auth tokens
+        console.log('AppNavigator: Initializing app state...');
+        // Check app state manager first for quick initial state (optional but can speed up UI)
         await appStateManager.initialize();
-        
-        // After initialization, get current states
-        const authenticated = appStateManager.isAuthenticated();
-        const onboarding = appStateManager.isOnboarding();
-        const signupSuccess = appStateManager.isSignupInProgress();
-        const showOptions = appStateManager.shouldShowOnboardingOptions();
-        
-        console.log(`AppNavigator: Initial auth state - Authenticated=${authenticated}, Onboarding=${onboarding}, SignupSuccess=${signupSuccess}, ShowOptions=${showOptions}`);
-        
-        setIsAuthenticated(authenticated);
-        setIsOnboarding(onboarding && !showOptions); // Only set onboarding if we don't need to show options
-        setIsSignupSuccess(signupSuccess);
-        setShowOptionsSheet(showOptions);
+        if (isMounted) {
+          setIsOnboarding(appStateManager.isOnboarding());
+          setIsSignupSuccess(appStateManager.isSignupInProgress());
+          setShowOptionsSheet(appStateManager.shouldShowOnboardingOptions());
+          console.log(`AppNavigator: Initial state from AppStateManager - Onboarding=${appStateManager.isOnboarding()}, SignupSuccess=${appStateManager.isSignupInProgress()}, ShowOptions=${appStateManager.shouldShowOnboardingOptions()}`);
+        }
       } catch (error) {
-        console.error('AppNavigator: Error initializing auth state:', error);
-        // Default to not authenticated on error
-        setIsAuthenticated(false);
-        setIsOnboarding(false);
-        setIsSignupSuccess(false);
-        setShowOptionsSheet(false);
-      } finally {
-        // Finish loading after a short delay to ensure smooth transition
-        setTimeout(() => {
-          setIsLoading(false);
-        }, 300);
+        console.error('AppNavigator: Error initializing AppStateManager:', error);
+        if (isMounted) {
+           // Default states on error
+           setIsOnboarding(false);
+           setIsSignupSuccess(false);
+           setShowOptionsSheet(false);
+        }
       }
     };
 
-    initializeAuth();
-  }, []);
+    initializeApp();
 
-  // Subscribe to auth state changes
+    // Firebase auth state listener
+    const unsubscribeFirebase = onAuthStateChanged(getAuth(), (user: User | null) => {
+      console.log('AppNavigator: Firebase Auth state changed ->', user ? `User(${user.uid})` : 'No User');
+      if (isMounted) {
+        const newAuthState = !!user;
+        setIsAuthenticated(newAuthState);
+
+        // Sync AppStateManager with Firebase state
+        if (appStateManager.isAuthenticated() !== newAuthState) {
+           appStateManager.setAuthenticated(newAuthState);
+        }
+
+        // Reset onboarding/options sheet if user logs out
+        if (!newAuthState) {
+          setIsOnboarding(false);
+          setShowOptionsSheet(false);
+          appStateManager.setOnboarding(false); // Also update manager state
+          appStateManager.setShowOnboardingOptions(false);
+        }
+
+        // Only stop loading once we have a definitive auth state from Firebase
+        if (isLoading) {
+          // Use a small delay after getting the first Firebase state
+          setTimeout(() => {
+            if (isMounted) setIsLoading(false);
+          }, 150); // Slightly shorter delay as Firebase is the source of truth
+        }
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      isMounted = false;
+      console.log('AppNavigator: Cleaning up Firebase Auth listener');
+      unsubscribeFirebase();
+    };
+  }, []); // Run only once on mount
+
+  // Subscribe to all app state changes (Auth, Onboarding, Signup, Options Sheet)
   useEffect(() => {
+    let isMounted = true;
+    
     // Subscribe to authentication state changes
     const unsubscribeAuth = appStateManager.subscribeToAuthState((isAuth) => {
-      console.log('AppNavigator: Authentication state changed ->', isAuth);
-      setIsAuthenticated(isAuth);
+      if (isMounted) {
+        console.log('AppNavigator: Authentication state changed (manager) ->', isAuth);
+        // Force a complete re-render by using setTimeout
+        setTimeout(() => {
+          if (isMounted) {
+            console.log('AppNavigator: Setting authenticated state to', isAuth);
+            
+            // CRITICAL: Specifically handle auth changing to true when already mounted
+            if (isAuth && !isAuthenticated) {
+              console.log('🧨 CRITICAL AUTH CHANGE: Becoming authenticated while navigator already mounted');
+              
+              // Force a complete navigator reset in case we're stuck in a screen
+              // We'll first set the state
+              setIsAuthenticated(isAuth);
+              
+              // Then force the UI to update 
+              setTimeout(() => {
+                if (isMounted) {
+                  console.log('🧨 FORCING RESET on authentication state change');
+                  // Force the component to re-render completely from scratch
+                  setIsLoading(true);
+                  setTimeout(() => {
+                    if (isMounted) {
+                      setIsLoading(false);
+                    }
+                  }, 50);
+                }
+              }, 100);
+            } else {
+              // Normal state update for other cases
+              setIsAuthenticated(isAuth);
+            }
+          }
+        }, 100);
+      }
     });
-    
+
     // Subscribe to onboarding state changes
     const unsubscribeOnboarding = appStateManager.subscribeToOnboardingState((isOnboard) => {
-      console.log('AppNavigator: Onboarding state changed ->', isOnboard);
-      // Only update onboarding if we don't need to show options
-      if (!appStateManager.shouldShowOnboardingOptions()) {
-        setIsOnboarding(isOnboard);
+      if (isMounted) {
+        console.log('AppNavigator: Onboarding state changed (manager) ->', isOnboard);
+        // Only update onboarding if we don't need to show options
+        if (!appStateManager.shouldShowOnboardingOptions()) {
+          setIsOnboarding(isOnboard);
+        }
       }
     });
 
     // Subscribe to signup success state changes
     const unsubscribeSignupSuccess = appStateManager.subscribeToSignupProgress((isSuccess) => {
-      console.log('AppNavigator: Signup success state changed ->', isSuccess);
-      setIsSignupSuccess(isSuccess);
+       if (isMounted) {
+         console.log('AppNavigator: Signup success state changed (manager) ->', isSuccess);
+         setIsSignupSuccess(isSuccess);
+       }
     });
-    
+
     // Subscribe to options sheet state changes
     const unsubscribeOptionsSheet = appStateManager.subscribeToOptionsSheetState((showSheet: boolean) => {
-      console.log('AppNavigator: Options sheet state changed ->', showSheet);
-      setShowOptionsSheet(showSheet);
-      
-      // If showing options sheet, don't show onboarding yet
-      if (showSheet) {
-        setIsOnboarding(false);
+      if (isMounted) {
+        console.log('AppNavigator: Options sheet state changed (manager) ->', showSheet);
+        setShowOptionsSheet(showSheet);
+
+        // If showing options sheet, don't show onboarding yet
+        if (showSheet) {
+          setIsOnboarding(false);
+        }
       }
     });
 
     // Cleanup function to unsubscribe from all listeners
     return () => {
-      console.log('AppNavigator: Cleaning up auth state listeners');
+      isMounted = false;
+      console.log('AppNavigator: Cleaning up all state listeners');
       unsubscribeAuth();
       unsubscribeOnboarding();
       unsubscribeSignupSuccess();
       unsubscribeOptionsSheet();
     };
-  }, []);
+  }, []); // Run only once on mount
 
   // Determine what screens to show
-  const shouldShowAuth = !isAuthenticated;
+  console.log(`AppNavigator: Current state - Auth=${isAuthenticated}, Onboarding=${isOnboarding}, ShowOptions=${showOptionsSheet}, SignupSuccess=${isSignupSuccess}`);
+  
+  // Calculate rendering flags
+  const shouldShowAuth = isAuthenticated === false;
   // Only show onboarding if authenticated, needs onboarding, and not showing options sheet
-  const shouldShowOnboarding = isAuthenticated && isOnboarding && !showOptionsSheet;
+  const shouldShowOnboarding = isAuthenticated === true && isOnboarding && !showOptionsSheet;
   // Show auth navigator (with SignIn screen) if showing options sheet
-  const shouldShowAuthForOptions = isAuthenticated && showOptionsSheet;
-  const shouldShowMainApp = isAuthenticated && !isOnboarding && !showOptionsSheet;
+  const shouldShowAuthForOptions = isAuthenticated === true && showOptionsSheet;
+  const shouldShowMainApp = isAuthenticated === true && !isOnboarding && !showOptionsSheet;
+  
+  console.log('🔑 AUTH DECISION: isAuthenticated:', isAuthenticated, 'isOnboarding:', isOnboarding, 'showOptionsSheet:', showOptionsSheet);
+  console.log('🔑 RENDER DECISION: Auth:', shouldShowAuth, 'Onboarding:', shouldShowOnboarding, 'MainApp:', shouldShowMainApp);
+  
+  console.log(`AppNavigator: Decision flags - ShowAuth=${shouldShowAuth}, ShowOnboarding=${shouldShowOnboarding}, ShowOptions=${shouldShowAuthForOptions}, ShowMainApp=${shouldShowMainApp}`);
 
-  // Display loading indicator during initialization
-  if (isLoading) {
+  // Display loading indicator until Firebase auth state is confirmed
+  if (isLoading || isAuthenticated === null) { // Check for null initial state too
+    console.log('⏳ LOADING STATE - Waiting for auth state to be determined');
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
         <ActivityIndicator size="large" />
@@ -316,6 +388,7 @@ const AppNavigator: React.FC = () => {
   // Layered rendering approach
   if (shouldShowAuth || shouldShowAuthForOptions) {
     // Auth flow - Use AuthNavigator for user not authenticated or for options sheet
+    console.log('🔒 RENDERING AUTH UI - AuthNavigator will be shown');
     return (
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -332,6 +405,7 @@ const AppNavigator: React.FC = () => {
     );
   } else {
     // Main app flow - Use tab navigator for returning authenticated users
+    console.log('🔵 RENDERING MAIN APP UI - MainTabNavigator will be shown');
     // Ensure we're showing the tab navigator with ProfileTab
     return (
       <NavigationContainer ref={navigationRef}>
@@ -350,6 +424,13 @@ const AppNavigator: React.FC = () => {
           <Stack.Screen 
             name="SettingsScreen" 
             component={SettingsScreen} 
+            options={{ headerShown: false }} 
+          />
+          
+          {/* Social feature screens */}
+          <Stack.Screen 
+            name="CreatePostScreen" 
+            component={CreatePostScreen} 
             options={{ headerShown: false }} 
           />
           

@@ -1,5 +1,5 @@
 import { doc, setDoc, getDoc, DocumentReference, DocumentData } from 'firebase/firestore';
-import { db } from '../config/firebaseconfig';
+import { db } from '../Config/firebaseconfig';
 
 // Add global setTimeout type declaration at the top of the file
 declare const setTimeout: (callback: () => void, ms: number) => number;

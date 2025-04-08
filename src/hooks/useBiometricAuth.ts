@@ -28,9 +28,9 @@ const mockBiometricAuth = async (): Promise<boolean> => {
 
 // Check if device supports biometrics
 const checkBiometricsSupport = async (): Promise<boolean> => {
-  // In a real implementation, we would check device capabilities
-  // For now, assume all devices support it for development purposes
-  return true;
+  // TEMPORARILY DISABLED for debugging sign-in issues
+  console.log('Biometric authentication temporarily disabled for debugging');
+  return false;
 };
 
 // Helper to get label based on platform
@@ -43,14 +43,33 @@ const getBiometricLabel = (): string => {
 };
 
 export const useBiometricAuth = () => {
+  // TEMPORARILY DISABLED: Force isAvailable to false for debugging
   const [isAvailable, setIsAvailable] = useState<boolean>(false);
   const [isEnabled, setIsEnabled] = useState<boolean>(false);
   const [biometricType, setBiometricType] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false); // Set to false to prevent loading state
 
   // Check device capabilities and user preferences
   useEffect(() => {
     const checkBiometrics = async () => {
+      // TEMPORARILY DISABLED: Force all biometric states to false and skip initialization
+      console.log('⚠️ Biometric authentication temporarily disabled for debugging');
+      setIsAvailable(false);
+      setIsEnabled(false);
+      setBiometricType('Disabled');
+      setIsLoading(false);
+      
+      // Clear any existing biometric credentials
+      try {
+        await AsyncStorage.removeItem('biometricAuthIdentifier');
+        await AsyncStorage.removeItem('biometricAuthPassword');
+        await AsyncStorage.removeItem('useBiometricAuth');
+      } catch (error) {
+        console.error('Error clearing biometric credentials:', error);
+      }
+      
+      // Original implementation - temporarily commented out
+      /*
       setIsLoading(true);
       try {
         // Check if device supports biometrics
@@ -72,6 +91,7 @@ export const useBiometricAuth = () => {
       } finally {
         setIsLoading(false);
       }
+      */
     };
     
     checkBiometrics();

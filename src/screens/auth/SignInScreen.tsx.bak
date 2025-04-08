@@ -26,7 +26,7 @@ import { text } from '../../styles/theme/text';
 import { signIn, resetPassword, setBiometricAuth, isBiometricAuthEnabled, AuthErrorResponse, determineIdentifierType, IdentifierType, getOnboardingProgress } from '../../services/auth';
 import { appStateManager } from '../../utils/appStateManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CommonActions, StackActions, useFocusEffect } from '@react-navigation/native';
+import { CommonActions, useFocusEffect } from '@react-navigation/native';
 import { useBiometricAuth } from '../../hooks/useBiometricAuth';
 import CodeInput from '../../components/auth/CodeInput';
 import { auth } from '../../Config/firebaseconfig';
@@ -1131,9 +1131,6 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
   
   // Handle home button press in options sheet
   const handleProceedToHome = async () => {
-    // Log navigation state to help debug
-    console.log('🔍 NAVIGATION STATE BEFORE PROCEED TO HOME:', 
-                JSON.stringify(navigation.getState(), null, 2));
     console.log('User chose to proceed to home screen');
     
     // Hide the options sheet
@@ -1192,40 +1189,10 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       appStateManager.setAuthenticated(true);
       appStateManager.setOnboarding(false);
       
-      // Update app state first - AppNavigator should handle UI changes
-      console.log("Authentication complete, app state updated to show main app");
-      
-      // As a fallback, try multiple navigation approaches
-      console.log('🧭 ATTEMPTING NAVIGATION FALLBACKS');
-      try {
-        // First try: Reset to MainTabs
-        console.log('🧭 TRYING MainTabs RESET');
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'MainTabs' }]
-        });
-      } catch (error1) {
-        console.log('🧭❌ MainTabs RESET FAILED:', error1);
-        
-        try {
-          // Second try: Navigate to Home
-          console.log('🧭 TRYING Home NAVIGATION');
-          navigation.navigate('Home');
-        } catch (error2) {
-          console.log('🧭❌ Home NAVIGATION FAILED:', error2);
-          
-          try {
-            // Last resort: Replace current screen with HomeScreen directly
-            console.log('🧭 TRYING HomeTab REPLACE');
-            navigation.dispatch(
-              StackActions.replace('HomeTab')
-            );
-          } catch (error3) {
-            console.log('🧭❌ ALL NAVIGATION ATTEMPTS FAILED:', error3);
-            console.log('🧭 RELYING ON APP STATE CHANGE TO UPDATE UI');
-          }
-        }
-      }
+      // No need to navigate as the AppNavigator will automatically show the main app
+      // when authenticated and not onboarding
+      console.log('Authentication complete, app state updated to show main app')
+      );
     } catch (error) {
       console.error('Error updating onboarding status:', error);
       setLoading(false);
@@ -1277,7 +1244,8 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       
       // No need to navigate as the AppNavigator will automatically show the main app
       // when authenticated and not onboarding
-      console.log('Authentication complete, app state updated to show main app');
+      console.log('Authentication complete, app state updated to show main app')
+      );
     } catch (error) {
       console.error('Error updating onboarding status:', error);
       setLoading(false);
@@ -1292,33 +1260,6 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
 
   // Handle sign in with Firebase
   const handleSignIn = async () => {
-    // Debug navigation state to understand context
-    console.log('🔍 NAVIGATION STATE BEFORE SIGN IN:', 
-                JSON.stringify(navigation.getState(), null, 2));
-    
-    // URGENT FIX - Force screen to disappear
-    const moveToMainApp = () => {
-      const stack = navigation.getState(); 
-      console.log('🚀 FORCE SCREEN CHANGE - Current screen:', stack?.routes?.[stack.index]?.name);
-      try {
-        // Get the navigation's parent container which should have the MainTabs route
-        const parent = navigation.getParent();
-        if (parent) {
-          console.log('🚀 FOUND PARENT NAVIGATOR, attempting force navigation');
-          // Try to navigate directly to MainTabs via the parent
-          parent.navigate('MainTabs');
-        } else {
-          console.log('🚀 NO PARENT FOUND, trying to navigate out of Auth');
-          // If no parent, try to completely replace the Auth stack with Home
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Home' }]
-          });
-        }
-      } catch (e) {
-        console.log('🚀 EMERGENCY NAVIGATION FAILED:', e);
-      }
-    };
     if (!isTermsChecked) {
       Alert.alert("Terms Agreement Required", text.auth.validation.terms.required);
       return;
@@ -1376,15 +1317,6 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       console.log('User successfully signed in');
       // Note: authentication state was already set to true by the auth service
       
-      // Add a safety timeout to escape auth screen after any processing is complete
-      const safetyTimeout = setTimeout(() => {
-        console.log('🚨 SAFETY TIMEOUT - Force checking navigation');
-        if (appStateManager.isAuthenticated() && !appStateManager.isOnboarding()) {
-          console.log('🚨 SAFETY NAVIGATION TRIGGERED - We should be in main app by now');
-          moveToMainApp();
-        }
-      }, 2000);
-      
       // Get user ID for fetching details
       const userId = result.userCredential.user.uid;
       console.log('User ID:', userId);
@@ -1409,18 +1341,14 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
         // Set loading to false before navigation
         setLoading(false);
         
-        // Update app state to show main app 
-        // AppNavigator will handle the UI update based on these state changes
-        appStateManager.setAuthenticated(true);
-        appStateManager.setOnboarding(false);
-        
-        console.log("Authentication complete, app state updated to show main app");
-        
-        // Try force navigation after a brief delay
-        setTimeout(() => {
-          console.log('🚀 ATTEMPTING FORCE NAVIGATION TO MAIN APP');
-          moveToMainApp();
-        }, 500);
+        // Actively navigate to main tab interface
+        // This replaces the entire navigation stack so the user can't go back to signin
+        navigation.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: 'MainTabs' }]
+          })
+        );
       }
     } catch (error) {
       setLoading(false);

@@ -200,9 +200,9 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
 
   // Define our colors based on theme - Enhanced for dark mode
   const bgColor = isDarkMode ? 'rgba(10, 10, 15, 0.95)' : 'rgba(255, 255, 255, 0.92)';
-  const activeColor = isDarkMode ? '#9F91FF' : '#5245CC';
+  const activeColor = isDarkMode ? '#FF6B6B' : '#EF3D47';
   const inactiveColor = isDarkMode ? '#6D6D88' : '#AAAAAA';
-  const activeBgColor = isDarkMode ? 'rgba(124, 107, 255, 0.18)' : 'rgba(82, 69, 204, 0.08)';
+  const activeBgColor = isDarkMode ? 'rgba(255, 107, 107, 0.18)' : 'rgba(239, 61, 71, 0.08)';
 
   // Enhanced styles specifically for dark mode
   const navBarStyle = isDarkMode ? {
@@ -210,8 +210,8 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
     borderRadius: 24,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(124, 107, 255, 0.15)',
-    shadowColor: '#7C6BFF',
+    borderColor: 'rgba(255, 107, 107, 0.15)',
+    shadowColor: '#FF6B6B',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.2,
     shadowRadius: 16,
@@ -220,10 +220,10 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
 
   // Enhanced center button for dark mode
   const centerButtonStyle = isDarkMode ? {
-    backgroundColor: 'rgba(124, 107, 255, 1)',
+    backgroundColor: 'rgba(255, 107, 107, 1)',
     borderWidth: 2,
-    borderColor: '#A394FF',
-    shadowColor: '#7C6BFF',
+    borderColor: '#FF8080',
+    shadowColor: '#FF6B6B',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
     shadowRadius: 12,
@@ -282,7 +282,7 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
                 ...(isDarkMode ? {
                   borderRadius: 18,
                   borderWidth: activeTab === 'discover' ? 1 : 0,
-                  borderColor: 'rgba(124, 107, 255, 0.3)'
+                  borderColor: 'rgba(255, 107, 107, 0.3)'
                 } : {})
               }
             ]} 

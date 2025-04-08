@@ -21,6 +21,9 @@ import {
   PanResponder,
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../types/NavigationTypes';
 
 // Add global setTimeout type declaration
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -232,7 +235,10 @@ const TRENDING_TOPICS = [
 const { width } = Dimensions.get('window');
 const swipeThreshold = width * 0.3; // 30% of screen width
 
+type SocialScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
 const SocialScreen: React.FC = () => {
+  const navigation = useNavigation<SocialScreenNavigationProp>();
   const { isDarkMode } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [refreshing, setRefreshing] = useState(false);
@@ -260,7 +266,7 @@ const SocialScreen: React.FC = () => {
   };
 
   // Colors based on theme
-  const mainColor = isDarkMode ? '#7C6BFF' : '#5245CC';
+  const mainColor = isDarkMode ? '#FF6B6B' : '#EF3D47';
   const bgColor = isDarkMode ? '#0A0A0F' : '#F7F7F7';
   const textColor = isDarkMode ? '#FFFFFF' : '#202020';
   const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
@@ -954,7 +960,7 @@ const SocialScreen: React.FC = () => {
           isDarkMode && { 
             backgroundColor: 'rgba(22, 23, 31, 0.8)', 
             borderBottomWidth: 1, 
-            borderBottomColor: 'rgba(124, 107, 255, 0.1)'
+            borderBottomColor: 'rgba(239, 61, 71, 0.1)'
           }
         ]}
       >
@@ -962,7 +968,7 @@ const SocialScreen: React.FC = () => {
           <Text style={[
             styles.headerTitle, 
             { color: textColor },
-            isDarkMode && { textShadowColor: 'rgba(124, 107, 255, 0.3)', textShadowOffset: {width: 0, height: 0}, textShadowRadius: 8 }
+            isDarkMode && { textShadowColor: 'rgba(239, 61, 71, 0.3)', textShadowOffset: {width: 0, height: 0}, textShadowRadius: 8 }
           ]}>
             Fashion Feed
           </Text>
@@ -1030,7 +1036,7 @@ const SocialScreen: React.FC = () => {
 
             {refreshing && (
               <View style={styles.refreshIndicator}>
-                <ActivityIndicator size="small" color={isDarkMode ? '#9F91FF' : mainColor} />
+                <ActivityIndicator size="small" color={isDarkMode ? '#FF6B6B' : mainColor} />
                 <Text style={[
                   styles.refreshText, 
                   { color: isDarkMode ? '#B8B8CC' : subTextColor }
@@ -1045,6 +1051,26 @@ const SocialScreen: React.FC = () => {
           <View style={{ height: 90 }} />
         }
       />
+
+      {/* Floating Action Button for creating posts */}
+      <TouchableOpacity 
+        style={[
+          styles.createPostButton, 
+          { backgroundColor: mainColor },
+          isDarkMode && { 
+            shadowColor: 'rgba(239, 61, 71, 0.7)',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.5,
+            shadowRadius: 8,
+          }
+        ]}
+        onPress={() => {
+          console.log("Navigate to create post screen");
+          navigation.navigate('CreatePostScreen');
+        }}
+      >
+        <Icon name="add" size={30} color="#FFFFFF" />
+      </TouchableOpacity>
 
       {/* Messages Modal */}
       {renderMessagesModal()}
@@ -1097,6 +1123,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(150, 150, 150, 0.1)',
+  },
+  createPostButton: {
+    position: 'absolute',
+    right: 20,
+    bottom: 100, // Positioned above the tab bar
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 1000,
   },
   listContent: {
     paddingHorizontal: 16,

@@ -8,7 +8,7 @@ import HomeScreen from '../HomeScreen';
 import { createWelcomeStyles } from '../../styles/components/welcome.styles';
 import { WelcomeScreenProps } from '../../types/components';
 import ProviderLoginModal from '../../components/common/ProviderLoginModal';
-import { auth } from '../../config/firebaseconfig';
+import { auth } from '../../Config/firebaseconfig';
 // Google auth temporarily disabled
 import useGoogleAuth from '../../hooks/useGoogleAuth'; // Using stub implementation
 

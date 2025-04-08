@@ -21,8 +21,8 @@ import {
   FlatList,
   Pressable
 } from 'react-native';
-import { db } from '../../config/firebaseconfig';
-import { auth } from '../../config/firebaseconfig';
+import { db } from '../../Config/firebaseconfig';
+import { auth } from '../../Config/firebaseconfig';
 import { createUserProfile, UserProfile, getUserPreferences, UserPreferences, setUserPreferences } from '../../services/firestoreService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootStackParamList } from '../../types/NavigationTypes';

@@ -2292,26 +2292,65 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
   };
   
   // Handle home option
-  const handleProceedToHome = () => {
+  const handleProceedToHome = async () => {
     setShowOptionsSheet(false);
     
-    // Set authenticated state and navigate to home
-    setTimeout(() => {
+    // Set loading state
+    setLoading(true);
+    
+    try {
+      // Verify Firebase authentication state first
+      const currentUser = auth().currentUser;
+      if (!currentUser) {
+        console.error('No authenticated user found when proceeding to home');
+        Alert.alert('Error', 'Authentication issue. Please try again.');
+        setLoading(false);
+        return;
+      }
+      
+      // Refresh token to ensure Firebase session is valid
+      try {
+        await currentUser.getIdToken(true);
+        console.log('Firebase token refreshed successfully');
+      } catch (tokenError) {
+        console.error('Failed to refresh Firebase token:', tokenError);
+        Alert.alert('Error', 'Authentication session expired. Please sign in again.');
+        setLoading(false);
+        return;
+      }
+      
+      // Update the user's onboarding status in Firestore
+      const userDocRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userDocRef, {
+        onboardingCompleted: true,
+        updatedAt: new Date()
+      });
+      
+      // Update AsyncStorage
+      await AsyncStorage.setItem('onboardingCompleted', 'true');
+      
       // End signup success flow
       appStateManager.setSignupInProgress(false);
       
-      // User has successfully signed up - set authenticated state
+      // Ensure user is properly marked as authenticated in app state
       appStateManager.setAuthenticated(true);
       
       // Ensure onboarding flag is false
       appStateManager.setOnboarding(false);
       
-      // Navigate to Welcome screen which will now show the main content (not auth overlay)
+      // Turn off loading
+      setLoading(false);
+      
+      // Navigate to main screen
       navigation.reset({
         index: 0,
-        routes: [{ name: 'Welcome' }]
+        routes: [{ name: 'MainTabs' }] // Changed to MainTabs instead of Welcome
       });
-    }, 300);
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      setLoading(false);
+      Alert.alert('Error', 'Failed to update your profile. Please try again.');
+    }
   };
 
   // Personal details are valid when all fields are valid

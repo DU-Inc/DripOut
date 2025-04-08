@@ -14,7 +14,7 @@ import {
   TouchableOpacity, 
   Switch 
 } from 'react-native';
-import { db } from '../../config/firebaseconfig';
+import { db } from '../../Config/firebaseconfig';
 import { getAuth } from 'firebase/auth';
 import { setUserPreferences, UserPreferences } from '../../services/firestoreService';
 import { doc, onSnapshot } from 'firebase/firestore'; // Import onSnapshot for real-time updates
@@ -37,7 +37,7 @@ const UserPreferencesScreen: React.FC = () => {
   const secondaryTextColor = isDarkMode ? '#A8A8A8' : '#757575';
   const cardBgColor = isDarkMode ? '#1E1E1E' : '#FFFFFF';
   const borderColor = isDarkMode ? '#2A2A2A' : '#EEEEEE';
-  const accentColor = isDarkMode ? '#7562FA' : '#5245CC';
+  const accentColor = isDarkMode ? '#FF6B6B' : '#EF3D47';
 
   useEffect(() => {
     const userId = auth.currentUser?.uid;

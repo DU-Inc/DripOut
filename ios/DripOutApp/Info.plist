@@ -33,6 +33,14 @@
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
+	<key>NSCameraUsageDescription</key>
+	<string>DripOut needs access to your camera to take photos for creating posts</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>DripOut needs access to your photo library to select images for creating posts</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>DripOut needs access to your microphone for recording videos</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>DripOut needs permission to save photos to your gallery</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>AntDesign.ttf</string>

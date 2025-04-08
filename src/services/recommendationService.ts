@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 // API configuration
-const API_BASE_URL = 'http://192.168.1.231:8082'; // For local development
-// const API_BASE_URL = "10.41.128.144"
+// const API_BASE_URL = 'http://192.168.1.231:8082'; // For local development
+const API_BASE_URL = "10.41.97.93";
 console.log('📡 Recommendation API configured with base URL:', API_BASE_URL);
 
 // Initialize API client

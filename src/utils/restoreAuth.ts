@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth } from '../config/firebaseconfig';
+import { auth } from '../Config/firebaseconfig';
 import { authCache } from './authCacheManager';
 
 export const restoreAuthSession = async () => {
