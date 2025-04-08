@@ -22,6 +22,9 @@ import {
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 
+// Add global setTimeout type declaration
+declare const setTimeout: (callback: () => void, ms: number) => number;
+
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -38,6 +41,33 @@ import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
 // No longer need custom bottom navigation bar with tab navigator
 import { useTheme } from '../styles/themeprovider';
+
+// Add type definition for fashion post
+interface FashionPost {
+  id: string;
+  title: string;
+  gallery: string[];
+  aesthetic: string;
+  caption: string;
+  tags: string[];
+  outfitItems: Array<{
+    name: string;
+    brand: string;
+  }>;
+  publishedDate: string;
+  comments: Array<{
+    id: string;
+    username: string;
+    text: string;
+    timeAgo: string;
+    likes: number;
+  }>;
+  commentCount: number;
+  upvotes: number;
+  saves: number;
+  isSaved: boolean;
+  isUpvoted: boolean;
+}
 
 // Generate fashion inspiration posts for the feed
 const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
@@ -338,7 +368,7 @@ const SocialScreen: React.FC = () => {
   }, []);
   
   // Create pan responder for post
-  const createPanResponderForPost = (postId) => {
+  const createPanResponderForPost = (postId: string) => {
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
@@ -353,7 +383,7 @@ const SocialScreen: React.FC = () => {
   };
   
   // Handle swipe end
-  const handleSwipeEnd = (postId, gestureState) => {
+  const handleSwipeEnd = (postId: string, gestureState: { dx: number }) => {
     const { dx } = gestureState;
     const currentImageIndex = activeGalleryIndex[postId] || 0;
     const post = FASHION_POSTS.find(p => p.id === postId);
@@ -378,7 +408,7 @@ const SocialScreen: React.FC = () => {
   };
 
   // Render fashion inspiration post
-  const renderFashionPost = ({ item, index }) => {
+  const renderFashionPost = ({ item, index }: { item: FashionPost; index: number }) => {
     // Use the pre-created animation value
     const animatedValue = postAnimations.current[item.id] || new Animated.Value(1);
     
@@ -457,7 +487,7 @@ const SocialScreen: React.FC = () => {
           {/* Image navigation dots */}
           {item.gallery.length > 1 && (
             <View style={styles.galleryDots}>
-              {item.gallery.map((_, i) => (
+              {item.gallery.map((_, i: number) => (
                 <View 
                   key={`dot-${i}`} 
                   style={[
@@ -565,7 +595,7 @@ const SocialScreen: React.FC = () => {
         {/* Tags Section */}
         <View style={styles.tagsContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {item.tags.map((tag, i) => (
+            {item.tags.map((tag: string, i: number) => (
               <TouchableOpacity 
                 key={`tag-${i}`}
                 style={[
@@ -588,7 +618,7 @@ const SocialScreen: React.FC = () => {
         <View style={styles.piecesContainer}>
           <Text style={[styles.piecesHeading, { color: textColor }]}>Featured Pieces</Text>
           <View style={styles.piecesGrid}>
-            {item.outfitItems.map((piece, i) => (
+            {item.outfitItems.map((piece: { name: string, brand: string }, i: number) => (
               <View 
                 key={`piece-${i}`}
                 style={[
@@ -713,7 +743,7 @@ const SocialScreen: React.FC = () => {
               nestedScrollEnabled={true}
             >
               <View style={styles.commentsList}>
-                {expandedComments === item.id && item.comments.map((comment, i) => (
+                {expandedComments === item.id && item.comments.map((comment: { id: string, username: string, text: string, timeAgo: string, likes: number }, i: number) => (
                   <View 
                     key={comment.id} 
                     style={[
@@ -783,7 +813,7 @@ const SocialScreen: React.FC = () => {
   };
 
   // Render a trending topic chip
-  const renderTrendingTopic = ({ item }) => (
+  const renderTrendingTopic = ({ item }: { item: string }) => (
     <TouchableOpacity
       style={[
         styles.topicChip,

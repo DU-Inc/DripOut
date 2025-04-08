@@ -158,6 +158,34 @@ const CLOSET_STATS = {
   recentlyAdded: OWNED_ITEMS.sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())[0]
 };
 
+// Add interface types for the items
+interface OwnedItem {
+  id: string;
+  name: string;
+  brand: string;
+  color: string;
+  category: string;
+  uri: string;
+  purchaseDate: string;
+  timesWorn: number;
+}
+
+interface LikedItem {
+  id: string;
+  name: string;
+  brand: string;
+  price: number;
+  uri: string;
+  liked: string;
+}
+
+interface OutfitItem {
+  id: string;
+  name: string;
+  items: OwnedItem[];
+  imageUri: string;
+}
+
 const ClosetScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"owned" | "saved">("owned");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
@@ -204,7 +232,7 @@ const ClosetScreen: React.FC = () => {
   );
 
   // Render an owned wardrobe item
-  const renderOwnedItem = ({ item, index }) => (
+  const renderOwnedItem = ({ item, index }: { item: OwnedItem; index: number }) => (
     <TouchableOpacity
       style={[
         styles.itemCard,
@@ -240,7 +268,7 @@ const ClosetScreen: React.FC = () => {
   );
 
   // Render a liked/saved wardrobe item
-  const renderLikedItem = ({ item, index }) => (
+  const renderLikedItem = ({ item, index }: { item: LikedItem; index: number }) => (
     <TouchableOpacity
       style={[
         styles.itemCard,
@@ -279,7 +307,7 @@ const ClosetScreen: React.FC = () => {
   );
 
   // Render outfit suggestion card
-  const renderOutfit = ({ item, index }) => (
+  const renderOutfit = ({ item, index }: { item: OutfitItem; index: number }) => (
     <TouchableOpacity
       style={[
         styles.outfitCard,

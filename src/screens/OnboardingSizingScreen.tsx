@@ -15,10 +15,13 @@ import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
-import { auth } from '../Config/firebaseconfig';
+import { getAuth } from 'firebase/auth';
 import { setUserPreferences } from '../services/firestoreService';
 import { useOnboardingContext } from '../context/OnboardingContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Initialize auth with proper typing
+const auth = getAuth();
 
 type OnboardingSizingScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'OnboardingSizing'>;
 
@@ -432,6 +435,12 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
     paddingTop: 10,
     alignItems: 'center',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
   },
   button: {
     flexDirection: 'row',

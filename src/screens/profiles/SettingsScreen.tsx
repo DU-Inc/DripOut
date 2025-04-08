@@ -1,6 +1,6 @@
 // src/screens/profiles/SettingsScreen.tsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, ReactNode } from 'react';
 import { 
   View, 
   Text, 
@@ -15,13 +15,17 @@ import {
   Platform
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { auth, db } from '../../Config/firebaseconfig';
+import { db } from '../../config/firebaseconfig';
 import { doc, onSnapshot, updateDoc, Timestamp } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { UserProfile } from '../../services/firestoreService';
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import { resetOnboardingStatus } from '../../utils/resetOnboarding';
+
+// Get the auth instance with proper typing
+const auth = getAuth();
 
 // Set default text styles for SF Pro font family
 const defaultTextStyle = {
@@ -155,7 +159,7 @@ const SettingsScreen: React.FC = () => {
     icon: string, 
     title: string, 
     subtitle?: string, 
-    value?: string | boolean | JSX.Element, 
+    value?: string | boolean | React.ReactElement, 
     onPress?: () => void,
     iconColor = mainColor
   ) => {

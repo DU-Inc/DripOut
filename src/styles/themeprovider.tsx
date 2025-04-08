@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeProvider as StyledThemeProvider } from 'styled-components/native';
-import { lightTheme, darkTheme } from './themes';
 import { useColorScheme, AppState, AppStateStatus } from 'react-native';
+import { getThemeColors, ThemeColors, colors } from './theme/colors';
 
 type ThemeMode = 'system' | 'light' | 'dark';
 
@@ -11,6 +11,7 @@ type ThemeContextType = {
   toggleTheme: () => void;
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
+  theme: ThemeColors;
 };
 
 interface ThemeProviderProps {
@@ -22,6 +23,7 @@ const ThemeContext = createContext<ThemeContextType>({
   toggleTheme: () => {},
   themeMode: 'system',
   setThemeMode: () => {},
+  theme: colors.light,
 });
 
 export const useTheme = () => useContext(ThemeContext);
@@ -105,9 +107,12 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     }
   };
 
+  // Get complete theme colors based on dark mode
+  const theme = isDarkMode ? colors.dark : colors.light;
+
   return (
-    <ThemeContext.Provider value={{ isDarkMode, toggleTheme, themeMode, setThemeMode }}>
-      <StyledThemeProvider theme={isDarkMode ? darkTheme : lightTheme}>
+    <ThemeContext.Provider value={{ isDarkMode, toggleTheme, themeMode, setThemeMode, theme }}>
+      <StyledThemeProvider theme={theme}>
         {children}
       </StyledThemeProvider>
     </ThemeContext.Provider>

@@ -1,3 +1,6 @@
+// These are actually globals in React Native environment
+/* global setTimeout clearTimeout setInterval clearInterval requestAnimationFrame cancelAnimationFrame */
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
@@ -11,6 +14,10 @@ import {
   InteractionManager,
   ScrollView
 } from 'react-native';
+
+// Remove the previous declarations that weren't working
+// declare global {...}
+
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useTheme } from '../../styles/themeprovider';
 import { useOnboardingContext } from '../../context/OnboardingContext';
@@ -36,6 +43,9 @@ interface BubbleItem {
   animating: boolean;
   // Not adding wobble to the interface since we're managing it separately in a ref
 }
+
+// Define a custom type for the timer
+type TimeoutID = ReturnType<typeof setTimeout>;
 
 // Optimal number of visible bubbles - balanced for visual interest and space constraints
 const MAX_VISIBLE_BUBBLES = 6;
@@ -277,8 +287,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
             if (!reference.position) continue;
             
             // Get reference position
-            const refX = reference.position.x._value;
-            const refY = reference.position.y._value;
+            const refX = getValueX(reference.position);
+            const refY = getValueY(reference.position);
             
             // Generate multiple candidate points at suitable distances
             for (let i = 0; i < POINTS_PER_ITERATION; i++) {
@@ -303,8 +313,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
               for (const bubble of bubblesRef.current) {
                 if (!bubble.position) continue;
                 
-                const bubbleX = bubble.position.x._value;
-                const bubbleY = bubble.position.y._value;
+                const bubbleX = getValueX(bubble.position);
+                const bubbleY = getValueY(bubble.position);
                 
                 if (checkOverlap(
                   { x: testX, y: testY }, 
@@ -340,8 +350,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
             if (!bubble.position) continue;
             
             // Calculate which zone this bubble is in
-            const bubbleX = bubble.position.x._value - minX;
-            const bubbleY = bubble.position.y._value - minY;
+            const bubbleX = getValueX(bubble.position) - minX;
+            const bubbleY = getValueY(bubble.position) - minY;
             
             const zoneX = Math.min(Math.floor(bubbleX / zoneWidth), GRID_SIZE - 1);
             const zoneY = Math.min(Math.floor(bubbleY / zoneHeight), GRID_SIZE - 1);
@@ -381,8 +391,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
               for (const bubble of bubblesRef.current) {
                 if (!bubble.position) continue;
                 
-                const bubbleX = bubble.position.x._value;
-                const bubbleY = bubble.position.y._value;
+                const bubbleX = getValueX(bubble.position);
+                const bubbleY = getValueY(bubble.position);
                 
                 if (checkOverlap(
                   { x: testX, y: testY }, 
@@ -417,8 +427,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
             for (const bubble of bubblesRef.current) {
               if (!bubble.position) continue;
               
-              const bubbleX = bubble.position.x._value;
-              const bubbleY = bubble.position.y._value;
+              const bubbleX = getValueX(bubble.position);
+              const bubbleY = getValueY(bubble.position);
               
               // Calculate distance between centers
               const dx = testX - bubbleX;
@@ -460,8 +470,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
               for (const bubble of bubblesRef.current) {
                 if (!bubble.position) continue;
                 
-                const bubbleX = bubble.position.x._value;
-                const bubbleY = bubble.position.y._value;
+                const bubbleX = getValueX(bubble.position);
+                const bubbleY = getValueY(bubble.position);
                 const dx = testX - bubbleX;
                 const dy = testY - bubbleY;
                 const dist = Math.sqrt(dx * dx + dy * dy);
@@ -681,8 +691,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
         if (bubble.animating) continue;
         
         // Get current position
-        const x = bubble.position.x._value;
-        const y = bubble.position.y._value;
+        const x = getValueX(bubble.position);
+        const y = getValueY(bubble.position);
         const radius = bubble.size / 2;
         
         // Apply damping to velocity (simulate air resistance)
@@ -751,8 +761,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
           const otherBubble = bubblesRef.current[j];
           if (otherBubble.animating) continue;
           
-          const otherX = otherBubble.position.x._value;
-          const otherY = otherBubble.position.y._value;
+          const otherX = getValueX(otherBubble.position);
+          const otherY = getValueY(otherBubble.position);
           
           // Calculate distance vector
           const dx = otherX - x;
@@ -817,8 +827,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
       const b1 = bubblesRef.current[i];
       if (!b1 || b1.animating) continue;
       
-      const x1 = b1.position.x._value;
-      const y1 = b1.position.y._value;
+      const x1 = getValueX(b1.position);
+      const y1 = getValueY(b1.position);
       const r1 = b1.size / 2;
       
       // Check collisions with the next few bubbles (to avoid checking all pairs)
@@ -829,8 +839,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
         
         pairsChecked++;
         
-        const x2 = b2.position.x._value;
-        const y2 = b2.position.y._value;
+        const x2 = getValueX(b2.position);
+        const y2 = getValueY(b2.position);
         const r2 = b2.size / 2;
         
         // Fast distance squared check
@@ -936,8 +946,8 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
           
           pairsChecked++;
           
-          const x2 = b2.position.x._value;
-          const y2 = b2.position.y._value;
+          const x2 = getValueX(b2.position);
+          const y2 = getValueY(b2.position);
           const r2 = b2.size / 2;
           
           // Fast distance check
@@ -1001,7 +1011,7 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
   };
   
   // Track long press timers for each bubble
-  const longPressTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const longPressTimersRef = useRef<Record<string, TimeoutID>>({});
   const [showTooltip, setShowTooltip] = useState(true);
   
   // Add fields to track bubbles being held and visual feedback
@@ -1520,6 +1530,17 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
   
   // Debug and development helper
   const showDebugBoundary = false; // Hide the debug boundary in production
+
+  // Helper functions to safely get animated values
+  const getValueX = (position: Animated.ValueXY): number => {
+    // @ts-ignore: Access private _value field 
+    return position.x._value !== undefined ? position.x._value : 0;
+  };
+
+  const getValueY = (position: Animated.ValueXY): number => {
+    // @ts-ignore: Access private _value field
+    return position.y._value !== undefined ? position.y._value : 0;
+  };
 
   return (
     <View style={styles.container}>

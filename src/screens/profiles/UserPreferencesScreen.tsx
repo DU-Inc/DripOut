@@ -14,12 +14,15 @@ import {
   TouchableOpacity, 
   Switch 
 } from 'react-native';
-import { auth, db } from '../../Config/firebaseconfig';
+import { db } from '../../config/firebaseconfig';
+import { getAuth } from 'firebase/auth';
 import { setUserPreferences, UserPreferences } from '../../services/firestoreService';
 import { doc, onSnapshot } from 'firebase/firestore'; // Import onSnapshot for real-time updates
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 
+// Initialize auth with proper typing
+const auth = getAuth();
 
 const UserPreferencesScreen: React.FC = () => {
   const { isDarkMode, toggleTheme, themeMode, setThemeMode } = useTheme();

@@ -1,8 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { initializeAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getReactNativePersistence } from 'firebase/auth';
 import {
   FIREBASE_API_KEY,
   FIREBASE_AUTH_DOMAIN,
@@ -11,6 +8,9 @@ import {
   FIREBASE_MESSAGING_SENDER_ID,
   FIREBASE_APP_ID
 } from '@env';
+import { getFirestore } from 'firebase/firestore';
+import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
+import auth from '@react-native-firebase/auth';
 
 // Check if all Firebase environment variables are present
 if (
@@ -39,22 +39,14 @@ console.log('Initializing Firebase app...');
 const app = initializeApp(firebaseConfig);
 
 // Initialize Firebase Auth with AsyncStorage persistence
-export const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage),
+// This is for the web SDK if you're using it alongside RN Firebase
+const webAuth = initializeAuth(app, {
+  persistence: getReactNativePersistence(AsyncStorage)
 });
+console.log('Firebase Auth initialized with AsyncStorage persistence');
 
 // Initialize Firestore
 export const db = getFirestore(app);
 
-// Listen to Firebase Auth state changes and store the token in AsyncStorage
-auth.onAuthStateChanged(async (user) => {
-  if (user) {
-    console.log('User is signed in:', user.email);
-    const token = await user.getIdToken(true); // Force refresh token to ensure it's valid
-    console.log('Saving token to AsyncStorage:', token);
-    await AsyncStorage.setItem('firebaseUserToken', token);
-  } else {
-    console.log('User is signed out');
-    await AsyncStorage.removeItem('firebaseUserToken');
-  }
-});
+// Export auth from react-native-firebase
+export { auth, webAuth };

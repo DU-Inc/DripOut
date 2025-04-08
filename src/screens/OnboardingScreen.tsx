@@ -10,6 +10,7 @@ import { RootStackParamList } from '../types/NavigationTypes';
 import { useOnboardingContext } from '../context/OnboardingContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/* global setTimeout */
 
 type OnboardingScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
 

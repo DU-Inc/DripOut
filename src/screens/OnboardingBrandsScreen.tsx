@@ -10,6 +10,8 @@ import { RootStackParamList } from '../types/NavigationTypes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useOnboardingContext } from '../context/OnboardingContext';
 
+/* global setTimeout */
+
 type OnboardingBrandsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'OnboardingBrands'>;
 
 const OnboardingBrandsScreen: React.FC = () => {

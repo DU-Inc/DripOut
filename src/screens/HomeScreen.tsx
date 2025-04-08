@@ -20,6 +20,9 @@ import {
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 
+// Remove the global declaration and use comment instead
+/* global setTimeout clearTimeout setInterval clearInterval */
+
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -206,6 +209,24 @@ const swipeThreshold = width * 0.3; // 30% of screen width
 // 2. Create a context for shared values that need to be accessed by nested functions
 // 3. Pass swipeThreshold as a parameter to functions that need it
 
+// Add interfaces for the data types at the top of the file after other type declarations
+interface FashionPost {
+  id: string;
+  title: string;
+  gallery: string[];
+  aesthetic: string;
+  caption: string;
+  tags: string[];
+  outfitItems: Array<{name: string; brand: string}>;
+  publishedDate: string;
+  comments: Array<{id: string; username: string; text: string; timeAgo: string; likes: number}>;
+  commentCount: number;
+  upvotes: number;
+  saves: number;
+  isSaved: boolean;
+  isUpvoted: boolean;
+}
+
 const HomeScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -321,6 +342,8 @@ const HomeScreen: React.FC = () => {
     FASHION_POSTS.forEach((post, index) => {
       if (!postAnimations.current[post.id]) {
         const animatedValue = new Animated.Value(0);
+        // Add dummy listener to prevent warning
+        animatedValue.addListener(() => {});
         postAnimations.current[post.id] = animatedValue;
         
         // Start animation
@@ -333,17 +356,38 @@ const HomeScreen: React.FC = () => {
       }
       
       if (!panXValues.current[post.id]) {
-        panXValues.current[post.id] = new Animated.Value(0);
+        const panX = new Animated.Value(0);
+        // Add dummy listener to prevent warning
+        panX.addListener(() => {});
+        panXValues.current[post.id] = panX;
       }
       
       if (!panResponders.current[post.id]) {
         panResponders.current[post.id] = createPanResponderForPost(post.id);
       }
     });
+    
+    // Clean up animations and listeners on unmount
+    return () => {
+      // Clean up all animation values and listeners
+      Object.keys(postAnimations.current).forEach(key => {
+        if (postAnimations.current[key]) {
+          postAnimations.current[key].removeAllListeners();
+          postAnimations.current[key].stopAnimation();
+        }
+      });
+      
+      Object.keys(panXValues.current).forEach(key => {
+        if (panXValues.current[key]) {
+          panXValues.current[key].removeAllListeners();
+          panXValues.current[key].stopAnimation();
+        }
+      });
+    };
   }, []);
   
   // Create pan responder for post
-  const createPanResponderForPost = (postId) => {
+  const createPanResponderForPost = (postId: string) => {
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
@@ -358,7 +402,7 @@ const HomeScreen: React.FC = () => {
   };
   
   // Handle swipe end
-  const handleSwipeEnd = (postId, gestureState) => {
+  const handleSwipeEnd = (postId: string, gestureState: { dx: number }) => {
     const { dx } = gestureState;
     const currentImageIndex = activeGalleryIndex[postId] || 0;
     const post = FASHION_POSTS.find(p => p.id === postId);
@@ -383,7 +427,7 @@ const HomeScreen: React.FC = () => {
   };
 
   // Render fashion inspiration post
-  const renderFashionPost = ({ item, index }) => {
+  const renderFashionPost = ({ item, index }: { item: FashionPost; index: number }) => {
     // Use the pre-created animation value
     const animatedValue = postAnimations.current[item.id] || new Animated.Value(1);
     
@@ -462,7 +506,7 @@ const HomeScreen: React.FC = () => {
           {/* Image navigation dots */}
           {item.gallery.length > 1 && (
             <View style={styles.galleryDots}>
-              {item.gallery.map((_, i) => (
+              {item.gallery.map((_: any, i: number) => (
                 <View 
                   key={`dot-${i}`} 
                   style={[
@@ -570,7 +614,7 @@ const HomeScreen: React.FC = () => {
         {/* Tags Section */}
         <View style={styles.tagsContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {item.tags.map((tag, i) => (
+            {item.tags.map((tag: string, i: number) => (
               <TouchableOpacity 
                 key={`tag-${i}`}
                 style={[
@@ -593,7 +637,7 @@ const HomeScreen: React.FC = () => {
         <View style={styles.piecesContainer}>
           <Text style={[styles.piecesHeading, { color: textColor }]}>Featured Pieces</Text>
           <View style={styles.piecesGrid}>
-            {item.outfitItems.map((piece, i) => (
+            {item.outfitItems.map((piece: {name: string; brand: string}, i: number) => (
               <View 
                 key={`piece-${i}`}
                 style={[
@@ -718,7 +762,7 @@ const HomeScreen: React.FC = () => {
               nestedScrollEnabled={true}
             >
               <View style={styles.commentsList}>
-                {expandedComments === item.id && item.comments.map((comment, i) => (
+                {expandedComments === item.id && item.comments.map((comment: {id: string; username: string; text: string; timeAgo: string; likes: number}, i: number) => (
                   <View 
                     key={comment.id} 
                     style={[
@@ -788,7 +832,7 @@ const HomeScreen: React.FC = () => {
   };
 
   // Render a trending topic chip
-  const renderTrendingTopic = ({ item }) => (
+  const renderTrendingTopic = ({ item }: { item: string }) => (
     <TouchableOpacity
       style={[
         styles.topicChip,

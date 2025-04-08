@@ -1,5 +1,7 @@
 // src/screens/OverviewScreen.tsx
 
+/* global setTimeout */
+
 import React, { useRef, useState } from 'react';
 import {
   SafeAreaView,

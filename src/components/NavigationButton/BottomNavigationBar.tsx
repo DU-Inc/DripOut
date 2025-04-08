@@ -174,13 +174,12 @@ const BottomNavigationBar: React.FC<BottomNavigationBarProps> = ({
       
       if (currentRoute.name === 'MainTabs') {
         // Already in tabs, just navigate to the specific tab
-        navigation.navigate('MainTabs', { 
-          screen: screenToTabMap[screen] as any,
-          // Reset tab navigation to initial state (no stacked screens)
+        navigation.navigate('MainTabs', {
+          screen: screenToTabMap[screen],
           params: {
             resetStack: true
           }
-        });
+        } as any);
       } else {
         // Navigate to MainTabs and then to the specific tab
         navigation.reset({

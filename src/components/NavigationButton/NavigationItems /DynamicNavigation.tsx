@@ -48,7 +48,9 @@ const DynamicNavigation: React.FC<DynamicNavigationProps> = ({ icons = [] }) => 
           style={styles.itemButton}
           onPress={
             icon.onPress || 
-            (icon.screenName ? () => navigation.navigate(icon.screenName) : () => {})
+            (icon.screenName ? () => {
+              navigation.navigate(icon.screenName as keyof RootStackParamList);
+            } : () => {})
           }
         >
           <Icon

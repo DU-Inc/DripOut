@@ -21,7 +21,8 @@ import {
   FlatList,
   Pressable
 } from 'react-native';
-import { auth, db } from '../../Config/firebaseconfig';
+import { db } from '../../config/firebaseconfig';
+import { auth } from '../../config/firebaseconfig';
 import { createUserProfile, UserProfile, getUserPreferences, UserPreferences, setUserPreferences } from '../../services/firestoreService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootStackParamList } from '../../types/NavigationTypes';
@@ -135,45 +136,67 @@ const UserProfileScreen: React.FC = () => {
     extrapolate: 'clamp'
   });
 
+  // Subscribe to user profile changes in Firestore
   useEffect(() => {
-    const userId = auth.currentUser?.uid;
-    if (userId) {
-      // Listen for profile updates
-      const profileUnsubscribe = onSnapshot(doc(db, 'users', userId), (docSnapshot) => {
-        if (docSnapshot.exists()) {
-          const data = docSnapshot.data() as UserProfile;
+    let profileUnsubscribe: (() => void) | undefined;
+    
+    const fetchUserData = async () => {
+      try {
+        setLoading(true);
+        const user = auth().currentUser;
+        
+        if (user) {
+          console.log('Fetching profile for user:', user.uid);
           
-          // Convert Firestore Timestamp to Date
-          if (data.createdAt && data.createdAt instanceof Timestamp) {
-            data.createdAt = data.createdAt.toDate();
+          // Set up a real-time listener for the user's profile
+          const userRef = doc(db, 'users', user.uid);
+          profileUnsubscribe = onSnapshot(userRef, (docSnap) => {
+            if (docSnap.exists()) {
+              console.log('Profile found:', docSnap.id);
+              const userData = docSnap.data() as UserProfile;
+              
+              // Convert Firestore Timestamp to Date if needed
+              if (userData.createdAt && userData.createdAt instanceof Timestamp) {
+                userData.createdAt = userData.createdAt.toDate();
+              }
+              
+              setProfile(userData);
+            } else {
+              console.log('No profile found for user');
+              setProfile(null);
+            }
+            setLoading(false);
+          }, (error) => {
+            console.error('Error fetching profile:', error);
+            setLoading(false);
+          });
+          
+          // Also fetch the user's preferences
+          const userPrefs = await getUserPreferences(user.uid);
+          if (userPrefs) {
+            setPreferences(userPrefs);
+            setEditPreferencesData(userPrefs);
           }
-          if (data.updatedAt && data.updatedAt instanceof Timestamp) {
-            data.updatedAt = data.updatedAt.toDate();
-          }
-
-          setProfile(data);
         } else {
+          console.log('No user logged in');
           setProfile(null);
+          setLoading(false);
         }
-      });
-
-      // Listen for preferences updates
-      const preferencesUnsubscribe = onSnapshot(doc(db, 'user_preferences', userId), (docSnapshot) => {
-        if (docSnapshot.exists()) {
-          setPreferences(docSnapshot.data() as UserPreferences);
-        } else {
-          setPreferences(null);
-        }
-      });
-
-      setLoading(false);
-
-      // Clean up the listeners
-      return () => {
+      } catch (error) {
+        console.error('Error in fetchUserData:', error);
+        setLoading(false);
+      }
+    };
+    
+    console.log('UserProfileScreen mounted, fetching data...');
+    fetchUserData();
+    
+    // Cleanup function
+    return () => {
+      if (profileUnsubscribe) {
         profileUnsubscribe();
-        preferencesUnsubscribe();
-      };
-    }
+      }
+    };
   }, []);
 
   const openPreferencesModal = () => {
@@ -195,8 +218,9 @@ const UserProfileScreen: React.FC = () => {
   };
 
   const handleSavePreferences = async () => {
-    if (auth.currentUser && editPreferencesData) {
-      const userId = auth.currentUser.uid;
+    const currentUser = auth().currentUser;
+    if (currentUser && editPreferencesData) {
+      const userId = currentUser.uid;
       await setUserPreferences(userId, editPreferencesData);
       Alert.alert('Success', 'Your style preferences have been updated.', [
         { text: 'OK', onPress: () => setIsPreferencesModalVisible(false) }
@@ -205,16 +229,16 @@ const UserProfileScreen: React.FC = () => {
   };
 
   const handleAddProfile = async () => {
-    const userId = auth.currentUser?.uid;
+    const userId = auth().currentUser?.uid;
     if (userId) {
       const defaultProfile: UserProfile = {
         userID: userId,
-        email: auth.currentUser?.email || '',
+        email: auth().currentUser?.email || '',
         username: '',
         fullName: '',
         profilePictureURL: '',
         createdAt: new Date(),
-        isVerified: auth.currentUser?.emailVerified || false,
+        isVerified: auth().currentUser?.emailVerified || false,
         userRole: 'user',
         userGender: '',
         userDisplayName: '',
@@ -258,6 +282,22 @@ const UserProfileScreen: React.FC = () => {
     setSelectedStyleBoard(null);
   };
 
+  // Handle sign out properly
+  const handleSignOut = async () => {
+    try {
+      // Import the appStateManager to update auth state
+      const { appStateManager } = require('../../utils/appStateManager');
+      // Sign out with Firebase
+      await auth().signOut();
+      // Update app state manager (redundant with our Firebase listener, but for safety)
+      appStateManager.setAuthenticated(false);
+      console.log('User signed out successfully');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      Alert.alert('Sign Out Error', 'An error occurred while signing out. Please try again.');
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: bgColor }]}>
@@ -299,13 +339,13 @@ const UserProfileScreen: React.FC = () => {
             >
               <View style={[styles.styleBoardOverlay, { backgroundColor: isDarkMode ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)' }]}>
                 <Text style={[styles.styleBoardHeroTitle, { color: textColor }]}>{board.title}</Text>
-                <Text style={[styles.styleBoardHeroSubtitle, { color: subTextColor }]}>{board.description}</Text>
+                <Text style={[styles.styleBoardCardDescription, { color: subTextColor }]}>{board.description}</Text>
               </View>
             </ImageBackground>
             
             <View style={styles.styleBoardContent}>
               <Text style={[styles.styleBoardSectionTitle, { color: textColor }]}>Fashion Items</Text>
-              <Text style={[styles.styleBoardDescription, { color: subTextColor }]}>
+              <Text style={[styles.styleBoardDetailDescription, { color: subTextColor }]}>
                 This is a curated collection showcasing {board.title.toLowerCase()} style. Browse through the items to get inspiration for your next outfit.
               </Text>
               
@@ -551,7 +591,7 @@ const UserProfileScreen: React.FC = () => {
                     <Image source={{ uri: item.image }} style={styles.styleBoardImage} />
                     <View style={styles.styleBoardBody}>
                       <Text style={[styles.styleBoardTitle, { color: textColor }]}>{item.title}</Text>
-                      <Text style={[styles.styleBoardDescription, { color: subTextColor }]} numberOfLines={1}>
+                      <Text style={[styles.styleBoardCardDescription, { color: subTextColor }]} numberOfLines={1}>
                         {item.description}
                       </Text>
                       <View style={styles.styleBoardMeta}>
@@ -740,7 +780,7 @@ const UserProfileScreen: React.FC = () => {
             <View style={[styles.accountControls, { backgroundColor: cardBgColor }]}>
               <TouchableOpacity 
                 style={[styles.signOutButton, { borderColor: isDarkMode ? 'rgba(255, 69, 58, 0.3)' : 'rgba(255, 59, 48, 0.3)' }]}
-                onPress={() => auth.signOut()}
+                onPress={handleSignOut}
               >
                 <Text style={[styles.signOutText, { color: isDarkMode ? '#FF453A' : '#FF3B30' }]}>Sign Out</Text>
               </TouchableOpacity>
@@ -1201,10 +1241,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
-  styleBoardDescription: {
+  styleBoardCardDescription: {
     ...defaultTextStyle,
     fontSize: 14,
     marginBottom: 12,
+  },
+  styleBoardDetailDescription: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 24,
   },
   styleBoardMeta: {
     flexDirection: 'row',
@@ -1449,10 +1495,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 8,
   },
-  styleBoardHeroSubtitle: {
-    ...defaultTextStyle,
-    fontSize: 16,
-  },
   styleBoardContent: {
     padding: 20,
   },
@@ -1461,12 +1503,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     marginBottom: 12,
-  },
-  styleBoardDescription: {
-    ...defaultTextStyle,
-    fontSize: 16,
-    lineHeight: 24,
-    marginBottom: 24,
   },
   styleBoardItemsGrid: {
     flexDirection: 'row',

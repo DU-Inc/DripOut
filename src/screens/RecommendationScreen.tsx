@@ -23,11 +23,14 @@ import FeatherIcon from 'react-native-vector-icons/Feather';
 import { useTheme } from '../styles/themeprovider';
 import { searchProducts, Product, checkApiHealth } from '../services/recommendationService';
 import { doc, getDoc } from 'firebase/firestore';
-import { db, auth } from '../Config/firebaseconfig';
+import { db, auth } from '../config/firebaseconfig';
 // No longer need custom bottom navigation bar with tab navigator
 
 // Get screen dimensions
 const { width } = Dimensions.get('window');
+
+// For TypeScript to recognize setTimeout as a global
+declare const setTimeout: (callback: () => void, ms: number) => number;
 
 // Fashion themed loading animation component
 const FashionLoadingAnimation: React.FC<{mainColor: string}> = ({ mainColor }) => {
@@ -599,7 +602,7 @@ const RecommendationScreen: React.FC = () => {
   // Fetch the user's profile and preferences
   const fetchUserProfile = async () => {
     console.log('👤 RecommendationScreen: Fetching user profile');
-    const userId = auth.currentUser?.uid;
+    const userId = auth().currentUser?.uid;
     if (!userId) {
       console.log('ℹ️ RecommendationScreen: No authenticated user found, skipping profile fetch');
       return;
