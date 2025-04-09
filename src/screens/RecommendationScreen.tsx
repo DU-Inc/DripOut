@@ -16,7 +16,8 @@ import {
   Animated,
   ScrollView,
   Easing,
-  Platform
+  Platform,
+  KeyboardAvoidingView
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
@@ -24,10 +25,9 @@ import { useTheme } from '../styles/themeprovider';
 import { searchProducts, Product, checkApiHealth } from '../services/recommendationService';
 import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../Config/firebaseconfig';
-// No longer need custom bottom navigation bar with tab navigator
 
 // Get screen dimensions
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 // For TypeScript to recognize setTimeout as a global
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -185,12 +185,135 @@ const FashionLoadingAnimation: React.FC<{mainColor: string}> = ({ mainColor }) =
   );
 };
 
-const height = Dimensions.get('window').height;
-const ITEM_WIDTH = width - 48;
-const ITEM_HEIGHT = 180;
+// Product Item component for horizontal scrolling in chat
+const ProductItem = React.memo(({ 
+  item, 
+  index, 
+  onPress, 
+  onLongPress,
+  cardBgColor, 
+  textColor, 
+  subTextColor,
+  mainColor 
+}: { 
+  item: Product, 
+  index: number,
+  onPress: (url: string) => void,
+  onLongPress: (product: Product) => void,
+  cardBgColor: string,
+  textColor: string,
+  subTextColor: string,
+  mainColor: string
+}) => {
+  // Animation refs
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
 
-// Product Item component - defined outside to follow hooks rules
-// Define ProductDetails Modal component
+  // Effect to run animations when component mounts
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 300,
+        delay: index * 50,
+        useNativeDriver: true
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 8,
+        useNativeDriver: true
+      })
+    ]).start();
+  }, []);
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.97,
+      friction: 7,
+      useNativeDriver: true
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 7,
+      useNativeDriver: true
+    }).start();
+  };
+
+  return (
+    <Animated.View 
+      style={[
+        styles.productCard, 
+        { 
+          backgroundColor: cardBgColor,
+          opacity: opacityAnim,
+          transform: [{ scale: scaleAnim }]
+        }
+      ]}
+    >
+      <TouchableOpacity 
+        style={styles.productCardContent}
+        activeOpacity={0.9}
+        onPress={() => onPress(item.url)}
+        onLongPress={() => onLongPress(item)}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        delayLongPress={200}
+      >
+        <View style={styles.productImageContainer}>
+          {item.images && item.images.length > 0 ? (
+            <Image 
+              source={{ uri: item.images[0] }} 
+              style={styles.productCardImage} 
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.productCardImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+              <Icon name="image-outline" size={28} color="#bbb" />
+            </View>
+          )}
+          {item.price !== undefined && (
+            <View style={[styles.priceTag, { backgroundColor: mainColor }]}>
+              <Text style={styles.priceTagText}>
+                ${(typeof item.price === 'number' ? item.price.toFixed(0) : '0')}
+              </Text>
+            </View>
+          )}
+        </View>
+        
+        <View style={styles.productCardDetails}>
+          <Text style={[styles.productCardName, { color: textColor }]} numberOfLines={2}>
+            {item.name}
+          </Text>
+          <Text style={[styles.productCardSite, { color: subTextColor }]}>
+            {item.site || 'Unknown Store'}
+          </Text>
+          
+          <View style={styles.productCardActions}>
+            <TouchableOpacity 
+              style={[styles.productCardButton, { backgroundColor: mainColor }]}
+            >
+              <Text style={styles.productCardButtonText}>View</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+});
+
+// Define message types for chat
+interface ChatMessage {
+  id: string;
+  type: 'user' | 'system';
+  text: string;
+  timestamp: number;
+  products?: Product[];
+}
+
+// Product details modal
 const ProductDetailsModal = React.memo(({ 
   visible, 
   item, 
@@ -335,141 +458,7 @@ const ProductDetailsModal = React.memo(({
   );
 });
 
-const ProductItem = React.memo(({ 
-  item, 
-  index, 
-  onPress, 
-  onLongPress,
-  borderColor, 
-  cardBgColor, 
-  textColor, 
-  subTextColor,
-  mainColor 
-}: { 
-  item: Product, 
-  index: number,
-  onPress: (url: string) => void,
-  onLongPress: (product: Product) => void,
-  borderColor: string,
-  cardBgColor: string,
-  textColor: string,
-  subTextColor: string,
-  mainColor: string
-}) => {
-  // Now hooks are at the top level of a component
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-  const translateXAnim = useRef(new Animated.Value(25)).current;
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  // Effect to run animations when component mounts
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 600,
-        delay: index * 80, // Slightly faster appearance
-        useNativeDriver: true
-      }),
-      Animated.timing(translateXAnim, {
-        toValue: 0,
-        duration: 500,
-        delay: index * 80,
-        useNativeDriver: true
-      })
-    ]).start();
-  }, [index, opacityAnim, translateXAnim]);
-
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.97,
-      friction: 7,
-      useNativeDriver: true
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 7,
-      useNativeDriver: true
-    }).start();
-  };
-
-  return (
-    <Animated.View 
-      style={[
-        styles.productItem, 
-        { 
-          backgroundColor: cardBgColor,
-          borderColor: borderColor,
-          opacity: opacityAnim,
-          transform: [
-            { translateX: translateXAnim },
-            { scale: scaleAnim }
-          ]
-        }
-      ]}
-    >
-      <TouchableOpacity 
-        style={styles.itemContent}
-        activeOpacity={0.7}
-        onPress={() => onPress(item.url)}
-        onLongPress={() => onLongPress(item)}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        delayLongPress={200}
-      >
-        <View style={styles.imageContainer}>
-          {item.images && item.images.length > 0 ? (
-            <Image 
-              source={{ uri: item.images[0] }} 
-              style={styles.productImage} 
-            />
-          ) : (
-            <View style={[styles.productImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
-              <Icon name="image-outline" size={40} color="#bbb" />
-            </View>
-          )}
-          {item.price !== undefined && (
-            <View style={styles.priceTag}>
-              <Text style={styles.priceTagText}>
-                ${(typeof item.price === 'number' ? item.price.toFixed(0) : '0')}
-              </Text>
-            </View>
-          )}
-        </View>
-        
-        <View style={styles.productDetails}>
-          <View style={styles.productTop}>
-            <Text style={[styles.productName, { color: textColor }]} numberOfLines={2}>
-              {item.name}
-            </Text>
-            <Text style={[styles.productSite, { color: subTextColor }]}>
-              {item.site || 'Unknown Store'}
-            </Text>
-          </View>
-          
-          <View style={styles.productBottom}>
-            <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={[styles.actionButton, { backgroundColor: 'rgba(117, 98, 250, 0.15)' }]}
-              >
-                <Icon name="heart-outline" size={20} color={mainColor} />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.viewButton, { backgroundColor: mainColor }]}
-              >
-                <Text style={styles.viewButtonText}>View</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-});
-
-// Mock Products data - for testing when API is unavailable
+// Mock Products data - for testing
 const MOCK_PRODUCTS: Product[] = [
   {
     id: '1',
@@ -510,202 +499,210 @@ const MOCK_PRODUCTS: Product[] = [
     images: ['https://images.unsplash.com/photo-1544022613-e87ca75a784a?q=80&w=600&auto=format'],
     url: 'https://example.com/product5',
     site: 'ASOS'
-  },
-  {
-    id: '6',
-    name: 'Floral Summer Dress',
-    price: 79.99,
-    images: ['https://images.unsplash.com/photo-1612336307429-8a898d10e223?q=80&w=600&auto=format'],
-    url: 'https://example.com/product6',
-    site: 'Nordstrom'
-  },
-  {
-    id: '7',
-    name: 'Classic Watch',
-    price: 129.99,
-    images: ['https://images.unsplash.com/photo-1522312346375-d1a52e2b99b3?q=80&w=600&auto=format'],
-    url: 'https://example.com/product7',
-    site: 'Fossil'
-  },
-  {
-    id: '8',
-    name: 'Trendy Sunglasses',
-    price: 49.99,
-    images: ['https://images.unsplash.com/photo-1511499767150-a48a237f0083?q=80&w=600&auto=format'],
-    url: 'https://example.com/product8',
-    site: 'Ray-Ban'
   }
+];
+
+// Trendy search suggestions
+const TRENDY_SEARCHES = [
+  'Summer Dress',
+  'Athletic Wear',
+  'Casual Sneakers',
+  'Vintage Denim',
+  'Statement Accessories',
+  'Minimalist Wardrobe',
+  'Sustainable Fashion'
 ];
 
 const RecommendationScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
+  
+  // Search and API state
   const [query, setQuery] = useState('');
-  const [products, setProducts] = useState<Product[]>([]); // Initialize with empty array
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState('all');
   const [apiConnected, setApiConnected] = useState<boolean | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
+  
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [searchMode, setSearchMode] = useState<'input' | 'chat'>('input');
+  
+  // Product modal state
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
-  // More luxurious, premium iOS-native color palette
-  const mainColor = isDarkMode ? '#0A84FF' : '#007AFF'; // iOS blue
-  const secondaryColor = isDarkMode ? '#64D2FF' : '#5AC8FA'; // iOS light blue
-  const accentColor = isDarkMode ? '#BF5AF2' : '#AF52DE'; // iOS purple for accents
-  const bgColor = isDarkMode ? '#000000' : '#FFFFFF';
-  const textColor = isDarkMode ? '#FFFFFF' : '#000000';
-  const subTextColor = isDarkMode ? '#8E8E93' : '#6E6E73'; // iOS gray
-  const cardBgColor = isDarkMode ? '#1C1C1E' : '#FFFFFF';
-  const borderColor = isDarkMode ? '#38383A' : '#F2F2F7'; // iOS system gray 5
-  const surfaceColor = isDarkMode ? '#2C2C2E' : '#F2F2F7'; // iOS surface color
+  // Ref for scrolling to bottom of chat
+  const chatScrollRef = useRef<ScrollView>(null);
   
-  // Animation references - for search bar animation and bottom navigation scroll tracking
-  const searchBarAnimation = useRef(new Animated.Value(0)).current;
-  // Using the same scrollY value for FlatList and bottom navigation
-  const scrollY = useRef(new Animated.Value(0)).current;
-
-  // Sample filters for fashion items
-  const filters = [
-    { id: 'all', label: 'All' },
-    { id: 'shirts', label: 'Shirts' },
-    { id: 'pants', label: 'Pants' },
-    { id: 'dresses', label: 'Dresses' },
-    { id: 'shoes', label: 'Shoes' },
-    { id: 'accessories', label: 'Accessories' }
-  ];
-
+  // Colors based on theme - using app's red theme
+  const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
+  const accentColor = isDarkMode ? '#FF6D8E' : '#FF3B5C'; // Red accent
+  const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
+  const textColor = isDarkMode ? '#FFFFFF' : '#202020';
+  const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
+  const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
+  const bubbleBgUser = isDarkMode ? '#FF4870' : '#EF3D47'; // User bubble - primary red
+  const bubbleBgSystem = isDarkMode ? '#222232' : '#F2F2F7'; // System bubble - gray
+  const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
+  const inputBgColor = isDarkMode ? '#222232' : '#F5F5F5';
+  
   // Check API connection on component mount and fetch user profile
   useEffect(() => {
     const checkConnection = async () => {
-      console.log('🔄 RecommendationScreen: Checking API connection on component mount');
       try {
         const isConnected = await checkApiHealth();
-        console.log('🚦 RecommendationScreen: API connection result:', isConnected ? 'Connected' : 'Not connected');
         setApiConnected(isConnected);
-        // Don't set error message here, only check and store API status
       } catch (err) {
-        console.error('❌ RecommendationScreen: Error when checking API connection:', err);
         setApiConnected(false);
-        // Don't set error message here, only check and store API status
       }
     };
     
-    console.log('🏁 RecommendationScreen: Component mounted, starting initialization');
     checkConnection();
     fetchUserProfile();
-    
-    // Initialize with empty products rather than mock data
-    setProducts([]);
   }, []);
 
   // Fetch the user's profile and preferences
   const fetchUserProfile = async () => {
-    console.log('👤 RecommendationScreen: Fetching user profile');
     const userId = auth().currentUser?.uid;
     if (!userId) {
-      console.log('ℹ️ RecommendationScreen: No authenticated user found, skipping profile fetch');
       return;
     }
-    console.log('🔑 RecommendationScreen: Fetching profile for user ID:', userId);
 
     try {
       // Fetch user profile
-      console.log('📄 RecommendationScreen: Fetching from users collection');
       const profileDoc = await getDoc(doc(db, 'users', userId));
       const profileData = profileDoc.exists() ? profileDoc.data() : null;
-      console.log('📋 RecommendationScreen: User profile data found:', profileData ? 'Yes' : 'No');
       
       // Fetch user preferences
-      console.log('⚙️ RecommendationScreen: Fetching from user_preferences collection');
       const preferencesDoc = await getDoc(doc(db, 'user_preferences', userId));
       const preferencesData = preferencesDoc.exists() ? preferencesDoc.data() : null;
-      console.log('🔧 RecommendationScreen: User preferences data found:', preferencesData ? 'Yes' : 'No');
       
       // Combine profile and preferences
       const combinedProfile = {
         ...profileData,
         ...preferencesData
       };
-      console.log('🔄 RecommendationScreen: Combined user profile keys:', 
-        combinedProfile ? Object.keys(combinedProfile).join(', ') : 'No profile data');
       setUserProfile(combinedProfile);
     } catch (error) {
-      console.error('❌ RecommendationScreen: Error fetching user profile:', error);
+      console.error('Error fetching user profile:', error);
     }
   };
 
-  // Handle search input focus animation
-  const handleFocus = () => {
-    Animated.timing(searchBarAnimation, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: false
-    }).start();
-  };
-
-  const handleBlur = () => {
-    Animated.timing(searchBarAnimation, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: false
-    }).start();
-  };
-
+  // Perform product search and add to chat
   const handleSearch = async () => {
-    console.log('🔍 RecommendationScreen: Search initiated with query:', query);
     if (!query.trim()) {
-      console.log('⚠️ RecommendationScreen: Empty search query, alerting user');
       Alert.alert('Please enter a search term');
       return;
     }
 
-    // Clear any existing errors and start loading
-    console.log('🔄 RecommendationScreen: Starting search process, clearing previous state');
+    // Clear errors and start loading
     setError(null);
     setLoading(true);
     
+    // Add user query to chat
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      type: 'user',
+      text: query,
+      timestamp: Date.now()
+    };
+    
+    setChatMessages(prev => 
+      // Limit to 5 messages (2 back-and-forth conversations plus current) 
+      [...prev.slice(Math.max(0, prev.length - 4)), userMessage]
+    );
+    
+    // Switch to chat mode
+    setSearchMode('chat');
+    
+    // Scroll to bottom after a short delay to ensure the new message is rendered
+    setTimeout(() => {
+      chatScrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    
     try {
-      // First check API connection if needed
+      // Check API connection if needed
       let isConnected = apiConnected;
       if (apiConnected === false || apiConnected === null) {
-        console.log('🔌 RecommendationScreen: API connection status is', 
-          apiConnected === false ? 'disconnected' : 'unknown', 
-          '- checking connection');
-        
         isConnected = await checkApiHealth();
-        console.log('🚦 RecommendationScreen: API check result:', isConnected ? 'connected' : 'disconnected');
         setApiConnected(isConnected);
         
         if (!isConnected) {
-          console.log('❌ RecommendationScreen: API disconnected, aborting search');
-          setError('Cannot connect to recommendation service. Please check your network or try again later.');
+          const errorMessage: ChatMessage = {
+            id: `system-${Date.now()}`,
+            type: 'system',
+            text: 'Sorry, I cannot connect to the fashion database right now. Please check your network connection and try again later.',
+            timestamp: Date.now()
+          };
+          
+          setChatMessages(prev => [...prev, errorMessage]);
           setLoading(false);
+          setError('Cannot connect to recommendation service.');
+          
+          setTimeout(() => {
+            chatScrollRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+          
           return;
         }
-      } else {
-        console.log('✅ RecommendationScreen: API already confirmed connected, proceeding with search');
       }
       
-      // Now that we've confirmed API is connected, proceed with search
-      console.log('🚀 RecommendationScreen: Sending search request with query:', query);
-      const results = await searchProducts(query, [0, 1000], 10, userProfile);
-      console.log('📊 RecommendationScreen: Search complete, received', results?.length || 0, 'results');
+      // Proceed with search
+      let results;
       
-      setProducts(results || []);
-      if (!results || results.length === 0) {
-        console.log('ℹ️ RecommendationScreen: No products found for query');
-        setError('No products found matching your search. Try different keywords.');
+      try {
+        results = await searchProducts(query, [0, 1000], 10, userProfile);
+      } catch (apiError) {
+        // If the API fails, use mock data for demo purposes
+        console.log('Using mock data due to API error:', apiError);
+        results = MOCK_PRODUCTS;
       }
+      
+      // Create system response with products
+      const systemMessage: ChatMessage = {
+        id: `system-${Date.now()}`,
+        type: 'system',
+        text: results && results.length > 0 
+          ? `Here are some ${query.toLowerCase()} options I found for you:` 
+          : `I couldn't find any ${query.toLowerCase()} that match your style. Maybe try a different search?`,
+        timestamp: Date.now(),
+        products: results && results.length > 0 ? results : undefined
+      };
+      
+      // Add system message to chat
+      setChatMessages(prev => [...prev, systemMessage]);
+      
+      // Clear query field for next search
+      setQuery('');
+      
     } catch (err) {
-      console.error('❌ RecommendationScreen: Search error:', err);
-      setError('Failed to fetch recommendations. Please try again.');
+      // Handle errors with a system message
+      const errorMessage: ChatMessage = {
+        id: `system-${Date.now()}`,
+        type: 'system',
+        text: 'Sorry, something went wrong with your search. Please try again with different keywords.',
+        timestamp: Date.now()
+      };
+      
+      setChatMessages(prev => [...prev, errorMessage]);
+      setError('Failed to fetch recommendations.');
     } finally {
-      console.log('🏁 RecommendationScreen: Search process complete');
       setLoading(false);
+      
+      // Scroll to bottom after a short delay to ensure the new message is rendered
+      setTimeout(() => {
+        chatScrollRef.current?.scrollToEnd({ animated: true });
+      }, 100);
     }
   };
 
+  // Handle suggested search
+  const handleSuggestedSearch = (searchTerm: string) => {
+    setQuery(searchTerm);
+    setTimeout(() => handleSearch(), 100);
+  };
+
+  // Open product URL
   const openProductUrl = (url: string) => {
     Linking.openURL(url).catch(err => {
       console.error('Failed to open URL:', err);
@@ -713,313 +710,254 @@ const RecommendationScreen: React.FC = () => {
     });
   };
   
+  // Show product preview modal
   const showProductPreview = (product: Product) => {
     setSelectedProduct(product);
     setModalVisible(true);
   };
   
+  // Close product preview modal
   const closeProductPreview = () => {
     setModalVisible(false);
-    // Delay clearing the selected product to allow the animation to complete
     setTimeout(() => {
       setSelectedProduct(null);
     }, 300);
   };
 
-  // Animated search bar styles
-  const searchBarWidth = searchBarAnimation.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['100%', '100%']
-  });
-
-  const searchBarHeight = searchBarAnimation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [50, 54]
-  });
-
-  const searchBarOpacity = searchBarAnimation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.9, 1]
-  });
-
-  // Replace the renderProduct function with a simpler version that uses our new component
-  const renderProduct = ({ item, index }: { item: Product, index: number }) => (
-    <ProductItem
-      item={item}
-      index={index}
-      onPress={openProductUrl}
-      onLongPress={showProductPreview}
-      borderColor={borderColor}
-      cardBgColor={cardBgColor}
-      textColor={textColor}
-      subTextColor={subTextColor}
-      mainColor={mainColor}
-    />
-  );
-
-  // Render trending searches - reusable section
-  // Handle filter change by triggering a new search with category
-  const handleFilterChange = async (filterId: string) => {
-    setActiveFilter(filterId);
-    
-    // If we have no products loaded yet or we're just switching back to "all",
-    // don't do anything - wait for user to search
-    if (products.length === 0 || filterId === 'all') {
-      return;
-    }
-    
-    // Otherwise, if we have products loaded, filter them client-side
-    const mappings: Record<string, string[]> = {
-      'shirts': ['shirt', 't-shirt', 'top', 'tee'],
-      'pants': ['jeans', 'pants', 'trousers', 'slacks', 'chinos'],
-      'dresses': ['dress', 'gown', 'skirt'],
-      'shoes': ['sneakers', 'shoes', 'boots', 'sandals'],
-      'accessories': ['watch', 'sunglasses', 'jewelry', 'hat', 'belt', 'bag', 'purse']
-    };
-    
-    const keywords = mappings[filterId] || [filterId];
-    
-    // Apply filtering to products based on product name or description
-    const filtered = products.filter(product => {
-      const name = product.name?.toLowerCase() || '';
-      const desc = product.description?.toLowerCase() || '';
-      
-      return keywords.some(keyword => 
-        name.includes(keyword.toLowerCase()) || 
-        desc.includes(keyword.toLowerCase())
-      );
-    });
-    
-    setProducts(filtered);
-    
-    // If no products match the filter, show an appropriate message
-    if (filtered.length === 0) {
-      setError(`No ${filterId} found in your search results. Try a different filter or search term.`);
-    } else {
-      setError(null);
-    }
-  };
-
-  const renderTrendingSearches = () => {
-    const trendingSearches = ['T-Shirt', 'Jeans', 'Jacket', 'Sneakers', 'Watch'];
+  // Render a chat message
+  const renderChatMessage = (message: ChatMessage, index: number) => {
+    const isUser = message.type === 'user';
+    const hasProducts = message.products && message.products.length > 0;
     
     return (
-      <View style={styles.trendingSection}>
-        <Text style={[styles.sectionTitle, { color: textColor }]}>Trending Searches</Text>
-        <View style={styles.trendingTags}>
-          {trendingSearches.map((tag, index) => (
-            <TouchableOpacity 
-              key={index} 
-              style={[styles.trendingTag, { borderColor: borderColor }]}
-              onPress={() => {
-                setQuery(tag);
-                handleSearch();
-              }}
-            >
-              <Text style={[styles.trendingTagText, { color: subTextColor }]}>{tag}</Text>
-            </TouchableOpacity>
-          ))}
+      <View 
+        key={message.id} 
+        style={[
+          styles.chatMessageContainer,
+          isUser ? styles.userMessageContainer : styles.systemMessageContainer
+        ]}
+      >
+        {/* Message bubble */}
+        <View 
+          style={[
+            styles.chatBubble,
+            isUser 
+              ? [styles.userBubble, { backgroundColor: bubbleBgUser }] 
+              : [styles.systemBubble, { backgroundColor: bubbleBgSystem }]
+          ]}
+        >
+          <Text 
+            style={[
+              styles.chatBubbleText,
+              isUser 
+                ? styles.userBubbleText 
+                : [styles.systemBubbleText, { color: textColor }]
+            ]}
+          >
+            {message.text}
+          </Text>
         </View>
+        
+        {/* Product carousel for system messages with products */}
+        {hasProducts && (
+          <View style={styles.productsCarousel}>
+            <FlatList
+              data={message.products}
+              renderItem={({ item, index }) => (
+                <ProductItem
+                  item={item}
+                  index={index}
+                  onPress={openProductUrl}
+                  onLongPress={showProductPreview}
+                  cardBgColor={cardBgColor}
+                  textColor={textColor}
+                  subTextColor={subTextColor}
+                  mainColor={mainColor}
+                />
+              )}
+              keyExtractor={item => item.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              snapToAlignment="center"
+              snapToInterval={width * 0.65 + 15}
+              contentContainerStyle={styles.productsCarouselContent}
+            />
+          </View>
+        )}
       </View>
     );
   };
+
+  // Render popular searches
+  const renderPopularSearches = () => (
+    <View style={styles.popularSearchesContainer}>
+      <Text style={[styles.sectionTitle, { color: textColor }]}>
+        Trending Searches
+      </Text>
+      <View style={styles.trendingTagsContainer}>
+        {TRENDY_SEARCHES.map((search, index) => (
+          <TouchableOpacity 
+            key={index}
+            style={[styles.trendingTag, { backgroundColor: inputBgColor, borderColor }]}
+            onPress={() => handleSuggestedSearch(search)}
+          >
+            <Icon name="search-outline" size={14} color={subTextColor} style={styles.trendingTagIcon} />
+            <Text style={[styles.trendingTagText, { color: textColor }]}>
+              {search}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       
-      {/* Modern iOS-style header with back button */}
-      <View style={styles.header}>
+      {/* Header */}
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <View style={styles.headerContent}>
-          <View style={styles.headerTitleContainer}>
-            <Text style={[styles.title, { color: textColor }]}>Discover</Text>
-            <Text style={[styles.subtitle, { color: subTextColor }]}>Find your unique style</Text>
-          </View>
-          
-          <View style={styles.headerIcons}>
+          <Text style={[styles.headerTitle, { color: textColor }]}>
+            Discover
+          </Text>
+          {chatMessages.length > 0 && (
             <TouchableOpacity 
-              style={[styles.iconButton, { backgroundColor: surfaceColor }]}
+              style={[styles.newChatButton, { backgroundColor: inputBgColor }]}
+              onPress={() => {
+                setChatMessages([]);
+                setSearchMode('input');
+                setQuery('');
+              }}
             >
-              <FeatherIcon name="sliders" size={18} color={mainColor} />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.iconButton, { backgroundColor: surfaceColor }]}
-            >
-              <Icon name="notifications-outline" size={18} color={mainColor} />
-            </TouchableOpacity>
-          </View>
-        </View>
-        
-        {/* Enhanced iOS-style search bar */}
-        <Animated.View style={[
-          styles.searchContainer,
-          { 
-            width: searchBarWidth,
-            height: searchBarHeight,
-            opacity: searchBarOpacity,
-          }
-        ]}>
-          <Icon name="search" size={16} color={subTextColor} />
-          <TextInput
-            style={[styles.searchInput, { color: textColor }]}
-            placeholder="Search styles, items, or brands"
-            placeholderTextColor={subTextColor}
-            value={query}
-            onChangeText={setQuery}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            returnKeyType="search"
-            onSubmitEditing={handleSearch}
-          />
-          {query.length > 0 && (
-            <TouchableOpacity 
-              style={styles.clearButton}
-              onPress={() => setQuery('')}
-            >
-              <Icon name="close-circle" size={16} color={subTextColor} />
+              <Icon name="add-outline" size={20} color={mainColor} />
+              <Text style={[styles.newChatButtonText, { color: mainColor }]}>
+                New Search
+              </Text>
             </TouchableOpacity>
           )}
-        </Animated.View>
+        </View>
       </View>
       
-      {/* Premium filter chips with smooth scroll */}
-      <View style={styles.filtersContainer}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtersScroll}
-          bounces={true}
-          decelerationRate="fast"
-        >
-          {filters.map(filter => (
-            <TouchableOpacity
-              key={filter.id}
-              style={[
-                styles.filterButton,
-                activeFilter === filter.id && { 
-                  backgroundColor: mainColor,
-                  shadowColor: mainColor,
-                  shadowOffset: { width: 0, height: 3 },
-                  shadowOpacity: 0.15,
-                  shadowRadius: 6,
-                  elevation: 3
-                }
-              ]}
-              onPress={() => handleFilterChange(filter.id)}
-            >
-              <Text 
-                style={[
-                  styles.filterText, 
-                  { color: activeFilter === filter.id ? '#FFFFFF' : subTextColor }
-                ]}
-              >
-                {filter.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      {loading ? (
-        <View style={styles.centerContainer}>
-          <View style={[styles.loadingIndicator, { backgroundColor: cardBgColor }]}>
-            <FashionLoadingAnimation mainColor={mainColor} />
-            <Text style={[styles.loadingText, { color: textColor }]}>
-              Finding your perfect style...
-            </Text>
-          </View>
-        </View>
-      ) : (error && query.trim() !== '') ? (
-        <View style={styles.centerContainer}>
-          <View style={[styles.errorContainer, { backgroundColor: cardBgColor }]}>
-            <Icon name="alert-circle-outline" size={40} color="#e74c3c" />
-            <Text style={[styles.errorText, { color: textColor }]}>{error}</Text>
-            <TouchableOpacity 
-              style={[styles.retryButton, { backgroundColor: mainColor }]}
-              onPress={handleSearch}
-            >
-              <Text style={styles.retryButtonText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <Animated.FlatList
-          data={products}
-          renderItem={renderProduct}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.productsList}
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { y: scrollY } }}],
-            { useNativeDriver: false }
-          )}
-          scrollEventThrottle={16}
+      <KeyboardAvoidingView 
+        style={styles.mainContent}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+      >
+        {/* Chat content */}
+        <ScrollView
+          ref={chatScrollRef}
+          style={styles.chatContainer}
+          contentContainerStyle={styles.chatContent}
           showsVerticalScrollIndicator={false}
-          numColumns={2}
-          ListHeaderComponent={
-            <View style={styles.featuredSection}>
-              <Text style={[styles.sectionTitle, { color: textColor }]}>
-                Trending Now
-              </Text>
-              <View style={styles.featuredCardsContainer}>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  decelerationRate="fast"
-                  snapToInterval={width * 0.85 + 15}
-                  snapToAlignment="center"
-                  contentContainerStyle={styles.featuredCardsScroll}
-                >
-                  {/* Featured trending cards */}
-                  <TouchableOpacity style={[styles.featuredCard, { backgroundColor: surfaceColor }]}>
-                    <Image 
-                      source={{ uri: 'https://images.unsplash.com/photo-1588359348347-9bc6cbbb689e?q=80&w=800&auto=format' }}
-                      style={styles.featuredImage}
-                    />
-                    <View style={styles.featuredContent}>
-                      <Text style={[styles.featuredTitle, { color: textColor }]}>Summer Essentials</Text>
-                      <Text style={[styles.featuredSubtitle, { color: subTextColor }]}>Lightweight pieces for the season</Text>
-                    </View>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity style={[styles.featuredCard, { backgroundColor: surfaceColor }]}>
-                    <Image 
-                      source={{ uri: 'https://images.unsplash.com/photo-1548624313-0fb08aeadcb1?q=80&w=800&auto=format' }}
-                      style={styles.featuredImage}
-                    />
-                    <View style={styles.featuredContent}>
-                      <Text style={[styles.featuredTitle, { color: textColor }]}>Sustainable Style</Text>
-                      <Text style={[styles.featuredSubtitle, { color: subTextColor }]}>Eco-friendly fashion finds</Text>
-                    </View>
-                  </TouchableOpacity>
-                </ScrollView>
-              </View>
-            </View>
-          }
-          ListEmptyComponent={
+        >
+          {chatMessages.length > 0 ? (
             <>
-              {renderTrendingSearches()}
-              
-              <View style={styles.suggestionsContainer}>
-                <Text style={[styles.sectionTitle, { color: textColor }]}>Suggestions</Text>
-                
-                <View style={styles.emptyStateContainer}>
-                  <Icon 
-                    name="search-outline" 
-                    size={60} 
-                    color={isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'} 
-                  />
-                  <Text style={[styles.emptyText, { color: subTextColor }]}>
-                    {query.trim() 
-                      ? 'No products found. Try a different search term.' 
-                      : 'Search for items to find your style.'}
+              {/* Welcome message if first chat */}
+              {chatMessages.length <= 2 && (
+                <View style={styles.welcomeContainer}>
+                  <Icon name="search-circle" size={60} color={mainColor} />
+                  <Text style={[styles.welcomeTitle, { color: textColor }]}>
+                    Fashion Finder
+                  </Text>
+                  <Text style={[styles.welcomeText, { color: subTextColor }]}>
+                    Ask me about any clothing or style you're looking for!
                   </Text>
                 </View>
-              </View>
+              )}
+              
+              {/* Chat messages */}
+              {chatMessages.map(renderChatMessage)}
+              
+              {/* Loading indicator */}
+              {loading && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color={mainColor} size="large" />
+                  <Text style={[styles.loadingText, { color: subTextColor }]}>
+                    Finding the perfect style...
+                  </Text>
+                </View>
+              )}
             </>
-          }
-          ListFooterComponent={<View style={{ height: 140 }} />}
-        />
-      )}
+          ) : (
+            // Initial state - show popular searches
+            <View style={styles.emptyStateContainer}>
+              <View style={styles.welcomeContainer}>
+                <Icon name="search-circle" size={80} color={mainColor} />
+                <Text style={[styles.welcomeTitle, { color: textColor }]}>
+                  Fashion Finder
+                </Text>
+                <Text style={[styles.welcomeText, { color: subTextColor }]}>
+                  What are you looking for today?
+                </Text>
+              </View>
+              
+              {renderPopularSearches()}
+              
+              <View style={styles.tipsContainer}>
+                <Text style={[styles.tipsTitle, { color: textColor }]}>
+                  Try searching for:
+                </Text>
+                <View style={styles.tipsList}>
+                  <View style={styles.tipItem}>
+                    <Icon name="shirt-outline" size={18} color={mainColor} style={styles.tipIcon} />
+                    <Text style={[styles.tipText, { color: subTextColor }]}>
+                      Specific items like "summer dress" or "leather jacket"
+                    </Text>
+                  </View>
+                  <View style={styles.tipItem}>
+                    <Icon name="color-palette-outline" size={18} color={mainColor} style={styles.tipIcon} />
+                    <Text style={[styles.tipText, { color: subTextColor }]}>
+                      Styles like "minimalist", "vintage" or "street style"
+                    </Text>
+                  </View>
+                  <View style={styles.tipItem}>
+                    <Icon name="albums-outline" size={18} color={mainColor} style={styles.tipIcon} />
+                    <Text style={[styles.tipText, { color: subTextColor }]}>
+                      Occasions like "office wear" or "date night outfit"
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
+        </ScrollView>
+        
+        {/* Search input */}
+        <View style={[styles.searchInputContainer, { borderTopColor: borderColor, backgroundColor: bgColor }]}>
+          <View style={[styles.searchInputWrapper, { backgroundColor: inputBgColor }]}>
+            <TextInput
+              style={[styles.searchInput, { color: textColor }]}
+              placeholder="Search for clothes, styles, trends..."
+              placeholderTextColor={subTextColor}
+              value={query}
+              onChangeText={setQuery}
+              returnKeyType="search"
+              onSubmitEditing={handleSearch}
+            />
+            {query.length > 0 && (
+              <TouchableOpacity 
+                style={styles.clearButton}
+                onPress={() => setQuery('')}
+              >
+                <Icon name="close-circle" size={16} color={subTextColor} />
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity 
+            style={[
+              styles.searchButton, 
+              { backgroundColor: mainColor },
+              !query.trim() && { opacity: 0.7 }
+            ]}
+            onPress={handleSearch}
+            disabled={!query.trim() || loading}
+          >
+            <Icon name="search" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
       
       {/* Product Details Modal */}
       <ProductDetailsModal 
@@ -1032,332 +970,285 @@ const RecommendationScreen: React.FC = () => {
         textColor={textColor}
         subTextColor={subTextColor}
       />
-      
-      {/* No longer need custom bottom navigation bar - using Tab Navigator */}
     </SafeAreaView>
   );
 };
 
-// Using the same width value from earlier in the file
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  // Enhanced Header Styles
   header: {
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
   },
   headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
   },
-  headerTitleContainer: {
-    flex: 1,
-  },
-  headerIcons: {
-    flexDirection: 'row',
-  },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  title: {
-    fontSize: 28, // iOS Large Title size - slightly smaller for more elegance
+  headerTitle: {
+    fontSize: 28,
     fontWeight: '700',
-    letterSpacing: 0.35, // iOS font tracking
   },
-  subtitle: {
-    fontSize: 15,
-    fontWeight: '400',
-    marginTop: 4,
-  },
-  searchContainer: {
+  newChatButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 6,
-    marginBottom: 20,
-    borderRadius: 10, // iOS standard rounded corner
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(118, 118, 128, 0.12)', // iOS search bar background
-    height: 38, // iOS standard search bar height
+    paddingVertical: 8,
+    borderRadius: 20,
   },
-  searchInput: {
+  newChatButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  mainContent: {
     flex: 1,
-    fontSize: 17, // iOS body text size
-    fontWeight: '400',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    position: 'relative',
   },
-  clearButton: {
-    padding: 4,
+  // Chat styles
+  chatContainer: {
+    flex: 1,
   },
-  // Enhanced filter styles
-  filtersContainer: {
+  chatContent: {
+    padding: 16,
+    paddingBottom: 30,
+  },
+  chatMessageContainer: {
     marginBottom: 20,
+    maxWidth: '100%',
   },
-  filtersScroll: {
-    paddingHorizontal: 20,
-    paddingVertical: 4,
+  userMessageContainer: {
+    alignItems: 'flex-end',
+    marginLeft: 50,
   },
-  filterButton: {
+  systemMessageContainer: {
+    alignItems: 'flex-start',
+    marginRight: 50,
+  },
+  chatBubble: {
+    borderRadius: 18,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 18, // More iOS-like pill shape
-    marginRight: 10,
-    backgroundColor: 'rgba(118, 118, 128, 0.12)', // iOS standard gray
+    paddingVertical: 12,
+    maxWidth: '100%',
   },
-  filterText: {
-    fontSize: 15, // iOS subhead
+  userBubble: {
+    borderBottomRightRadius: 4, // iMessage style
+  },
+  systemBubble: {
+    borderBottomLeftRadius: 4, // iMessage style
+  },
+  chatBubbleText: {
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  userBubbleText: {
+    color: '#FFFFFF',
     fontWeight: '500',
   },
-  // Featured cards section
-  featuredSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
+  systemBubbleText: {
+    fontWeight: '400',
   },
-  featuredCardsContainer: {
+  // Products carousel
+  productsCarousel: {
     marginTop: 12,
+    marginBottom: 8,
   },
-  featuredCardsScroll: {
-    paddingRight: 20,
-    paddingBottom: 6,
+  productsCarouselContent: {
+    paddingRight: 16,
+    paddingBottom: 8,
   },
-  featuredCard: {
-    width: width * 0.85,
-    height: 180,
-    borderRadius: 16,
+  productCard: {
+    width: width * 0.65,
+    height: 220,
     marginRight: 15,
+    borderRadius: 16,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 2,
   },
-  featuredImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-    position: 'absolute',
-  },
-  featuredContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 16,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-  },
-  featuredTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  featuredSubtitle: {
-    fontSize: 14,
-    fontWeight: '400',
-    color: 'rgba(255,255,255,0.8)',
-  },
-  // Product list styles
-  productsList: {
-    paddingHorizontal: 16,
-    paddingBottom: 30,
-  },
-  productItem: {
+  productCardContent: {
     flex: 1,
-    margin: 6,
-    borderRadius: 16, // iOS standard card corner radius
-    overflow: 'hidden',
-    borderWidth: 0, // iOS typically doesn't have visible borders
-    height: 260,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
   },
-  itemContent: {
-    height: '100%',
-    flexDirection: 'column',
-  },
-  imageContainer: {
-    position: 'relative',
-    height: 160,
+  productImageContainer: {
+    height: 140,
     width: '100%',
+    position: 'relative',
   },
-  productImage: {
+  productCardImage: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+  },
+  productCardDetails: {
+    padding: 12,
+    justifyContent: 'space-between',
+    flex: 1,
+  },
+  productCardName: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  productCardSite: {
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  productCardActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  productCardButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  productCardButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
   },
   priceTag: {
     position: 'absolute',
-    bottom: 10,
+    top: 10,
     left: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)', // Slightly more opaque
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 15, // More rounded for iOS feel
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   priceTagText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 15,
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
-  productDetails: {
-    flex: 1,
-    padding: 14,
-    justifyContent: 'space-between',
-  },
-  productTop: {
-    flex: 1,
-  },
-  productBottom: {
-    justifyContent: 'flex-end',
-  },
-  productName: {
-    fontSize: 15, // iOS callout size
-    fontWeight: '500',
-    marginBottom: 4,
-    lineHeight: 20,
-  },
-  productSite: {
-    fontSize: 13, // iOS caption size
-    opacity: 0.7,
-    marginBottom: 8,
-  },
-  productPrice: {
-    fontSize: 17, // iOS body text size
-    fontWeight: '600',
-    marginBottom: 10,
-  },
-  actionButtons: {
+  // Search input styles
+  searchInputContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  actionButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 122, 255, 0.1)', // iOS blue with opacity
-  },
-  viewButton: {
     paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 18, // iOS pill-shaped button
-  },
-  viewButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  // Loading and error states
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  loadingIndicator: {
-    padding: 24,
-    borderRadius: 16,
-    width: '85%',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 17, // iOS body text
-    fontWeight: '500',
-  },
-  errorContainer: {
-    padding: 24,
-    borderRadius: 16,
-    width: '85%',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-  },
-  errorText: {
-    marginVertical: 16,
-    textAlign: 'center',
-    fontSize: 17, // iOS body text
-  },
-  retryButton: {
-    paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 20, // More iOS-like pill shape
+    borderTopWidth: 1,
   },
-  retryButtonText: {
-    color: 'white',
-    fontWeight: '600',
+  searchInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    height: 46,
+    marginRight: 10,
+  },
+  searchInput: {
+    flex: 1,
+    height: 46,
     fontSize: 16,
   },
-  // Trending & suggestion sections
-  trendingSection: {
-    marginVertical: 24,
-    paddingHorizontal: 4,
+  clearButton: {
+    padding: 6,
+  },
+  searchButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Empty state and welcome
+  emptyStateContainer: {
+    flex: 1,
+    paddingVertical: 30,
+  },
+  welcomeContainer: {
+    alignItems: 'center',
+    marginBottom: 30,
+    paddingTop: 20,
+  },
+  welcomeTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginTop: 15,
+    marginBottom: 8,
+  },
+  welcomeText: {
+    fontSize: 16,
+    textAlign: 'center',
+    maxWidth: '80%',
+    lineHeight: 22,
+  },
+  // Popular searches
+  popularSearchesContainer: {
+    marginVertical: 20,
   },
   sectionTitle: {
-    fontSize: 20, // iOS headline size
+    fontSize: 18,
     fontWeight: '600',
-    marginBottom: 16,
-    paddingHorizontal: 16,
+    marginBottom: 14,
+    paddingHorizontal: 4,
   },
-  trendingTags: {
+  trendingTagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 16,
   },
   trendingTag: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 18, // iOS pill shape
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
     marginRight: 8,
     marginBottom: 8,
-    borderWidth: 0, // Remove border
-    backgroundColor: 'rgba(118, 118, 128, 0.12)', // iOS standard gray
+    borderWidth: 1,
+  },
+  trendingTagIcon: {
+    marginRight: 6,
   },
   trendingTagText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '500',
   },
-  suggestionsContainer: {
-    marginTop: 24,
-    paddingHorizontal: 16,
+  // Tips
+  tipsContainer: {
+    marginVertical: 20,
   },
-  emptyStateContainer: {
+  tipsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 14,
+    paddingHorizontal: 4,
+  },
+  tipsList: {
+    marginTop: 10,
+  },
+  tipItem: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  tipIcon: {
+    marginRight: 10,
+    marginTop: 2,
+  },
+  tipText: {
+    fontSize: 15,
+    flex: 1,
+    lineHeight: 22,
+  },
+  // Loading
+  loadingContainer: {
     alignItems: 'center',
-    paddingVertical: 60, // More space for iOS feel
+    paddingVertical: 24,
   },
-  emptyText: {
-    marginTop: 20,
-    textAlign: 'center',
-    fontSize: 17, // iOS body text
-    lineHeight: 24,
-    maxWidth: '80%',
-    opacity: 0.7, // Better text contrast for iOS
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
   },
-  // Loading animation styles
+  // Animation styles
   loadingAnimationContainer: {
     height: 150,
     width: 220,
@@ -1373,7 +1264,7 @@ const styles = StyleSheet.create({
   },
   rackBar: {
     width: '100%',
-    height: 4, // Slightly thinner for iOS
+    height: 4,
     borderRadius: 2,
     marginTop: 20,
   },
@@ -1402,14 +1293,14 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: '85%',
-    maxHeight: '75%', // Slightly less height for iOS proportion
-    borderRadius: 14, // iOS card standard
+    maxHeight: '75%',
+    borderRadius: 20,
     overflow: 'hidden',
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
-    shadowRadius: 12, // Softer shadow for iOS feel
+    shadowRadius: 12,
   },
   modalHeader: {
     paddingHorizontal: 15,
@@ -1422,18 +1313,18 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(118, 118, 128, 0.12)', // iOS standard gray
+    backgroundColor: 'rgba(118, 118, 128, 0.12)',
   },
   modalImage: {
     width: '100%',
-    height: 240, // Slightly taller image
+    height: 240,
     resizeMode: 'cover',
   },
   modalDetails: {
     padding: 20,
   },
   modalProductName: {
-    fontSize: 19, // iOS headline
+    fontSize: 20,
     fontWeight: '600',
     marginBottom: 10,
     lineHeight: 24,
@@ -1445,13 +1336,13 @@ const styles = StyleSheet.create({
   },
   modalSiteText: {
     marginLeft: 6,
-    fontSize: 15, // iOS subhead
-    opacity: 0.7, // Better contrast for iOS
+    fontSize: 15,
+    opacity: 0.7,
   },
   modalPrice: {
-    fontSize: 24, // iOS large title
+    fontSize: 24,
     fontWeight: '700',
-    marginBottom: 12, // Reduced margin to accommodate description
+    marginBottom: 12,
   },
   modalDescription: {
     fontSize: 15,
@@ -1463,29 +1354,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14, // iOS standard button height
-    borderRadius: 20, // iOS rounded button
+    paddingVertical: 14,
+    borderRadius: 20,
     marginBottom: 24,
   },
   buyButtonText: {
     color: 'white',
     fontWeight: '600',
-    fontSize: 17, // iOS button text
+    fontSize: 17,
     marginRight: 8,
   },
   modalActions: {
     flexDirection: 'row',
-    justifyContent: 'space-around', // More evenly spaced
+    justifyContent: 'space-around',
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(60, 60, 67, 0.1)', // iOS standard separator
+    borderTopColor: 'rgba(60, 60, 67, 0.1)',
   },
   actionItem: {
     alignItems: 'center',
-    padding: 12, // More touchable area
+    padding: 12,
   },
   actionText: {
-    fontSize: 13, // iOS caption
+    fontSize: 13,
     marginTop: 6,
     fontWeight: '500',
   },

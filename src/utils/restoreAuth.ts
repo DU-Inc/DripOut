@@ -40,7 +40,7 @@ export const restoreAuthSession = async () => {
       const createTime = createTimeStr ? parseInt(createTimeStr, 10) : Date.now();
       
       const now = Date.now();
-      const INACTIVITY_TIMEOUT = 10 * 24 * 60 * 60 * 1000; // 10 days
+      const INACTIVITY_TIMEOUT = 10 * 60 * 60 * 1000; // 10 hours (updated from 10 days)
       const ABSOLUTE_TIMEOUT = 190 * 24 * 60 * 60 * 1000; // 190 days
       
       const isInactive = now - lastActivity > INACTIVITY_TIMEOUT;

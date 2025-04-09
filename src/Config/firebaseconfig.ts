@@ -10,7 +10,6 @@ import {
 } from '@env';
 import { getFirestore } from 'firebase/firestore';
 import auth from '@react-native-firebase/auth';
-import { getStorage } from 'firebase/storage';
 
 // Check if all Firebase environment variables are present
 if (
@@ -34,16 +33,16 @@ const firebaseConfig = {
   appId: FIREBASE_APP_ID,
 };
 
-// Initialize Firebase App
+// Initialize Firebase App for Web SDK components
 console.log('Initializing Firebase app...');
 const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore
 export const db = getFirestore(app);
 
-// Initialize Firebase Storage
-export const storage = getStorage(app);
+// Log storage bucket configuration from environment
+console.log('Firebase Storage bucket from env:', FIREBASE_STORAGE_BUCKET);
 
-// Export auth from react-native-firebase ONLY (standardizing on RN Firebase SDK)
+// Export auth from react-native-firebase
 console.log('Using React Native Firebase Auth');
 export { auth };

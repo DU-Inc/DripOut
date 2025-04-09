@@ -455,14 +455,51 @@ const SocialScreen: React.FC = () => {
           }
         ]}
       >
-        {/* Card Header with title and publication date */}
+        {/* Card Header with user info, title and publication date */}
         <View style={styles.inspirationHeader}>
-          <View>
+          {/* User info with profile picture */}
+          <View style={styles.userInfoContainer}>
+            <TouchableOpacity activeOpacity={0.8}>
+              <Image 
+                source={{ uri: `https://i.pravatar.cc/150?u=${item.id}` }} 
+                style={[
+                  styles.profileImage, 
+                  { 
+                    borderColor: isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'
+                  }
+                ]} 
+              />
+            </TouchableOpacity>
+            <View style={styles.userTextInfo}>
+              <TouchableOpacity activeOpacity={0.8}>
+                <View style={styles.usernameContainer}>
+                  <Text style={[styles.username, { color: textColor }]}>
+                    {item.id === '1' ? 'grace_style' : 
+                      item.id === '2' ? 'fashion_guru' : 
+                      item.id === '3' ? 'trend_watcher' : 
+                      item.id === '4' ? 'clothescritic' : 
+                      item.id === '5' ? 'runway_fan' : 'style_seeker'}
+                  </Text>
+                  {(item.id === '1' || item.id === '3') && (
+                    <View style={styles.verifiedBadge}>
+                      <Icon name="checkmark-circle" size={14} color="#0095F6" />
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+              <Text style={[styles.publishDate, { color: subTextColor }]}>
+                {item.publishedDate}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.moreOptionsButton}>
+              <Icon name="ellipsis-horizontal" size={18} color={subTextColor} />
+            </TouchableOpacity>
+          </View>
+          
+          {/* Post title */}
+          <View style={styles.titleContainer}>
             <Text style={[styles.inspirationTitle, { color: textColor }]}>
               {item.title}
-            </Text>
-            <Text style={[styles.publishDate, { color: subTextColor }]}>
-              {item.publishedDate}
             </Text>
           </View>
         </View>
@@ -1182,16 +1219,52 @@ const styles = StyleSheet.create({
   inspirationHeader: {
     paddingHorizontal: 18,
     paddingVertical: 16,
+    gap: 12,
   },
-  inspirationTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginRight: 8,
+  userInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  profileImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  userTextInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  moreOptionsButton: {
+    padding: 8,
+    marginRight: -8,
+  },
+  usernameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  username: {
+    fontSize: 14,
+    fontWeight: '600',
     letterSpacing: 0.2,
   },
-  publishDate: {
-    fontSize: 13,
+  verifiedBadge: {
+    marginLeft: 4,
+  },
+  titleContainer: {
     marginTop: 4,
+  },
+  inspirationTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    lineHeight: 24,
+  },
+  publishDate: {
+    fontSize: 12,
+    marginTop: 1,
   },
   
   // Gallery

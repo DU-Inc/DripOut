@@ -9,36 +9,63 @@ import {
   Image,
   ScrollView,
   Alert,
-  Platform,
   ActivityIndicator,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import MaterialIcon from 'react-native-vector-icons/MaterialIcons';
+import MaterialCommunityIcon from 'react-native-vector-icons/MaterialCommunityIcons';
+import FontAwesome5 from 'react-native-vector-icons/FontAwesome5';
 import { useTheme } from '../styles/themeprovider';
 import { createPost } from '../services/postService';
 import { selectImageFromLibrary, takePhotoWithCamera, ImageAsset } from '../services/imagePickerService';
+
+// Interface for featured piece (clothing item)
+interface FeaturedPiece {
+  id: string;
+  name: string;
+  brand: string;
+  type: 'shirt' | 'pants' | 'shoes' | 'accessory';
+  link?: string; // Optional affiliate link
+}
 
 const CreatePostScreen: React.FC = () => {
   const navigation = useNavigation();
   const { isDarkMode } = useTheme();
   
+  // Basic post data
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');
   const [selectedImage, setSelectedImage] = useState<ImageAsset | null>(null);
+  
+  // Featured pieces data
+  const [featuredPieces, setFeaturedPieces] = useState<FeaturedPiece[]>([]);
+  const [showAddPieceModal, setShowAddPieceModal] = useState(false);
+  const [newPieceName, setNewPieceName] = useState('');
+  const [newPieceBrand, setNewPieceBrand] = useState('');
+  const [newPieceLink, setNewPieceLink] = useState('');
+  const [newPieceType, setNewPieceType] = useState<'shirt' | 'pants' | 'shoes' | 'accessory'>('shirt');
+  
+  // UI states
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showImageOptions, setShowImageOptions] = useState(false);
+  const [currentTab, setCurrentTab] = useState<'details' | 'pieces'>('details');
   
-  // Colors based on theme
-  const mainColor = isDarkMode ? '#FF6B6B' : '#EF3D47';
-  const bgColor = isDarkMode ? '#0A0A0F' : '#F7F7F7';
+  // Colors based on theme - matching reddish app theme
+  const mainColor = isDarkMode ? '#FF6B6B' : '#EF3D47'; // Reddish primary color matching app
+  const bgColor = isDarkMode ? '#121212' : '#F8F9FA';
   const textColor = isDarkMode ? '#FFFFFF' : '#202020';
   const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
-  const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
-  const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
-  const modalBgColor = isDarkMode ? 'rgba(10, 10, 15, 0.9)' : 'rgba(0, 0, 0, 0.5)';
+  const cardBgColor = isDarkMode ? '#1E1E1E' : '#FFFFFF';
+  const borderColor = isDarkMode ? '#333333' : '#E0E0E0';
+  const modalBgColor = isDarkMode ? 'rgba(18, 18, 18, 0.95)' : 'rgba(0, 0, 0, 0.6)';
+  const inputBgColor = isDarkMode ? '#2C2C2C' : '#F5F5F5';
+  const accentColor = isDarkMode ? '#FF4870' : '#FF3B5C'; // Secondary reddish accent
+  const successColor = isDarkMode ? '#03DAC5' : '#00C853';
   
   // Show image options modal
   const openImageOptions = () => {
@@ -47,23 +74,131 @@ const CreatePostScreen: React.FC = () => {
   
   // Take a photo with camera
   const takePhoto = async () => {
+    // First close the modal to prevent UI issues
     setShowImageOptions(false);
     
-    const result = await takePhotoWithCamera();
-    if (result) {
-      setSelectedImage(result);
-      console.log('Photo taken successfully:', result.uri);
-    }
+    // Wait a moment for modal animation to complete 
+    setTimeout(async () => {
+      try {
+        // Use our image picker service
+        const result = await takePhotoWithCamera({
+          maxHeight: 2400,
+          maxWidth: 2400,
+          quality: 0.95,
+          includeBase64: false,
+          saveToPhotos: false
+        });
+        
+        if (result) {
+          setSelectedImage(result);
+        }
+      } catch (error) {
+        Alert.alert(
+          'Camera Error', 
+          `Failed to take photo: ${error.message || 'Unknown error'}. Please try again.`
+        );
+      }
+    }, 300);
   };
   
   // Select image from gallery
   const selectImage = async () => {
+    // First close the modal to prevent UI issues
     setShowImageOptions(false);
     
-    const result = await selectImageFromLibrary();
-    if (result) {
-      setSelectedImage(result);
-      console.log('Image selected successfully:', result.uri);
+    // Wait a moment for modal animation to complete
+    setTimeout(async () => {
+      try {
+        // Use our image picker service
+        const result = await selectImageFromLibrary({
+          maxHeight: 2400,
+          maxWidth: 2400,
+          quality: 0.95,
+          selectionLimit: 1,
+          includeBase64: false
+        });
+        
+        if (result) {
+          setSelectedImage(result);
+        }
+      } catch (error) {
+        Alert.alert(
+          'Gallery Error', 
+          `Failed to select image: ${error.message || 'Unknown error'}. Please try again.`
+        );
+      }
+    }, 300);
+  };
+  
+  // Add a new featured piece
+  const addFeaturedPiece = () => {
+    if (!newPieceName.trim() || !newPieceBrand.trim()) {
+      Alert.alert('Missing Information', 'Please provide both name and brand for the piece');
+      return;
+    }
+    
+    const newPiece: FeaturedPiece = {
+      id: Date.now().toString(),
+      name: newPieceName.trim(),
+      brand: newPieceBrand.trim(),
+      type: newPieceType,
+      link: newPieceLink.trim() || undefined // Only include if provided
+    };
+    
+    // Add the new piece to the collection
+    setFeaturedPieces([...featuredPieces, newPiece]);
+    
+    // Reset form fields
+    setNewPieceName('');
+    setNewPieceBrand('');
+    setNewPieceLink('');
+    setShowAddPieceModal(false);
+    
+    // Show success toast or feedback
+    const piecesCount = featuredPieces.length + 1;
+    
+    // If this is the first piece, give more detailed feedback
+    if (piecesCount === 1) {
+      Alert.alert(
+        'Piece Added',
+        'Your featured piece has been added! You can continue adding pieces or switch to Details tab to complete your post.',
+        [
+          {
+            text: 'Add More',
+            style: 'cancel',
+          },
+          {
+            text: 'Go to Details',
+            onPress: () => setCurrentTab('details'),
+          },
+        ]
+      );
+    } else {
+      // For subsequent pieces, just show a brief confirmation
+      setTimeout(() => {
+        Alert.alert('Piece Added', `${newPiece.name} added to featured pieces (${piecesCount} total)`);
+      }, 300);
+    }
+  };
+  
+  // Remove a featured piece
+  const removeFeaturedPiece = (pieceId: string) => {
+    setFeaturedPieces(featuredPieces.filter(piece => piece.id !== pieceId));
+  };
+  
+  // Get icon for piece type
+  const getPieceIcon = (type: string) => {
+    switch(type) {
+      case 'shirt':
+        return 'hanger'; // Using hanger icon for tops/shirts
+      case 'pants':
+        return 'animation'; // Animation icon resembles pants/trousers better
+      case 'shoes':
+        return 'shoe-formal';
+      case 'accessory':
+        return 'watch';
+      default:
+        return 'hanger';
     }
   };
   
@@ -90,12 +225,23 @@ const CreatePostScreen: React.FC = () => {
         .filter(tag => tag.length > 0)
         .map(tag => (tag.startsWith('#') ? tag : `#${tag}`));
       
-      // Create the post with progress tracking
-      await createPost(
+      // Format featured pieces for storage - preserve all data including type and link
+      const outfitItems = featuredPieces.map(piece => ({
+        name: piece.name,
+        brand: piece.brand,
+        type: piece.type, // Include piece type for future reference
+        link: piece.link // Include affiliate link if provided
+      }));
+      
+      console.log('Creating post with featured pieces:', JSON.stringify(outfitItems));
+      
+      // Create the post with both details and featured pieces
+      const newPost = await createPost(
         {
           imageUri: selectedImage.uri,
           caption,
           tags: formattedTags,
+          outfitItems // Include outfit items in the post data
         },
         (progress) => {
           setUploadProgress(progress);
@@ -116,15 +262,20 @@ const CreatePostScreen: React.FC = () => {
         ]
       );
     } catch (error) {
-      console.error('Error creating post:', error);
       setIsUploading(false);
-      Alert.alert('Error', 'Failed to create post. Please try again.');
+      
+      // More detailed error message
+      let errorMessage = 'Failed to create post. Please try again.';
+      if (error.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+      
+      Alert.alert('Post Creation Failed', errorMessage);
     }
   };
   
   // Format tags for preview
   const formatTags = (text: string) => {
-    // Remove spaces and split by commas
     return text
       .split(',')
       .map(tag => tag.trim())
@@ -135,102 +286,244 @@ const CreatePostScreen: React.FC = () => {
   
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: borderColor }]}>
-        <TouchableOpacity 
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
+        {/* Header */}
+        <View style={[styles.header, { borderBottomColor: borderColor }]}>
+          <TouchableOpacity 
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Icon name="arrow-back" size={24} color={textColor} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: textColor }]}>Create Post</Text>
+          <TouchableOpacity 
+            style={[styles.postButton, 
+              (!selectedImage || isUploading) && styles.disabledButton, 
+              { backgroundColor: mainColor }
+            ]}
+            onPress={handleCreatePost}
+            disabled={!selectedImage || isUploading}
+          >
+            <Text style={styles.postButtonText}>
+              {isUploading ? 'Posting...' : 'Post'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        
+        {/* Tab Selection */}
+        <View style={[styles.tabContainer, { borderBottomColor: borderColor }]}>
+          <TouchableOpacity 
+            style={[
+              styles.tabButton, 
+              currentTab === 'details' && [styles.activeTab, { borderBottomColor: mainColor }]
+            ]}
+            onPress={() => setCurrentTab('details')}
+          >
+            <Text style={[
+              styles.tabText, 
+              { color: currentTab === 'details' ? mainColor : subTextColor }
+            ]}>
+              Details
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.tabButton, 
+              currentTab === 'pieces' && [styles.activeTab, { borderBottomColor: mainColor }]
+            ]}
+            onPress={() => setCurrentTab('pieces')}
+          >
+            <Text style={[
+              styles.tabText, 
+              { color: currentTab === 'pieces' ? mainColor : subTextColor }
+            ]}>
+              Featured Pieces
+            </Text>
+          </TouchableOpacity>
+        </View>
+        
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          <Icon name="arrow-back" size={24} color={textColor} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: textColor }]}>Create Post</Text>
-        <TouchableOpacity 
-          style={[styles.postButton, 
-            (!selectedImage || isUploading) && styles.disabledButton, 
-            { backgroundColor: mainColor }
-          ]}
-          onPress={handleCreatePost}
-          disabled={!selectedImage || isUploading}
-        >
-          <Text style={[styles.postButtonText, { color: '#FFFFFF' }]}>
-            {isUploading ? 'Posting...' : 'Post'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-      
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Image Preview */}
-        <View style={[styles.imageContainer, { borderColor }]}>
-          {selectedImage ? (
+          {/* Image Selection - Always Visible */}
+          <View style={[styles.imageContainer, { borderColor }]}>
+            {selectedImage ? (
+              <>
+                <Image 
+                  source={{ uri: selectedImage.uri }} 
+                  style={styles.previewImage} 
+                  resizeMode="cover"
+                />
+                <View style={styles.imageOverlay}>
+                  <TouchableOpacity 
+                    style={[styles.changeImageButton, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+                    onPress={openImageOptions}
+                  >
+                    <Icon name="refresh" size={18} color="#FFFFFF" />
+                    <Text style={styles.changeImageText}>Change</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <View style={styles.placeholderContainer}>
+                <Icon 
+                  name="image-outline" 
+                  size={64} 
+                  color={subTextColor} 
+                  style={styles.placeholderIcon}
+                />
+                <Text style={[styles.placeholderText, { color: subTextColor }]}>
+                  Choose an image for your post
+                </Text>
+                <TouchableOpacity 
+                  style={[styles.selectImageButton, { backgroundColor: mainColor }]}
+                  onPress={openImageOptions}
+                >
+                  <Icon name="add-circle-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.selectImageButtonText}>Select Image</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+          
+          {/* Details Tab Content */}
+          {currentTab === 'details' && (
             <>
-              <Image 
-                source={{ uri: selectedImage.uri }} 
-                style={styles.previewImage} 
-                resizeMode="cover"
-              />
-              <TouchableOpacity 
-                style={styles.changeImageButton}
-                onPress={openImageOptions}
-              >
-                <Icon name="refresh" size={18} color="#FFFFFF" />
-                <Text style={styles.changeImageText}>Change</Text>
-              </TouchableOpacity>
+              {/* Caption Input with modern design */}
+              <View style={[styles.formSection, { backgroundColor: cardBgColor, borderColor }]}>
+                <Text style={[styles.sectionTitle, { color: textColor }]}>Caption</Text>
+                <TextInput
+                  style={[styles.captionInput, { color: textColor, backgroundColor: inputBgColor }]}
+                  placeholder="Write a caption..."
+                  placeholderTextColor={subTextColor}
+                  multiline
+                  maxLength={2200}
+                  value={caption}
+                  onChangeText={setCaption}
+                />
+              </View>
+              
+              {/* Tags Input with modern design */}
+              <View style={[styles.formSection, { backgroundColor: cardBgColor, borderColor }]}>
+                <Text style={[styles.sectionTitle, { color: textColor }]}>Tags</Text>
+                <Text style={[styles.sectionHelper, { color: subTextColor }]}>
+                  Separate tags with commas (e.g., minimal, sustainable)
+                </Text>
+                <TextInput
+                  style={[styles.tagsInput, { color: textColor, backgroundColor: inputBgColor }]}
+                  placeholder="Add tags (comma separated)"
+                  placeholderTextColor={subTextColor}
+                  value={tags}
+                  onChangeText={setTags}
+                />
+                
+                {/* Preview Tags */}
+                {tags.length > 0 && (
+                  <View style={styles.tagsPreviewContainer}>
+                    <Text style={[styles.tagsPreviewLabel, { color: subTextColor }]}>
+                      Preview:
+                    </Text>
+                    <View style={styles.tagsPreview}>
+                      {tags.split(',')
+                        .map(tag => tag.trim())
+                        .filter(tag => tag.length > 0)
+                        .map((tag, index) => (
+                          <View key={index} style={[
+                            styles.tagPill, 
+                            { 
+                              backgroundColor: isDarkMode ? 'rgba(255, 107, 107, 0.15)' : 'rgba(239, 61, 71, 0.08)',
+                              borderColor: isDarkMode ? 'rgba(255, 107, 107, 0.25)' : 'rgba(239, 61, 71, 0.15)'
+                            }
+                          ]}>
+                            <Text style={[styles.tagText, { color: mainColor }]}>
+                              {tag.startsWith('#') ? tag : `#${tag}`}
+                            </Text>
+                          </View>
+                        ))
+                      }
+                    </View>
+                  </View>
+                )}
+              </View>
             </>
-          ) : (
-            <View style={styles.placeholderContainer}>
-              <Icon name="image-outline" size={60} color={subTextColor} />
-              <Text style={[styles.placeholderText, { color: subTextColor }]}>
-                Choose an image for your post
+          )}
+          
+          {/* Featured Pieces Tab Content */}
+          {currentTab === 'pieces' && (
+            <View style={[styles.formSection, { backgroundColor: cardBgColor, borderColor }]}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, { color: textColor }]}>Featured Pieces</Text>
+                <TouchableOpacity 
+                  style={[styles.addButton, { backgroundColor: mainColor }]}
+                  onPress={() => setShowAddPieceModal(true)}
+                >
+                  <Icon name="add" size={22} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+              
+              <Text style={[styles.sectionHelper, { color: subTextColor }]}>
+                Add clothing items featured in your post
               </Text>
-              <TouchableOpacity 
-                style={[styles.selectImageButton, { backgroundColor: mainColor }]}
-                onPress={openImageOptions}
-              >
-                <Icon name="add-circle-outline" size={20} color="#FFFFFF" />
-                <Text style={styles.selectImageButtonText}>Select Image</Text>
-              </TouchableOpacity>
+              
+              {featuredPieces.length === 0 ? (
+                <View style={styles.emptyPieces}>
+                  <MaterialCommunityIcon name="hanger" size={48} color={subTextColor} />
+                  <Text style={[styles.emptyPiecesText, { color: subTextColor }]}>
+                    No pieces added yet. Tap + to add items featured in your outfit.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.piecesGrid}>
+                  {featuredPieces.map((piece) => (
+                    <View 
+                      key={piece.id} 
+                      style={[styles.pieceItem, { borderColor }]}
+                    >
+                      <View style={styles.iconContainer}>
+                        {piece.type === 'shirt' ? (
+                          <FontAwesome5 name="tshirt" size={20} color={mainColor} solid />
+                        ) : piece.type === 'pants' ? (
+                          <FontAwesome5 name="tag" size={20} color={mainColor} solid />
+                        ) : piece.type === 'shoes' ? (
+                          <FontAwesome5 name="shoe-prints" size={20} color={mainColor} solid />
+                        ) : (
+                          <FontAwesome5 name="glasses" size={20} color={mainColor} solid />
+                        )}
+                      </View>
+                      <View style={styles.pieceDetails}>
+                        <Text style={[styles.pieceName, { color: textColor }]} numberOfLines={1}>
+                          {piece.name}
+                        </Text>
+                        <Text style={[styles.pieceBrand, { color: accentColor }]} numberOfLines={1}>
+                          {piece.brand}
+                        </Text>
+                        {piece.link && (
+                          <Text style={[styles.pieceLink, { color: successColor }]} numberOfLines={1}>
+                            Has affiliate link
+                          </Text>
+                        )}
+                      </View>
+                      <TouchableOpacity 
+                        style={styles.removeButton}
+                        onPress={() => removeFeaturedPiece(piece.id)}
+                      >
+                        <Icon name="close-circle" size={20} color={isDarkMode ? '#FF7597' : '#E53935'} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           )}
-        </View>
-        
-        {/* Caption Input */}
-        <View style={[styles.inputContainer, { backgroundColor: cardBgColor, borderColor }]}>
-          <TextInput
-            style={[styles.captionInput, { color: textColor }]}
-            placeholder="Write a caption..."
-            placeholderTextColor={subTextColor}
-            multiline
-            maxLength={2200}
-            value={caption}
-            onChangeText={setCaption}
-          />
-        </View>
-        
-        {/* Tags Input */}
-        <View style={[styles.inputContainer, { backgroundColor: cardBgColor, borderColor }]}>
-          <TextInput
-            style={[styles.tagsInput, { color: textColor }]}
-            placeholder="Add tags (comma separated)"
-            placeholderTextColor={subTextColor}
-            value={tags}
-            onChangeText={setTags}
-          />
-        </View>
-        
-        {/* Preview Tags */}
-        {tags.length > 0 && (
-          <View style={styles.tagsPreviewContainer}>
-            <Text style={[styles.tagsPreviewLabel, { color: subTextColor }]}>
-              Tags Preview:
-            </Text>
-            <Text style={[styles.tagsPreview, { color: mainColor }]}>
-              {formatTags(tags)}
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
       
-      {/* Image Options Modal */}
+      {/* Image Options Modal with modern design */}
       <Modal
         visible={showImageOptions}
         transparent={true}
@@ -239,35 +532,220 @@ const CreatePostScreen: React.FC = () => {
       >
         <View style={[styles.modalOverlay, { backgroundColor: modalBgColor }]}>
           <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
-            <Text style={[styles.modalTitle, { color: textColor }]}>Select Image From</Text>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: textColor }]}>
+                Add Photo
+              </Text>
+              <TouchableOpacity 
+                style={styles.modalCloseButton}
+                onPress={() => setShowImageOptions(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Icon name="close" size={24} color={textColor} />
+              </TouchableOpacity>
+            </View>
             
             <TouchableOpacity 
-              style={styles.modalOption}
+              style={[styles.modalOption, { borderColor }]}
               onPress={takePhoto}
             >
-              <Icon name="camera" size={24} color={mainColor} />
-              <Text style={[styles.modalOptionText, { color: textColor }]}>Take Photo</Text>
+              <View style={[styles.optionIconContainer, { backgroundColor: isDarkMode ? 'rgba(255, 107, 107, 0.15)' : 'rgba(239, 61, 71, 0.08)' }]}>
+                <Icon name="camera" size={24} color={mainColor} />
+              </View>
+              <View style={styles.optionTextContainer}>
+                <Text style={[styles.modalOptionText, { color: textColor }]}>
+                  Take Photo
+                </Text>
+                <Text style={[styles.modalOptionSubtext, { color: subTextColor }]}>
+                  Use your camera to take a new photo
+                </Text>
+              </View>
+              <Icon name="chevron-forward" size={20} color={subTextColor} />
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={styles.modalOption}
+              style={[styles.modalOption, { borderColor }]}
               onPress={selectImage}
             >
-              <MaterialIcon name="photo-library" size={24} color={mainColor} />
-              <Text style={[styles.modalOptionText, { color: textColor }]}>Photo Library</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.modalCancelButton, { borderTopColor: borderColor }]}
-              onPress={() => setShowImageOptions(false)}
-            >
-              <Text style={[styles.modalCancelText, { color: mainColor }]}>Cancel</Text>
+              <View style={[styles.optionIconContainer, { backgroundColor: isDarkMode ? 'rgba(255, 107, 107, 0.15)' : 'rgba(239, 61, 71, 0.08)' }]}>
+                <MaterialIcon name="photo-library" size={24} color={mainColor} />
+              </View>
+              <View style={styles.optionTextContainer}>
+                <Text style={[styles.modalOptionText, { color: textColor }]}>
+                  Choose from Library
+                </Text>
+                <Text style={[styles.modalOptionSubtext, { color: subTextColor }]}>
+                  Select from your existing photos
+                </Text>
+              </View>
+              <Icon name="chevron-forward" size={20} color={subTextColor} />
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
       
-      {/* Upload Progress Indicator */}
+      {/* Add Piece Modal with modern design */}
+      <Modal
+        visible={showAddPieceModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowAddPieceModal(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: modalBgColor }]}>
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.pieceModalContainer}
+          >
+            <View style={[styles.pieceModalContent, { backgroundColor: cardBgColor }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: textColor }]}>
+                  Add Featured Piece
+                </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseButton}
+                  onPress={() => setShowAddPieceModal(false)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Icon name="close" size={24} color={textColor} />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.pieceForm}>
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: textColor }]}>
+                    Item Name
+                  </Text>
+                  <TextInput
+                    style={[styles.pieceInput, { color: textColor, backgroundColor: inputBgColor }]}
+                    placeholder="E.g., Oversized Cotton Blazer"
+                    placeholderTextColor={subTextColor}
+                    value={newPieceName}
+                    onChangeText={setNewPieceName}
+                  />
+                </View>
+                
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: textColor }]}>
+                    Brand
+                  </Text>
+                  <TextInput
+                    style={[styles.pieceInput, { color: textColor, backgroundColor: inputBgColor }]}
+                    placeholder="E.g., Zara, H&M, Nike"
+                    placeholderTextColor={subTextColor}
+                    value={newPieceBrand}
+                    onChangeText={setNewPieceBrand}
+                  />
+                </View>
+                
+                <View style={styles.inputGroup}>
+                  <View style={styles.labelContainer}>
+                    <Text style={[styles.inputLabel, { color: textColor }]}>
+                      Affiliate Link
+                    </Text>
+                    <Text style={[styles.optionalText, { color: subTextColor }]}>
+                      (Optional)
+                    </Text>
+                  </View>
+                  <TextInput
+                    style={[styles.pieceInput, { color: textColor, backgroundColor: inputBgColor }]}
+                    placeholder="E.g., https://shop.com/item/123?ref=yourid"
+                    placeholderTextColor={subTextColor}
+                    value={newPieceLink}
+                    onChangeText={setNewPieceLink}
+                    autoCapitalize="none"
+                    keyboardType="url"
+                  />
+                  <Text style={[styles.infoText, { color: subTextColor }]}>
+                    Add your affiliate link to earn commission when users purchase this item
+                  </Text>
+                </View>
+                
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: textColor }]}>
+                    Type
+                  </Text>
+                  <View style={styles.pieceTypesGrid}>
+                    {[
+                      { id: 'shirt', label: 'Top' },
+                      { id: 'pants', label: 'Bottom' },
+                      { id: 'shoes', label: 'Shoes' },
+                      { id: 'accessory', label: 'Accessory' }
+                    ].map((type) => (
+                      <TouchableOpacity
+                        key={type.id}
+                        style={[
+                          styles.pieceTypeButton,
+                          newPieceType === type.id && [
+                            styles.selectedPieceType,
+                            { borderColor: mainColor, backgroundColor: isDarkMode ? 'rgba(255, 107, 107, 0.15)' : 'rgba(239, 61, 71, 0.08)' }
+                          ]
+                        ]}
+                        onPress={() => setNewPieceType(type.id as any)}
+                      >
+                        <View style={styles.typeIconContainer}>
+                          {type.id === 'shirt' ? (
+                            <FontAwesome5 
+                              name="tshirt" 
+                              size={24} 
+                              color={newPieceType === type.id ? mainColor : subTextColor}
+                              solid 
+                            />
+                          ) : type.id === 'pants' ? (
+                            <FontAwesome5 
+                              name="tag" 
+                              size={24} 
+                              color={newPieceType === type.id ? mainColor : subTextColor}
+                              solid 
+                            />
+                          ) : type.id === 'shoes' ? (
+                            <FontAwesome5 
+                              name="shoe-prints" 
+                              size={24} 
+                              color={newPieceType === type.id ? mainColor : subTextColor}
+                              solid 
+                            />
+                          ) : (
+                            <FontAwesome5 
+                              name="glasses" 
+                              size={24} 
+                              color={newPieceType === type.id ? mainColor : subTextColor}
+                              solid 
+                            />
+                          )}
+                        </View>
+                        <Text 
+                          style={[
+                            styles.pieceTypeLabel, 
+                            { color: newPieceType === type.id ? mainColor : subTextColor }
+                          ]}
+                        >
+                          {type.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                
+                <TouchableOpacity 
+                  style={[
+                    styles.addPieceButton, 
+                    { backgroundColor: mainColor },
+                    (!newPieceName.trim() || !newPieceBrand.trim()) && { opacity: 0.6 }
+                  ]}
+                  onPress={addFeaturedPiece}
+                  disabled={!newPieceName.trim() || !newPieceBrand.trim()}
+                >
+                  <Text style={styles.addPieceButtonText}>
+                    Add Piece
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+      
+      {/* Upload Progress Indicator with modern design */}
       {isUploading && (
         <View style={styles.progressOverlay}>
           <View style={[styles.progressContainer, { backgroundColor: cardBgColor }]}>
@@ -277,8 +755,18 @@ const CreatePostScreen: React.FC = () => {
             <View style={styles.progressBarContainer}>
               <View 
                 style={[
+                  styles.progressBarBg,
+                  { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }
+                ]} 
+              />
+              <View 
+                style={[
                   styles.progressBar, 
-                  { backgroundColor: mainColor, width: `${uploadProgress * 100}%` }
+                  { 
+                    backgroundColor: mainColor, 
+                    width: `${uploadProgress * 100}%`,
+                    shadowColor: mainColor
+                  }
                 ]} 
               />
             </View>
@@ -312,30 +800,76 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   postButton: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 8,
-    borderRadius: 16,
+    borderRadius: 20,
   },
   postButtonText: {
     fontWeight: '600',
-    fontSize: 14,
+    fontSize: 15,
+    color: '#FFFFFF',
   },
   disabledButton: {
     opacity: 0.5,
   },
+  
+  // Icon containers for consistent alignment
+  iconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(239, 61, 71, 0.08)', // Matching reddish theme
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  typeIconContainer: {
+    width: 48,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  // Tab navigation
+  tabContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  
+  // Content
   scrollContent: {
     padding: 16,
   },
   imageContainer: {
     height: 300,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   previewImage: {
     width: '100%',
     height: '100%',
+  },
+  imageOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
   },
   placeholderContainer: {
     flex: 1,
@@ -343,11 +877,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
   },
+  placeholderIcon: {
+    marginBottom: 12,
+    opacity: 0.8,
+  },
   placeholderText: {
-    marginTop: 12,
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 24,
+    maxWidth: '80%',
   },
   selectImageButton: {
     flexDirection: 'row',
@@ -362,10 +900,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   changeImageButton: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
-    backgroundColor: 'rgba(0,0,0,0.6)',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
@@ -378,70 +912,249 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
-  inputContainer: {
-    borderRadius: 12,
+  
+  // Form sections
+  formSection: {
+    borderRadius: 16,
     borderWidth: 1,
-    padding: 12,
-    marginBottom: 16,
+    padding: 16,
+    marginBottom: 20,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  sectionHelper: {
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  addButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  // Caption and tags inputs
   captionInput: {
     fontSize: 16,
     minHeight: 100,
     textAlignVertical: 'top',
+    padding: 12,
+    borderRadius: 12,
   },
   tagsInput: {
     fontSize: 16,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
   },
   tagsPreviewContainer: {
-    marginTop: 8,
-    marginBottom: 24,
+    marginTop: 16,
   },
   tagsPreviewLabel: {
     fontSize: 14,
-    marginBottom: 4,
+    marginBottom: 8,
   },
   tagsPreview: {
-    fontSize: 14,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  tagPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  tagText: {
+    fontSize: 13,
     fontWeight: '500',
   },
-  // Modal styles
+  
+  // Featured pieces
+  emptyPieces: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+  },
+  emptyPiecesText: {
+    textAlign: 'center',
+    fontSize: 14,
+    marginTop: 12,
+    maxWidth: '80%',
+  },
+  piecesGrid: {
+    marginTop: 8,
+  },
+  pieceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  pieceDetails: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  pieceName: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  pieceBrand: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  pieceLink: {
+    fontSize: 11,
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
+  removeButton: {
+    padding: 4,
+  },
+  
+  // Image options modal
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
-    width: '80%',
-    borderRadius: 16,
+    width: '90%',
+    borderRadius: 20,
     overflow: 'hidden',
+    paddingBottom: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    textAlign: 'center',
-    paddingVertical: 16,
+  },
+  modalCloseButton: {
+    padding: 4,
   },
   modalOption: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+  },
+  optionIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  optionTextContainer: {
+    flex: 1,
   },
   modalOptionText: {
     fontSize: 16,
-    marginLeft: 12,
+    fontWeight: '500',
   },
-  modalCancelButton: {
-    paddingVertical: 16,
+  modalOptionSubtext: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  
+  // Add piece modal
+  pieceModalContainer: {
+    width: '100%',
+    justifyContent: 'flex-end',
+  },
+  pieceModalContent: {
+    width: '100%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+  },
+  pieceForm: {
+    padding: 16,
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  pieceInput: {
+    fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  pieceTypesGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+  },
+  pieceTypeButton: {
+    width: '23%',
+    aspectRatio: 0.9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  selectedPieceType: {
+    borderWidth: 2,
+  },
+  pieceTypeLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 6,
+  },
+  labelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  optionalText: {
+    fontSize: 12,
+    marginLeft: 8,
+    fontStyle: 'italic',
+  },
+  infoText: {
+    fontSize: 12,
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  addPieceButton: {
+    padding: 14,
+    borderRadius: 12,
     alignItems: 'center',
     marginTop: 8,
-    borderTopWidth: 1,
   },
-  modalCancelText: {
+  addPieceButtonText: {
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
+  
   // Progress overlay
   progressOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -452,7 +1165,7 @@ const styles = StyleSheet.create({
   },
   progressContainer: {
     width: '80%',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 20,
     alignItems: 'center',
   },
@@ -464,15 +1177,32 @@ const styles = StyleSheet.create({
   progressBarContainer: {
     width: '100%',
     height: 8,
-    backgroundColor: 'rgba(150,150,150,0.2)',
     borderRadius: 4,
     overflow: 'hidden',
+    position: 'relative',
+  },
+  progressBarBg: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 4,
   },
   progressBar: {
     height: '100%',
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 4,
   },
   progressPercentage: {
-    marginTop: 8,
+    marginTop: 12,
     fontSize: 14,
   },
 });

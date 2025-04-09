@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import {
   SafeAreaView,
   Animated,
@@ -17,31 +17,75 @@ import {
   Platform,
   UIManager,
   PanResponder,
+  RefreshControl,
+  ImageBackground,
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
-
-// Remove the global declaration and use comment instead
-/* global setTimeout clearTimeout setInterval clearInterval */
+// Using View with background color instead of LinearGradient
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// Set default text styles for SF Pro font family
+// Set default text styles
 const defaultTextStyle = {
-  fontFamily: Platform.OS === 'ios' ? 'System' : 'SF Pro Text', // System font on iOS is SF Pro
-  letterSpacing: 0.1, // SF Pro typically has slightly tighter letter spacing
+  fontFamily: Platform.OS === 'ios' ? 'System' : 'SF Pro Text',
+  letterSpacing: 0.1,
 };
+
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
-// No longer need custom bottom navigation bar with tab navigator
 import { useTheme } from '../styles/themeprovider';
 
+// Get screen dimensions
+const { width, height } = Dimensions.get('window');
+const swipeThreshold = width * 0.3; // 30% of screen width
+
+// Mock stories data for the stories carousel
+const STORIES = [
+  {
+    id: '1',
+    username: 'minimalist_me',
+    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=120&auto=format',
+    image: 'https://images.unsplash.com/photo-1535576434247-0d7e8411daa3?q=80&w=400&auto=format',
+    viewed: false
+  },
+  {
+    id: '2',
+    username: 'vintage_vibes',
+    avatar: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?q=80&w=120&auto=format',
+    image: 'https://images.unsplash.com/photo-1531123414780-f74242c2b052?q=80&w=400&auto=format',
+    viewed: true
+  },
+  {
+    id: '3',
+    username: 'streetwear_daily',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=120&auto=format',
+    image: 'https://images.unsplash.com/photo-1664575602554-2087b04935a5?q=80&w=400&auto=format',
+    viewed: false
+  },
+  {
+    id: '4',
+    username: 'fashion_forward',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=120&auto=format',
+    image: 'https://images.unsplash.com/photo-1491349174775-aaafddd81942?q=80&w=400&auto=format',
+    viewed: false
+  },
+  {
+    id: '5',
+    username: 'your_story',
+    avatar: 'https://images.unsplash.com/photo-1553514029-1318c9127859?q=80&w=120&auto=format',
+    image: '',
+    isAdd: true,
+    viewed: false
+  }
+];
+
 // Generate fashion inspiration posts for the feed
-const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
+const FASHION_POSTS = Array.from({ length: 8 }).map((_, i) => {
   // Fashion inspiration titles
   const inspirationTitles = [
     'Urban Minimalism',
@@ -49,7 +93,9 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
     'Structured Casual',
     'Elevated Basics',
     'Technical Athleisure',
-    'Sustainable Luxury'
+    'Sustainable Luxury',
+    'Monochrome Magic',
+    'Statement Pieces'
   ];
   
   // Different styling notes
@@ -59,7 +105,9 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
     'Soft draping combined with architectural lines creates a balanced silhouette that\'s both refined and comfortable for everyday wear.',
     'Reimagining wardrobe essentials with premium materials and subtle design details. The beauty is in the precision of construction and quality of materials.',
     'Technical fabrics and functional details combined with thoughtful layering for a look that transitions seamlessly between activities.',
-    'Environmentally conscious design choices featuring organic materials and ethical production methods, without compromising on style or quality.'
+    'Environmentally conscious design choices featuring organic materials and ethical production methods, without compromising on style or quality.',
+    'Playing with various shades of a single color creates depth and visual interest while maintaining a cohesive and sophisticated aesthetic.',
+    'Building outfits around one eye-catching piece, allowing it to stand out while keeping other elements understated and complementary.'
   ];
   
   // Style aesthetics
@@ -69,7 +117,9 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
     'Modern Classic',
     'Scandinavian',
     'Tech Streetwear',
-    'Sustainable Luxury'
+    'Sustainable Luxury',
+    'Monochromatic',
+    'Bold Statement'
   ];
   
   // Caption and tags for each post
@@ -79,7 +129,9 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
     'Timeless pieces reimagined with subtle contemporary details for everyday elegance.',
     'Functional minimalism with clean lines, natural materials, and subdued colors.',
     'Performance-driven designs blending urban style with technical innovation.',
-    'Eco-conscious luxury focusing on ethical production and sustainable materials.'
+    'Eco-conscious luxury focusing on ethical production and sustainable materials.',
+    'Exploring the subtle power of single-color dressing with textural contrasts and tonal variations.',
+    'Making an impact with carefully chosen statement pieces that elevate your entire look.'
   ];
   
   // Tags for each post
@@ -89,10 +141,12 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
     ['#classic', '#tailored', '#structured', '#refined'],
     ['#scandinavian', '#nordic', '#clean', '#functional'],
     ['#techwear', '#urban', '#performance', '#innovative'],
-    ['#sustainable', '#ethical', '#conscious', '#eco']
+    ['#sustainable', '#ethical', '#conscious', '#eco'],
+    ['#monochrome', '#tonal', '#texture', '#layers'],
+    ['#statement', '#bold', '#unique', '#standout']
   ];
   
-  // Generate data for outfit details - more comprehensive with multiple items
+  // Generate data for outfit details
   const outfitItems = [
     [
       {name: 'Oversized Wool Blazer', brand: 'Arket'},
@@ -129,11 +183,22 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
       {name: 'Recycled Wool Sweater', brand: 'Patagonia'},
       {name: 'Hemp Twill Pants', brand: 'Story Mfg.'},
       {name: 'Vegan Leather Boots', brand: 'Veja'}
+    ],
+    [
+      {name: 'Black Merino Turtleneck', brand: 'Uniqlo'},
+      {name: 'Charcoal Wool Coat', brand: 'COS'},
+      {name: 'Slate Gray Trousers', brand: 'Arket'},
+      {name: 'Black Leather Boots', brand: 'Dr. Martens'}
+    ],
+    [
+      {name: 'Printed Silk Blouse', brand: 'Sandro'},
+      {name: 'High-Rise Straight Jeans', brand: 'Levi\'s'},
+      {name: 'Sculptural Hoop Earrings', brand: 'Machete'},
+      {name: 'Leather Strappy Sandals', brand: 'Maryam Nassir Zadeh'}
     ]
   ];
   
-  // Generate style approach and notes
-  const inspoTag = Math.random() > 0.5 ? 'Fashion Forward' : 'Timeless Style';
+  // Random data for engagement
   const publishedDate = [`April ${i + 1}`, `May ${i + 10}`, `June ${i + 5}`][i % 3];
   const upvotes = Math.floor(Math.random() * 500) + 100;
   const saves = Math.floor(Math.random() * 200) + 50;
@@ -163,16 +228,6 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
     likes: Math.floor(Math.random() * 20)
   }));
   
-  // Generate color palette
-  const colorPalettes = [
-    ['#0F0F0F', '#FFFFFF', '#ECECEC', '#9E9E9E'],
-    ['#151A30', '#7A8CB2', '#DCE8F2', '#EAC696'],
-    ['#2E2922', '#A68C69', '#F1EFDC', '#CBD3CE'],
-    ['#294243', '#0F979A', '#F3F1E0', '#D97762'],
-    ['#141E29', '#23395B', '#8EA8C3', '#CBB3BF'],
-    ['#3C403D', '#667761', '#ABC4A1', '#E9F5DB']
-  ];
-  
   return {
     id: i.toString(),
     title: inspirationTitles[i],
@@ -191,25 +246,27 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
     upvotes,
     saves,
     isSaved: Math.random() > 0.5,
-    isUpvoted: Math.random() > 0.6
+    isUpvoted: Math.random() > 0.6,
+    author: {
+      username: commentUsernames[Math.floor(Math.random() * commentUsernames.length)],
+      avatar: `https://i.pravatar.cc/150?img=${i + 10}`,
+      isVerified: Math.random() > 0.7
+    }
   };
 });
 
 // Trending topics for the filter chips
 const TRENDING_TOPICS = [
-  'All', 'Minimalism', 'Summer', 'Workwear', 'Vintage', 'Sustainable', 'Streetwear'
+  'For You', 'Trending', 'Summer', 'Minimal', 'Vintage', 'Sustainable', 'Streetwear', 'Luxury'
 ];
 
-const { width } = Dimensions.get('window');
-const swipeThreshold = width * 0.3; // 30% of screen width
+// Data types
+interface Author {
+  username: string;
+  avatar: string;
+  isVerified: boolean;
+}
 
-// TODO: Fix swipeThreshold reference errors - the value is defined here but still causing
-// reference errors in some functions. Possible solutions:
-// 1. Move this inside the component and use React.useMemo to avoid recreating on renders
-// 2. Create a context for shared values that need to be accessed by nested functions
-// 3. Pass swipeThreshold as a parameter to functions that need it
-
-// Add interfaces for the data types at the top of the file after other type declarations
 interface FashionPost {
   id: string;
   title: string;
@@ -225,20 +282,30 @@ interface FashionPost {
   saves: number;
   isSaved: boolean;
   isUpvoted: boolean;
+  author: Author;
+}
+
+interface Story {
+  id: string;
+  username: string;
+  avatar: string;
+  image: string;
+  viewed: boolean;
+  isAdd?: boolean;
 }
 
 const HomeScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedTopic, setSelectedTopic] = useState('All');
+  const [selectedTopic, setSelectedTopic] = useState('For You');
   const [expandedPost, setExpandedPost] = useState<string | null>(null);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState<Record<string, number>>({});
   const [expandedComments, setExpandedComments] = useState<string | null>(null);
   
-  // Use individual animation values for simplicity
-  const [commentHeights] = useState<Record<string, number>>({});
+  // Animation values
   const commentAnimation = useRef(new Animated.Value(0)).current;
+  const headerAnimation = useRef(new Animated.Value(0)).current;
   
   // Create refs for post animations
   const postAnimations = useRef<Record<string, Animated.Value>>({});
@@ -246,72 +313,37 @@ const HomeScreen: React.FC = () => {
   const panResponders = useRef<Record<string, any>>({});
 
   // Simulate refresh action
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
     setTimeout(() => {
       setRefreshing(false);
     }, 1500);
-  };
+  }, []);
 
-  // Colors based on theme
-  const mainColor = isDarkMode ? '#FF6B6B' : '#EF3D47';
-  const bgColor = isDarkMode ? '#0A0A0F' : '#F7F7F7';
+  // Colors based on theme - using red theme
+  const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
+  const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
   const textColor = isDarkMode ? '#FFFFFF' : '#202020';
   const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
   const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
   const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
+  const inputBgColor = isDarkMode ? '#222232' : '#F5F5F5';
   const iconColor = isDarkMode ? '#B8B8CC' : '#757575';
-  const accentColor = isDarkMode ? '#FF4870' : '#FF3B5C';
+  const accentColor = isDarkMode ? '#FF6D8E' : '#FF3B5C'; // Red accent
   const saveColor = isDarkMode ? '#FFBA0D' : '#FFB100';
+  const gradientStart = isDarkMode ? '#FF4870' : '#EF3D47';
+  const gradientEnd = isDarkMode ? '#FF6D8E' : '#FF5B66';
 
-  // Toggle post expansion (showing full caption)
+  // Toggle post expansion
   const toggleExpandPost = (postId: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpandedPost(expandedPost === postId ? null : postId);
   };
   
-  // Toggle comments section expansion - simplified approach
+  // Toggle comments section
   const toggleComments = (postId: string) => {
-    // Configure layout animation for smooth transitions
-    LayoutAnimation.configureNext({
-      duration: 300,
-      update: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-      },
-      create: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-      },
-      delete: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-      },
-    });
-    
-    // Simple toggle approach - just update state to show/hide comments
-    if (expandedComments === postId) {
-      // Collapse comments
-      Animated.timing(commentAnimation, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => {
-        setExpandedComments(null);
-      });
-    } else {
-      // Reset animation value
-      commentAnimation.setValue(0);
-      
-      // Set new expanded comments
-      setExpandedComments(postId);
-      
-      // Animate expansion
-      Animated.timing(commentAnimation, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedComments(expandedComments === postId ? null : postId);
   };
 
   // Cycle through gallery images
@@ -334,15 +366,12 @@ const HomeScreen: React.FC = () => {
     });
   };
   
-  // We no longer automatically collapse comments on scroll
-
   // Initialize animations and pan responders for posts
   React.useEffect(() => {
     // Create animations for each post
     FASHION_POSTS.forEach((post, index) => {
       if (!postAnimations.current[post.id]) {
         const animatedValue = new Animated.Value(0);
-        // Add dummy listener to prevent warning
         animatedValue.addListener(() => {});
         postAnimations.current[post.id] = animatedValue;
         
@@ -350,14 +379,13 @@ const HomeScreen: React.FC = () => {
         Animated.timing(animatedValue, {
           toValue: 1,
           duration: 400,
-          delay: index * 100,
+          delay: index * 80,
           useNativeDriver: true,
         }).start();
       }
       
       if (!panXValues.current[post.id]) {
         const panX = new Animated.Value(0);
-        // Add dummy listener to prevent warning
         panX.addListener(() => {});
         panXValues.current[post.id] = panX;
       }
@@ -367,22 +395,27 @@ const HomeScreen: React.FC = () => {
       }
     });
     
+    // Configure header animation on scroll
+    scrollY.addListener(({ value }) => {
+      const headerOpacity = value > 50 ? Math.min((value - 50) / 30, 1) : 0;
+      headerAnimation.setValue(headerOpacity);
+    });
+    
     // Clean up animations and listeners on unmount
     return () => {
-      // Clean up all animation values and listeners
       Object.keys(postAnimations.current).forEach(key => {
         if (postAnimations.current[key]) {
           postAnimations.current[key].removeAllListeners();
-          postAnimations.current[key].stopAnimation();
         }
       });
       
       Object.keys(panXValues.current).forEach(key => {
         if (panXValues.current[key]) {
           panXValues.current[key].removeAllListeners();
-          panXValues.current[key].stopAnimation();
         }
       });
+      
+      scrollY.removeAllListeners();
     };
   }, []);
   
@@ -426,6 +459,39 @@ const HomeScreen: React.FC = () => {
     }).start();
   };
 
+  // Render a story item
+  const renderStoryItem = ({ item }: { item: Story }) => {
+    // Add story or normal story
+    if (item.isAdd) {
+      return (
+        <TouchableOpacity style={styles.storyContainer}>
+          <View style={[styles.storyAdd, { borderColor: mainColor }]}>
+            <Icon name="add" size={24} color={mainColor} />
+          </View>
+          <Text style={[styles.storyUsername, { color: textColor }]} numberOfLines={1}>
+            Add Story
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+    
+    return (
+      <TouchableOpacity style={styles.storyContainer}>
+        <View style={[
+          styles.storyRing, 
+          item.viewed 
+            ? { borderColor: 'rgba(150, 150, 150, 0.3)' } 
+            : { borderColor: mainColor }
+        ]}>
+          <Image source={{ uri: item.avatar }} style={styles.storyAvatar} />
+        </View>
+        <Text style={[styles.storyUsername, { color: textColor }]} numberOfLines={1}>
+          {item.username}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
   // Render fashion inspiration post
   const renderFashionPost = ({ item, index }: { item: FashionPost; index: number }) => {
     // Use the pre-created animation value
@@ -454,30 +520,36 @@ const HomeScreen: React.FC = () => {
     return (
       <Animated.View 
         style={[
-          styles.inspirationCard, 
+          styles.postCard, 
           { 
             backgroundColor: cardBgColor,
             borderColor: borderColor,
             opacity,
             transform: [{ translateY }],
-            shadowColor: isDarkMode ? '#7C6BFF' : '#000000',
-            shadowOffset: { width: 0, height: isDarkMode ? 4 : 2 },
-            shadowOpacity: isDarkMode ? 0.15 : 0.05,
-            shadowRadius: isDarkMode ? 12 : 8,
-            elevation: isDarkMode ? 8 : 3
           }
         ]}
       >
-        {/* Card Header with title and publication date */}
-        <View style={styles.inspirationHeader}>
-          <View>
-            <Text style={[styles.inspirationTitle, { color: textColor }]}>
-              {item.title}
-            </Text>
-            <Text style={[styles.publishDate, { color: subTextColor }]}>
-              {item.publishedDate}
-            </Text>
+        {/* Post Header with Author Info */}
+        <View style={styles.postHeader}>
+          <View style={styles.postAuthor}>
+            <Image source={{ uri: item.author.avatar }} style={styles.authorAvatar} />
+            <View style={styles.authorInfo}>
+              <View style={styles.authorNameRow}>
+                <Text style={[styles.authorUsername, { color: textColor }]}>
+                  {item.author.username}
+                </Text>
+                {item.author.isVerified && (
+                  <Icon name="checkmark-circle" size={14} color={mainColor} style={styles.verifiedBadge} />
+                )}
+              </View>
+              <Text style={[styles.postDate, { color: subTextColor }]}>
+                {item.publishedDate}
+              </Text>
+            </View>
           </View>
+          <TouchableOpacity style={styles.moreButton}>
+            <Icon name="ellipsis-horizontal" size={20} color={subTextColor} />
+          </TouchableOpacity>
         </View>
 
         {/* Fashion Image Gallery with swipe */}
@@ -487,11 +559,11 @@ const HomeScreen: React.FC = () => {
             {
               transform: [
                 { 
-                  translateX: panX ? panX.interpolate({
+                  translateX: panX.interpolate({
                     inputRange: [-width, 0, width],
                     outputRange: [-width * 0.3, 0, width * 0.3],
                     extrapolate: 'clamp'
-                  }) : 0
+                  })
                 }
               ]
             }
@@ -503,25 +575,40 @@ const HomeScreen: React.FC = () => {
             style={styles.galleryImage}
           />
           
+          {/* Overlay shadow for aesthetic tag */}
+          <View style={styles.galleryOverlay} />
+
+          {/* Aesthetic Tag */}
+          <View style={styles.aestheticContainer}>
+            <View style={[
+              styles.aestheticPill, 
+              { backgroundColor: mainColor }
+            ]}>
+              <Text style={styles.aestheticText}>
+                {item.aesthetic}
+              </Text>
+            </View>
+          </View>
+          
           {/* Image navigation dots */}
           {item.gallery.length > 1 && (
             <View style={styles.galleryDots}>
-              {item.gallery.map((_: any, i: number) => (
+              {item.gallery.map((_, i) => (
                 <View 
                   key={`dot-${i}`} 
                   style={[
                     styles.galleryDot, 
-                    i === currentImageIndex && {
-                      backgroundColor: '#FFFFFF',
-                      width: 8,
-                    }
+                    i === currentImageIndex && [
+                      styles.activeDot,
+                      { backgroundColor: mainColor }
+                    ]
                   ]} 
                 />
               ))}
             </View>
           )}
           
-          {/* Left/Right navigation buttons for gallery */}
+          {/* Gallery navigation */}
           {item.gallery.length > 1 && (
             <>
               {/* Swipe indicators */}
@@ -538,8 +625,7 @@ const HomeScreen: React.FC = () => {
                   }
                 ]}
               >
-                <Icon name="chevron-back" size={32} color="rgba(255,255,255,0.9)" />
-                <Icon name="chevron-back" size={32} color="rgba(255,255,255,0.9)" style={{marginLeft: -15}} />
+                <Icon name="chevron-back" size={28} color="white" />
               </Animated.View>
               
               <Animated.View 
@@ -555,278 +641,211 @@ const HomeScreen: React.FC = () => {
                   }
                 ]}
               >
-                <Icon name="chevron-forward" size={32} color="rgba(255,255,255,0.9)" style={{marginRight: -15}} />
-                <Icon name="chevron-forward" size={32} color="rgba(255,255,255,0.9)" />
+                <Icon name="chevron-forward" size={28} color="white" />
               </Animated.View>
-            
-              {/* Regular navigation buttons */}
-              <TouchableOpacity 
-                style={[styles.galleryNavButton, styles.galleryNavLeft]}
-                onPress={() => cycleGalleryImage(item.id, 'prev')}
-              >
-                <Icon name="chevron-back" size={24} color="rgba(255,255,255,0.8)" />
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.galleryNavButton, styles.galleryNavRight]}
-                onPress={() => cycleGalleryImage(item.id, 'next')}
-              >
-                <Icon name="chevron-forward" size={24} color="rgba(255,255,255,0.8)" />
-              </TouchableOpacity>
             </>
           )}
         </Animated.View>
 
-        {/* Aesthetic Tag */}
-        <View style={styles.aestheticContainer}>
-          <View style={[
-            styles.aestheticPill, 
-            { 
-              backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.12)' : 'rgba(82, 69, 204, 0.08)',
-              borderColor: isDarkMode ? 'rgba(124, 107, 255, 0.25)' : 'rgba(82, 69, 204, 0.15)'
-            }
-          ]}>
-            <Text style={[styles.aestheticText, { color: mainColor }]}>
-              {item.aesthetic}
-            </Text>
-          </View>
-        </View>
-
-        {/* Caption Section */}
-        <View style={styles.captionContainer}>
-          <Text style={[styles.captionText, { color: subTextColor }]}>
-            {isExpanded ? item.caption : (
-              item.caption.length > 120 ? 
-                item.caption.substring(0, 120) + '... ' : 
-                item.caption + ' '
-            )}
-            {!isExpanded && item.caption.length > 120 && (
-              <Text 
-                style={[styles.readMoreText, { color: mainColor }]}
-                onPress={() => toggleExpandPost(item.id)}
-              >
-                Read More
-              </Text>
-            )}
+        {/* Post Content */}
+        <View style={styles.postContent}>
+          {/* Title */}
+          <Text style={[styles.postTitle, { color: textColor }]}>
+            {item.title}
           </Text>
-        </View>
+          
+          {/* Caption */}
+          <TouchableOpacity 
+            onPress={() => toggleExpandPost(item.id)}
+            activeOpacity={0.9}
+          >
+            <Text style={[styles.postCaption, { color: subTextColor }]}>
+              {isExpanded ? item.caption : (
+                item.caption.length > 120 ? 
+                  item.caption.substring(0, 120) + '... ' : 
+                  item.caption
+              )}
+              {!isExpanded && item.caption.length > 120 && (
+                <Text 
+                  style={[styles.readMoreText, { color: mainColor }]}
+                >
+                  Read More
+                </Text>
+              )}
+            </Text>
+          </TouchableOpacity>
 
-        {/* Tags Section */}
-        <View style={styles.tagsContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {/* Tags */}
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.tagsContainer}
+          >
             {item.tags.map((tag: string, i: number) => (
               <TouchableOpacity 
                 key={`tag-${i}`}
                 style={[
                   styles.tagPill,
                   { 
-                    backgroundColor: isDarkMode ? 'rgba(40, 40, 60, 0.4)' : 'rgba(240, 240, 240, 0.8)',
-                    borderColor: isDarkMode ? 'rgba(70, 70, 90, 0.3)' : 'rgba(210, 210, 210, 1)'
+                    backgroundColor: isDarkMode ? 'rgba(255, 72, 112, 0.1)' : 'rgba(239, 61, 71, 0.08)',
+                    borderColor: isDarkMode ? 'rgba(255, 72, 112, 0.2)' : 'rgba(239, 61, 71, 0.15)'
                   }
                 ]}
               >
-                <Text style={[styles.tagText, { color: textColor }]}>
+                <Text style={[styles.tagText, { color: mainColor }]}>
                   {tag}
                 </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
-        </View>
 
-        {/* Featured Pieces Section */}
-        <View style={styles.piecesContainer}>
-          <Text style={[styles.piecesHeading, { color: textColor }]}>Featured Pieces</Text>
-          <View style={styles.piecesGrid}>
-            {item.outfitItems.map((piece: {name: string; brand: string}, i: number) => (
-              <View 
-                key={`piece-${i}`}
-                style={[
-                  styles.pieceItem,
-                  { borderColor: borderColor }
-                ]}
-              >
-                <MaterialIcon 
-                  name={['tshirt-crew', 'shoe-heel', 'sunglasses', 'hat-fedora'][i % 4]} 
-                  size={18} 
-                  color={mainColor} 
-                />
-                <View style={styles.pieceDetails}>
-                  <Text style={[styles.pieceName, { color: textColor }]} numberOfLines={1}>
-                    {piece.name}
-                  </Text>
-                  <Text style={[styles.pieceBrand, { color: mainColor }]}>
-                    {piece.brand}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Post Actions */}
-        <View style={[styles.postActions, { borderTopColor: borderColor }]}>
-          <View style={styles.actionGroup}>
-            <TouchableOpacity 
-              style={[
-                styles.actionButton,
-                item.isUpvoted && { backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.15)' : 'rgba(82, 69, 204, 0.08)' }
-              ]}
-            >
-              <FeatherIcon 
-                name="arrow-up" 
-                size={20} 
-                color={item.isUpvoted ? mainColor : iconColor} 
-              />
-              <Text style={[
-                styles.actionText, 
-                { color: item.isUpvoted ? mainColor : subTextColor }
-              ]}>
-                {item.upvotes}
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[
-                styles.actionButton,
-                expandedComments === item.id && { 
-                  backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.15)' : 'rgba(82, 69, 204, 0.08)',
-                }
-              ]}
-              onPress={() => toggleComments(item.id)}
-            >
-              <FeatherIcon 
-                name="message-circle" 
-                size={20} 
-                color={expandedComments === item.id ? mainColor : iconColor} 
-              />
-              <Text style={[
-                styles.actionText, 
-                { color: expandedComments === item.id ? mainColor : subTextColor }
-              ]}>
-                {item.commentCount} {expandedComments === item.id ? 'Comments' : 'Discuss'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-          
+          {/* Featured Pieces - Collapsed by Default */}
           <TouchableOpacity 
-            style={[
-              styles.saveButton,
-              item.isSaved && { backgroundColor: isDarkMode ? 'rgba(255, 186, 13, 0.15)' : 'rgba(255, 177, 0, 0.08)' }
-            ]}
+            style={[styles.featuredHeader, { borderTopColor: borderColor }]}
+            onPress={() => toggleExpandPost(item.id)}
           >
-            <FeatherIcon 
-              name={item.isSaved ? "bookmark" : "bookmark"} 
-              size={20} 
-              color={item.isSaved ? saveColor : iconColor} 
-            />
-            <Text style={[
-              styles.actionText, 
-              { color: item.isSaved ? saveColor : subTextColor }
-            ]}>
-              {item.isSaved ? 'Saved' : 'Save'}
+            <Text style={[styles.featuredTitle, { color: textColor }]}>
+              Featured Pieces
             </Text>
+            <Icon 
+              name={isExpanded ? "chevron-up" : "chevron-down"} 
+              size={20} 
+              color={subTextColor} 
+            />
           </TouchableOpacity>
-        </View>
+          
+          {/* Outfit Items - Only Shown When Expanded */}
+          {isExpanded && (
+            <View style={styles.outfitItems}>
+              {item.outfitItems.map((piece, i) => (
+                <View 
+                  key={`piece-${i}`}
+                  style={[styles.outfitItem, { borderColor: borderColor }]}
+                >
+                  <View style={[styles.itemIconContainer, { backgroundColor: isDarkMode ? 'rgba(255, 72, 112, 0.1)' : 'rgba(239, 61, 71, 0.08)' }]}>
+                    <Icon 
+                      name={['shirt', 'apps', 'footsteps', 'glasses'][i % 4]} 
+                      size={18} 
+                      color={mainColor} 
+                    />
+                  </View>
+                  <View style={styles.itemDetails}>
+                    <Text style={[styles.itemName, { color: textColor }]} numberOfLines={1}>
+                      {piece.name}
+                    </Text>
+                    <Text style={[styles.itemBrand, { color: mainColor }]}>
+                      {piece.brand}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
 
-        {/* Comments Section */}
-        {expandedComments === item.id && (
-          <View 
-            style={[
-              styles.commentsSection,
-              { borderTopColor: borderColor, borderTopWidth: 1 }
-            ]}
-          >
-            {/* Comments header with collapse button */}
-            <View style={styles.commentsHeader}>
-              <Text style={[styles.commentsTitle, { color: textColor }]}>
-                Comments ({item.commentCount})
-              </Text>
+          {/* Post Actions */}
+          <View style={[styles.postActions, { borderTopColor: borderColor }]}>
+            <View style={styles.actionGroup}>
               <TouchableOpacity 
                 style={[
-                  styles.collapseButton,
-                  { 
-                    backgroundColor: isDarkMode ? 'rgba(22, 23, 31, 0.8)' : 'rgba(240, 240, 240, 0.8)',
-                    borderColor: isDarkMode ? 'rgba(70, 70, 90, 0.3)' : 'rgba(210, 210, 210, 1)'
+                  styles.actionButton,
+                  item.isUpvoted && { backgroundColor: isDarkMode ? 'rgba(255, 72, 112, 0.15)' : 'rgba(239, 61, 71, 0.08)' }
+                ]}
+              >
+                <Icon 
+                  name={item.isUpvoted ? "heart" : "heart-outline"} 
+                  size={22} 
+                  color={item.isUpvoted ? mainColor : iconColor} 
+                />
+                <Text style={[
+                  styles.actionText, 
+                  { color: item.isUpvoted ? mainColor : subTextColor }
+                ]}>
+                  {item.upvotes}
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.actionButton,
+                  expandedComments === item.id && { 
+                    backgroundColor: isDarkMode ? 'rgba(255, 72, 112, 0.15)' : 'rgba(239, 61, 71, 0.08)',
                   }
                 ]}
                 onPress={() => toggleComments(item.id)}
               >
-                <FeatherIcon name="chevron-up" size={18} color={mainColor} />
+                <Icon 
+                  name="chatbubble-outline" 
+                  size={20} 
+                  color={expandedComments === item.id ? mainColor : iconColor} 
+                />
+                <Text style={[
+                  styles.actionText, 
+                  { color: expandedComments === item.id ? mainColor : subTextColor }
+                ]}>
+                  {item.commentCount}
+                </Text>
               </TouchableOpacity>
             </View>
             
-            {/* Scrollable comments list */}
-            <ScrollView 
-              style={styles.commentsScrollView}
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled={true}
+            <TouchableOpacity 
+              style={[
+                styles.saveButton,
+                item.isSaved && { backgroundColor: isDarkMode ? 'rgba(255, 72, 112, 0.15)' : 'rgba(239, 61, 71, 0.08)' }
+              ]}
             >
+              <Icon 
+                name={item.isSaved ? "bookmark" : "bookmark-outline"} 
+                size={20} 
+                color={item.isSaved ? mainColor : iconColor} 
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Comments Section - Expanded When Toggled */}
+          {expandedComments === item.id && (
+            <View style={styles.commentsSection}>
               <View style={styles.commentsList}>
-                {expandedComments === item.id && item.comments.map((comment: {id: string; username: string; text: string; timeAgo: string; likes: number}, i: number) => (
+                {item.comments.slice(0, 2).map((comment) => (
                   <View 
                     key={comment.id} 
-                    style={[
-                      styles.commentItem,
-                      i !== item.comments.length - 1 && { 
-                        borderBottomWidth: 1, 
-                        borderBottomColor: 'rgba(150, 150, 150, 0.1)'
-                      }
-                    ]}
+                    style={styles.commentItem}
                   >
-                    <View style={styles.commentHeader}>
-                      <Text style={[styles.commentUsername, { color: textColor }]}>
-                        {comment.username}
-                      </Text>
-                      <Text style={[styles.commentTime, { color: subTextColor }]}>
-                        {comment.timeAgo}
-                      </Text>
-                    </View>
-                    
+                    <Text style={[styles.commentUsername, { color: textColor }]}>
+                      {comment.username}
+                    </Text>
                     <Text style={[styles.commentText, { color: subTextColor }]}>
                       {comment.text}
                     </Text>
-                    
-                    <View style={styles.commentActions}>
-                      <TouchableOpacity style={styles.commentLike}>
-                        <FeatherIcon name="heart" size={14} color={iconColor} />
-                        {comment.likes > 0 && (
-                          <Text style={[styles.commentLikeCount, { color: subTextColor }]}>
-                            {comment.likes}
-                          </Text>
-                        )}
-                      </TouchableOpacity>
-                      
-                      <TouchableOpacity>
-                        <Text style={[styles.commentReply, { color: subTextColor }]}>
-                          Reply
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
                   </View>
                 ))}
+                
+                {item.comments.length > 2 && (
+                  <TouchableOpacity 
+                    style={styles.viewMoreComments}
+                  >
+                    <Text style={[styles.viewMoreText, { color: mainColor }]}>
+                      View all {item.commentCount} comments
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
-            </ScrollView>
-            
-            {/* Add comment input */}
-            <View style={styles.addCommentRow}>
-              <TextInput
-                placeholder="Add a comment..."
-                placeholderTextColor={subTextColor}
-                style={[
-                  styles.commentInput,
-                  { 
-                    color: textColor,
-                    backgroundColor: isDarkMode ? 'rgba(22, 23, 31, 0.8)' : 'rgba(240, 240, 240, 0.8)',
-                    borderColor: isDarkMode ? 'rgba(70, 70, 90, 0.3)' : 'rgba(210, 210, 210, 1)'
-                  }
-                ]}
-              />
-              <TouchableOpacity style={[styles.postCommentButton, { backgroundColor: mainColor }]}>
-                <FeatherIcon name="send" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
+              
+              {/* Add comment input */}
+              <View style={styles.addCommentRow}>
+                <View style={[styles.commentInputContainer, { backgroundColor: inputBgColor }]}>
+                  <TextInput
+                    placeholder="Add a comment..."
+                    placeholderTextColor={subTextColor}
+                    style={[styles.commentInput, { color: textColor }]}
+                  />
+                  <TouchableOpacity style={styles.postCommentButton}>
+                    <Icon name="paper-plane-outline" size={18} color={mainColor} />
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
-          </View>
-        )}
+          )}
+        </View>
       </Animated.View>
     );
   };
@@ -836,21 +855,16 @@ const HomeScreen: React.FC = () => {
     <TouchableOpacity
       style={[
         styles.topicChip,
-        selectedTopic === item && { 
-          backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.15)' : 'rgba(82, 69, 204, 0.08)',
-          borderColor: mainColor,
-        },
-        isDarkMode && selectedTopic !== item && {
-          backgroundColor: 'rgba(22, 23, 31, 0.8)',
-          borderColor: 'rgba(70, 70, 90, 0.3)',
-        }
+        selectedTopic === item ? 
+          { backgroundColor: mainColor } : 
+          { backgroundColor: isDarkMode ? 'rgba(34, 34, 50, 0.8)' : '#F0F0F0' }
       ]}
       onPress={() => setSelectedTopic(item)}
     >
       <Text 
         style={[
           styles.topicText, 
-          { color: selectedTopic === item ? mainColor : subTextColor }
+          { color: selectedTopic === item ? 'white' : textColor }
         ]}
       >
         {item}
@@ -858,214 +872,281 @@ const HomeScreen: React.FC = () => {
     </TouchableOpacity>
   );
 
+  // Animated header background opacity
+  const headerBgOpacity = headerAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1]
+  });
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
         <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
 
-      {/* Header - Enhanced for dark mode with subtle gradient effect */}
-      <View 
-        style={[
-          styles.header, 
-          isDarkMode && { 
-            backgroundColor: 'rgba(22, 23, 31, 0.8)', 
-            borderBottomWidth: 1, 
-            borderBottomColor: 'rgba(124, 107, 255, 0.1)'
-          }
-        ]}
-      >
-        <View>
-          <Text style={[
-            styles.headerTitle, 
-            { color: textColor },
-            isDarkMode && { textShadowColor: 'rgba(124, 107, 255, 0.3)', textShadowOffset: {width: 0, height: 0}, textShadowRadius: 8 }
-          ]}>
-            DripOut
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: subTextColor }]}>Discover your style</Text>
-        </View>
-        <View style={styles.headerRightContainer}>
-          <TouchableOpacity style={styles.headerIconButton}>
-            <FeatherIcon 
-              name="bell" 
-              size={22} 
-              color={isDarkMode ? '#B8B8CC' : textColor} 
-            />
-          </TouchableOpacity>
-          <TouchableOpacity 
+        {/* Header */}
+        <View style={styles.headerContainer}>
+          {/* Animated Background */}
+          <Animated.View 
             style={[
-              styles.searchButton,
-              isDarkMode && { 
-                backgroundColor: 'rgba(40, 40, 60, 0.4)', 
-                borderWidth: 1,
-                borderColor: 'rgba(124, 107, 255, 0.2)'
+              styles.headerBackground, 
+              { 
+                backgroundColor: cardBgColor,
+                borderBottomColor: borderColor,
+                opacity: headerBgOpacity 
               }
-            ]}
-          >
-            <FeatherIcon name="search" size={22} color={isDarkMode ? '#B8B8CC' : textColor} />
-          </TouchableOpacity>
-        </View>
-      </View>
+            ]} 
+          />
 
-      {/* Main Content */}
-      <Animated.FlatList
-        data={FASHION_POSTS}
-        renderItem={renderFashionPost}
-        keyExtractor={item => item.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.listContent,
-          isDarkMode && { paddingTop: 4 }
-        ]}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
-        scrollEventThrottle={16}
-        refreshing={refreshing}
-        onRefresh={handleRefresh}
-        ListHeaderComponent={
-          <>
-            {/* Trending Topics Filter */}
-            <View style={styles.topicsContainer}>
-              <Text style={[styles.topicsHeading, { color: textColor }]}>
-                Trending Inspiration
+          {/* Header Content */}
+          <View style={styles.header}>
+            <View style={styles.headerTitleContainer}>
+              <Text style={[styles.headerTitle, { color: textColor }]}>
+                DripOut
               </Text>
-              <FlatList
-                data={TRENDING_TOPICS}
-                renderItem={renderTrendingTopic}
-                keyExtractor={item => item}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.topicsList}
-              />
+              <Text style={[styles.headerSubtitle, { color: subTextColor }]}>
+                Your Style Feed
+              </Text>
             </View>
+            
+            <View style={styles.headerActions}>
+              <TouchableOpacity style={styles.headerButton}>
+                <Icon name="notifications-outline" size={24} color={textColor} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.headerButton}>
+                <Icon name="search-outline" size={24} color={textColor} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
 
-            {refreshing && (
-              <View style={styles.refreshIndicator}>
-                <ActivityIndicator size="small" color={isDarkMode ? '#FF6B6B' : mainColor} />
-                <Text style={[
-                  styles.refreshText, 
-                  { color: isDarkMode ? '#B8B8CC' : subTextColor }
-                ]}>
-                  Refreshing...
-                </Text>
+        {/* Main Content */}
+        <Animated.FlatList
+          data={FASHION_POSTS}
+          renderItem={renderFashionPost}
+          keyExtractor={item => item.id}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: false }
+          )}
+          scrollEventThrottle={16}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={mainColor}
+              colors={[mainColor]}
+            />
+          }
+          ListHeaderComponent={
+            <>
+              {/* Stories Row */}
+              <View style={styles.storiesContainer}>
+                <FlatList
+                  data={STORIES}
+                  renderItem={renderStoryItem}
+                  keyExtractor={item => item.id}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.storiesList}
+                />
               </View>
-            )}
-          </>
-        }
-        ListFooterComponent={
-          <View style={{ height: 90 }} />
-        }
-      />
 
-      {/* No longer need custom bottom navigation bar - using Tab Navigator */}
+              {/* Topic/Filter Pills */}
+              <View style={styles.topicsContainer}>
+                <FlatList
+                  data={TRENDING_TOPICS}
+                  renderItem={renderTrendingTopic}
+                  keyExtractor={item => item}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.topicsList}
+                />
+              </View>
+            </>
+          }
+          ListFooterComponent={
+            <View style={{ height: 90 }} />
+          }
+        />
       </SafeAreaView>
     </GestureHandlerRootView>
   );
 };
 
-export default HomeScreen;
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerContainer: {
+    position: 'relative',
+    zIndex: 10,
+  },
+  headerBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '100%',
+    borderBottomWidth: 1,
+  },
   header: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  headerTitleContainer: {
+    flex: 1,
+  },
   headerTitle: {
-    ...defaultTextStyle,
     fontSize: 24,
     fontWeight: '700',
     letterSpacing: 0.3,
   },
   headerSubtitle: {
-    ...defaultTextStyle,
     fontSize: 14,
     marginTop: 2,
+    letterSpacing: 0.2,
   },
-  headerRightContainer: {
+  headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  headerIconButton: {
+  headerButton: {
     width: 40,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
-  },
-  searchButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(150, 150, 150, 0.1)',
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    marginLeft: 8,
   },
   
-  // Trending topics section
-  topicsContainer: {
-    marginBottom: 20,
+  // Stories
+  storiesContainer: {
+    marginVertical: 12,
   },
-  topicsHeading: {
-    ...defaultTextStyle,
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 12,
+  storiesList: {
+    paddingHorizontal: 16,
+  },
+  storyContainer: {
+    alignItems: 'center',
+    marginRight: 16,
+    width: 74,
+  },
+  storyRing: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 2,
+    padding: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  storyAdd: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  storyAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  storyUsername: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  
+  // Topics
+  topicsContainer: {
+    marginBottom: 16,
   },
   topicsList: {
-    paddingVertical: 4,
+    paddingHorizontal: 16,
   },
   topicChip: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingVertical: 10,
+    borderRadius: 24,
     marginRight: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(150, 150, 150, 0.3)',
   },
   topicText: {
-    ...defaultTextStyle,
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   
-  // Fashion inspiration card styling
-  inspirationCard: {
-    borderRadius: 24,
+  // Feed content
+  listContent: {
+    paddingVertical: 8,
+  },
+  
+  // Post Card
+  postCard: {
+    marginHorizontal: 16,
+    marginBottom: 24,
+    borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 1,
-    marginBottom: 24,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
-  inspirationHeader: {
-    paddingHorizontal: 18,
-    paddingVertical: 16,
+  postHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  inspirationTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginRight: 8,
-    letterSpacing: 0.2,
+  postAuthor: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  publishDate: {
-    fontSize: 13,
-    marginTop: 4,
+  authorAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+  },
+  authorInfo: {
+    marginLeft: 10,
+  },
+  authorNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  authorUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  verifiedBadge: {
+    marginLeft: 4,
+  },
+  postDate: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  moreButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   
   // Gallery
   galleryContainer: {
     position: 'relative',
-    height: width * 1.1,
+    height: width,
     backgroundColor: '#e0e0e0',
   },
   galleryImage: {
@@ -1073,162 +1154,156 @@ const styles = StyleSheet.create({
     height: '100%',
     resizeMode: 'cover',
   },
+  galleryOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 80,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
   galleryDots: {
     position: 'absolute',
     bottom: 16,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   galleryDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
+    marginHorizontal: 3,
     backgroundColor: 'rgba(255, 255, 255, 0.5)',
-    marginHorizontal: 2,
   },
-  galleryNavButton: {
+  activeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  swipeIndicator: {
     position: 'absolute',
     top: '50%',
     marginTop: -20,
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  galleryNavLeft: {
-    left: 8,
-  },
-  galleryNavRight: {
-    right: 8,
-  },
-  swipeIndicator: {
-    position: 'absolute',
-    top: '50%',
-    marginTop: -25,
-    width: 60,
-    height: 50,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexDirection: 'row',
-    zIndex: 1,
   },
   swipeIndicatorLeft: {
-    left: 16,
+    left: 20,
   },
   swipeIndicatorRight: {
-    right: 16,
+    right: 20,
   },
   
-  // Aesthetic section
+  // Aesthetic Tag
   aestheticContainer: {
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 8,
+    position: 'absolute',
+    top: 16,
+    left: 16,
   },
   aestheticPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    borderWidth: 1,
   },
   aestheticText: {
-    ...defaultTextStyle,
-    fontSize: 14,
+    color: 'white',
+    fontSize: 12,
     fontWeight: '600',
   },
   
-  // Caption section
-  captionContainer: {
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+  // Post Content
+  postContent: {
+    padding: 16,
   },
-  captionText: {
-    ...defaultTextStyle,
-    fontSize: 15,
-    lineHeight: 22,
+  postTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  postCaption: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
   },
   readMoreText: {
-    ...defaultTextStyle,
     fontWeight: '600',
   },
   
-  // Tags section
+  // Tags
   tagsContainer: {
-    paddingHorizontal: 12,
-    paddingBottom: 16,
+    marginBottom: 16,
   },
   tagPill: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: 16,
-    marginHorizontal: 6,
+    marginRight: 8,
     borderWidth: 1,
   },
   tagText: {
-    ...defaultTextStyle,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
   },
   
-  // Featured pieces section
-  piecesContainer: {
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(150, 150, 150, 0.15)',
-    marginTop: 8,
-  },
-  piecesHeading: {
-    ...defaultTextStyle,
-    fontSize: 17,
-    fontWeight: '600',
-    marginBottom: 14,
-  },
-  piecesGrid: {
+  // Featured Pieces
+  featuredHeader: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: -4,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderTopWidth: 1,
   },
-  pieceItem: {
+  featuredTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  outfitItems: {
+    marginTop: 12,
+  },
+  outfitItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '46%',
-    marginHorizontal: '2%',
-    marginBottom: 12,
-    paddingHorizontal: 12,
     paddingVertical: 10,
-    borderWidth: 1,
-    borderRadius: 16,
+    marginBottom: 10,
+    borderBottomWidth: 1,
   },
-  pieceDetails: {
-    marginLeft: 8,
+  itemIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  itemDetails: {
+    marginLeft: 12,
     flex: 1,
   },
-  pieceName: {
-    ...defaultTextStyle,
-    fontSize: 13,
+  itemName: {
+    fontSize: 14,
     fontWeight: '500',
   },
-  pieceBrand: {
-    ...defaultTextStyle,
+  itemBrand: {
     fontSize: 12,
-    marginTop: 3,
+    marginTop: 2,
   },
   
-  // Post actions
+  // Post Actions
   postActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingVertical: 16,
+    alignItems: 'center',
+    paddingTop: 16,
     borderTopWidth: 1,
-    marginTop: 0,
+    marginTop: 8,
   },
   actionGroup: {
     flexDirection: 'row',
@@ -1236,135 +1311,77 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
     marginRight: 12,
   },
-  saveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
   actionText: {
-    ...defaultTextStyle,
     fontSize: 13,
-    fontWeight: '600',
-    marginLeft: 8,
+    fontWeight: '500',
+    marginLeft: 6,
   },
-  
-  // Comments section
-  commentsSection: {
-    overflow: 'hidden',
-    backgroundColor: 'transparent',
-  },
-  commentsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(150, 150, 150, 0.1)',
-  },
-  commentsTitle: {
-    ...defaultTextStyle,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  collapseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  saveButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
   },
-  commentsScrollView: {
-    maxHeight: 200,
+  
+  // Comments
+  commentsSection: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#EEEEEE',
   },
   commentsList: {
-    paddingHorizontal: 18,
-    paddingTop: 8,
+    marginBottom: 16,
   },
   commentItem: {
-    paddingVertical: 12,
-  },
-  commentHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 10,
   },
   commentUsername: {
-    ...defaultTextStyle,
+    fontSize: 13,
     fontWeight: '600',
-    fontSize: 14,
-  },
-  commentTime: {
-    ...defaultTextStyle,
-    fontSize: 12,
+    marginBottom: 2,
   },
   commentText: {
-    ...defaultTextStyle,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
-  commentActions: {
-    flexDirection: 'row',
-    marginTop: 8,
+  viewMoreComments: {
+    marginTop: 6,
   },
-  commentLike: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  commentLikeCount: {
-    ...defaultTextStyle,
-    fontSize: 12,
-    marginLeft: 4,
-  },
-  commentReply: {
-    ...defaultTextStyle,
-    fontSize: 12,
+  viewMoreText: {
+    fontSize: 13,
     fontWeight: '500',
   },
   addCommentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 16,
   },
-  commentInput: {
-    ...defaultTextStyle,
+  commentInputContainer: {
     flex: 1,
-    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: 20,
     paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  commentInput: {
+    flex: 1,
+    height: 36,
     paddingVertical: 8,
-    borderWidth: 1,
     fontSize: 14,
   },
   postCommentButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 30,
+    height: 30,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 10,
-  },
-  
-  // Refresh indicator
-  refreshIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-  },
-  refreshText: {
-    ...defaultTextStyle,
-    marginLeft: 8,
-    fontSize: 13,
   },
 });
+
+export default HomeScreen;

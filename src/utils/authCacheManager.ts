@@ -10,11 +10,11 @@ class AuthCacheManager {
     private static instance: AuthCacheManager;
     private cache: AuthCache | null = null;
     
-    // Extended timeout settings (10 days inactivity, 190 days absolute)
-    private readonly INACTIVITY_TIMEOUT = 10 * 24 * 60 * 60 * 1000; // 10 days in milliseconds
+    // Extended timeout settings (10 hours inactivity as requested, 190 days absolute)
+    private readonly INACTIVITY_TIMEOUT = 10 * 60 * 60 * 1000; // 10 hours in milliseconds
     private readonly ABSOLUTE_TIMEOUT = 190 * 24 * 60 * 60 * 1000; // 190 days in milliseconds
     // Keeping the previous timeout for backward compatibility
-    private readonly CACHE_DURATION = 5 * 60 * 60 * 1000; // 5 hours
+    private readonly CACHE_DURATION = 10 * 60 * 60 * 1000; // 10 hours (updated from 5 hours)
 
     private constructor() {
         // Initialize cache from storage when constructed

@@ -8,7 +8,7 @@ import { db } from '../Config/firebaseconfig';
 class AppStateManager {
   private static instance: AppStateManager;
   private lastActiveTimestamp: number = Date.now();
-  private readonly BACKGROUND_THRESHOLD = 5 * 60 * 60 * 1000; // 5 hours
+  private readonly BACKGROUND_THRESHOLD = 10 * 60 * 60 * 1000; // 10 hours
   private subscription: any; // Store the subscription
   
   // New auth state tracking properties
@@ -45,17 +45,25 @@ class AppStateManager {
       const inactiveTime = now - this.lastActiveTimestamp;
 
       if (inactiveTime >= this.BACKGROUND_THRESHOLD) {
-        // Been in background too long, invalidate cache
+        // Been in background too long (> 10 hours), invalidate cache
+        console.log(`AppStateManager: App was in background for ${inactiveTime / (60 * 60 * 1000)} hours, exceeding 10-hour threshold`);
         authCache.invalidateCache();
       } else {
-        // Update last activity
+        // Update last activity when app comes to foreground
+        console.log(`AppStateManager: App was in background for ${inactiveTime / (60 * 1000)} minutes, updating activity timestamp`);
         authCache.updateLastActivity();
+        
+        // Also update the AsyncStorage directly for redundancy
+        AsyncStorage.setItem('lastActivityTimestamp', now.toString())
+          .then(() => console.log('AppStateManager: Updated lastActivityTimestamp in storage'))
+          .catch(err => console.error('AppStateManager: Failed to update timestamp:', err));
       }
     }
     
     if (nextAppState === 'background') {
-      // App went to background
+      // App went to background, record timestamp
       this.lastActiveTimestamp = Date.now();
+      console.log('AppStateManager: App entered background state, recording timestamp');
     }
   };
 

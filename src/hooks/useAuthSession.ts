@@ -102,6 +102,19 @@ export const useAuthSession = () => {
         authCache.updateLastActivity();
         appStateManager.setAuthenticated(true);
         
+        // Refresh token and store it for 10-hour persistence
+        try {
+          const freshToken = await user.getIdToken(true);
+          const now = Date.now();
+          await Promise.all([
+            AsyncStorage.setItem('firebaseUserToken', freshToken),
+            AsyncStorage.setItem('lastActivityTimestamp', now.toString())
+          ]);
+          console.log('useAuthSession: Updated token and activity timestamp for 10-hour persistence');
+        } catch (tokenErr) {
+          console.warn('useAuthSession: Failed to refresh token:', tokenErr);
+        }
+        
         // Determine route based on onboarding status
         const route = await checkOnboardingStatus(user.uid);
         setInitialRoute(route as InitialRouteType);

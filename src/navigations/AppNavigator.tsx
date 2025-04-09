@@ -212,7 +212,46 @@ const AppNavigator: React.FC = () => {
     const initializeApp = async () => {
       try {
         console.log('AppNavigator: Initializing app state...');
-        // Check app state manager first for quick initial state (optional but can speed up UI)
+        
+        // Try to restore session from AsyncStorage first (for faster startup)
+        const storedToken = await AsyncStorage.getItem('firebaseUserToken');
+        const lastActivityStr = await AsyncStorage.getItem('lastActivityTimestamp');
+        
+        if (storedToken && lastActivityStr) {
+          const lastActivity = parseInt(lastActivityStr, 10);
+          const now = Date.now();
+          const elapsedTime = now - lastActivity;
+          const maxSessionTime = 10 * 60 * 60 * 1000; // 10 hours
+          
+          if (elapsedTime < maxSessionTime) {
+            console.log(`AppNavigator: Found recent auth session (${elapsedTime / (60 * 1000)} minutes old), attempting to use it`);
+            // We have a recently active session, try to use it
+            setIsAuthenticated(true); // Pre-set authentication for faster UI response
+            
+            // After Firebase initializes, refresh the token to ensure it's still valid
+            // This will run in the background and update the stored token if needed
+            setTimeout(() => {
+              const currentUser = auth().currentUser;
+              if (currentUser) {
+                currentUser.getIdToken(true) // Force token refresh
+                  .then(freshToken => {
+                    // Update both the token and timestamp
+                    Promise.all([
+                      AsyncStorage.setItem('firebaseUserToken', freshToken),
+                      AsyncStorage.setItem('lastActivityTimestamp', Date.now().toString())
+                    ]).then(() => {
+                      console.log('AppNavigator: Successfully refreshed token for restored session');
+                    });
+                  })
+                  .catch(error => {
+                    console.warn('AppNavigator: Failed to refresh token for restored session:', error);
+                  });
+              }
+            }, 2000); // Short delay to let Firebase auth initialize first
+          }
+        }
+        
+        // Check app state manager for full state initialization
         await appStateManager.initialize();
         if (isMounted) {
           setIsOnboarding(appStateManager.isOnboarding());
@@ -233,7 +272,7 @@ const AppNavigator: React.FC = () => {
 
     initializeApp();
 
-    // Firebase auth state listener
+    // Firebase auth state listener with persistence enhancement
     const unsubscribeFirebase = onAuthStateChanged(getAuth(), (user: User | null) => {
       console.log('AppNavigator: Firebase Auth state changed ->', user ? `User(${user.uid})` : 'No User');
       if (isMounted) {
@@ -245,12 +284,34 @@ const AppNavigator: React.FC = () => {
            appStateManager.setAuthenticated(newAuthState);
         }
 
-        // Reset onboarding/options sheet if user logs out
-        if (!newAuthState) {
+        // If user is logged in, update the token and timestamp
+        if (user) {
+          // Get fresh token and store it for future app launches (10-hour session)
+          user.getIdToken(false).then(token => {
+            const now = Date.now();
+            Promise.all([
+              AsyncStorage.setItem('firebaseUserToken', token),
+              AsyncStorage.setItem('lastActivityTimestamp', now.toString())
+            ]).then(() => {
+              console.log('AppNavigator: Updated auth token and timestamp for 10-hour session persistence');
+            });
+          }).catch(err => {
+            console.error('AppNavigator: Failed to get/store token:', err);
+          });
+        } else {
+          // Reset onboarding/options sheet if user logs out
           setIsOnboarding(false);
           setShowOptionsSheet(false);
           appStateManager.setOnboarding(false); // Also update manager state
           appStateManager.setShowOnboardingOptions(false);
+          
+          // Clear stored authentication data
+          Promise.all([
+            AsyncStorage.removeItem('firebaseUserToken'),
+            AsyncStorage.removeItem('lastActivityTimestamp')
+          ]).catch(err => {
+            console.error('AppNavigator: Failed to clear auth data:', err);
+          });
         }
 
         // Only stop loading once we have a definitive auth state from Firebase

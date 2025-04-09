@@ -3,12 +3,22 @@ import { collection, addDoc, getDocs, query, where, orderBy, Timestamp, serverTi
 import { uploadImageAndGetURL } from './storageService';
 
 /**
+ * Interface for outfit item in a post
+ */
+interface OutfitItem {
+  name: string;
+  brand: string;
+  type?: 'shirt' | 'pants' | 'shoes' | 'accessory'; // Optional type field for future use
+}
+
+/**
  * Interface for creating a new post
  */
 interface CreatePostData {
   imageUri: string;
   caption: string;
   tags: string[];
+  outfitItems?: OutfitItem[]; // Optional outfit items (featured pieces)
 }
 
 /**
@@ -22,6 +32,7 @@ export interface Post {
   imageUrl: string;
   caption: string;
   tags: string[];
+  outfitItems?: OutfitItem[]; // Featured clothing pieces
   likes: number;
   comments: number;
   createdAt: Timestamp;
@@ -38,16 +49,24 @@ export const createPost = async (
   postData: CreatePostData,
   onProgress?: (progress: number) => void
 ): Promise<Post> => {
+  console.log('🔄 PostService: Creating post...');
   try {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
+    // Use auth().currentUser instead of auth.currentUser
+    const currentUser = auth().currentUser;
+    console.log('🔄 PostService: Current user:', currentUser?.uid || 'none');
+    
+    if (!currentUser) {
+      console.error('🔄 PostService: No authenticated user!');
       throw new Error('User not authenticated');
     }
+    
+    const userId = currentUser.uid;
 
     // Get user information for the post
     // Simplified for now, but you would normally fetch this from your user profile
-    const username = auth.currentUser?.displayName || 'Anonymous';
-    const userAvatar = auth.currentUser?.photoURL || '';
+    const username = currentUser.displayName || 'Anonymous';
+    const userAvatar = currentUser.photoURL || '';
+    console.log('🔄 PostService: Using username:', username);
 
     // Upload the image to Firebase Storage
     const imageUrl = await uploadImageAndGetURL(
@@ -66,6 +85,7 @@ export const createPost = async (
       imageUrl,
       caption: postData.caption,
       tags: postData.tags,
+      outfitItems: postData.outfitItems || [], // Add outfit items if provided
       likes: 0,
       comments: 0,
       createdAt: serverTimestamp(),
@@ -77,11 +97,39 @@ export const createPost = async (
     return {
       id: docRef.id,
       ...newPost,
+      outfitItems: postData.outfitItems || [], // Ensure outfit items are included
       createdAt: Timestamp.now(), // Use current timestamp for the return value
     };
-  } catch (error) {
+  } catch (error: unknown) {
+    // Provide more detailed error information
     console.error('Error creating post:', error);
-    throw error;
+    
+    // Extract specific error details if available
+    let errorMessage = 'Failed to create post';
+    
+    // Type-safe handling of errors
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    
+    // Check for Firebase Storage errors which might have a code property
+    const firebaseError = error as { code?: string; serverResponse?: string };
+    if (firebaseError.code && typeof firebaseError.code === 'string' && 
+        firebaseError.code.startsWith('storage/')) {
+      errorMessage = `Firebase Storage error: ${errorMessage}`;
+    }
+    
+    // Create and throw enhanced error
+    const enhancedError = new Error(errorMessage) as Error & { 
+      code?: string; 
+      serverResponse?: string 
+    };
+    
+    // Copy additional properties if they exist
+    if (firebaseError.code) enhancedError.code = firebaseError.code;
+    if (firebaseError.serverResponse) enhancedError.serverResponse = firebaseError.serverResponse;
+    
+    throw enhancedError;
   }
 };
 
@@ -93,7 +141,10 @@ export const createPost = async (
  */
 export const getPostsByUser = async (userId?: string): Promise<Post[]> => {
   try {
-    const currentUserId = userId || auth.currentUser?.uid;
+    // Use auth() as a function just like in createPost
+    const currentUser = auth().currentUser;
+    const currentUserId = userId || currentUser?.uid;
+    
     if (!currentUserId) {
       throw new Error('User ID not provided and user not authenticated');
     }
@@ -117,6 +168,7 @@ export const getPostsByUser = async (userId?: string): Promise<Post[]> => {
         imageUrl: data.imageUrl,
         caption: data.caption,
         tags: data.tags,
+        outfitItems: data.outfitItems || [], // Include outfit items
         likes: data.likes,
         comments: data.comments,
         createdAt: data.createdAt,
@@ -155,6 +207,7 @@ export const getAllPosts = async (): Promise<Post[]> => {
         imageUrl: data.imageUrl,
         caption: data.caption,
         tags: data.tags,
+        outfitItems: data.outfitItems || [], // Include outfit items
         likes: data.likes,
         comments: data.comments,
         createdAt: data.createdAt,

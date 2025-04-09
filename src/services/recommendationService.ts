@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 // API configuration
-// const API_BASE_URL = 'http://192.168.1.231:8082'; // For local development
-const API_BASE_URL = "10.41.97.93";
+const API_BASE_URL = 'http://192.168.1.231:8082'; // For local development
+// const API_BASE_URL = "10.41.97.93";
 console.log('📡 Recommendation API configured with base URL:', API_BASE_URL);
 
 // Initialize API client
@@ -54,6 +54,37 @@ function normalizeStoreDomain(store: string): string {
 }
 
 /**
+ * Product type definition based on the *actual* API response structure
+ */
+export interface Product {
+  url: string;
+  id?: string; 
+  name?: string; // Use 'name' as returned by the API
+  description?: string;
+  price?: string | number; 
+  currency?: string;
+  images?: string[];
+  sizes?: string[];
+  color?: string; // Primary color
+  brand?: string;
+  
+  // Add other fields from products_response if needed
+  // source_domain?: string;
+  // sku?: string;
+  // in_stock?: boolean;
+}
+
+/**
+ * Type definition for the overall API response object
+ */
+interface RecommendationsApiResponse {
+  products: Product[];
+  total_products: number;
+  search_terms: string[];
+  timestamp: string;
+}
+
+/**
  * Search for product recommendations based on query and user profile
  */
 export async function searchProducts(
@@ -61,80 +92,93 @@ export async function searchProducts(
   priceRange: [number, number] = [0, 1000], 
   limit: number = 10,
   userProfile?: any // Accept user profile data if available
-) {
+): Promise<Product[]> {
   console.log('🔎 Starting product search for query:', query);
   try {
-    // Convert price range to budget category
-    let budget = priceRange[1] <= 50 ? 'under-50' : 
-                 priceRange[1] <= 100 ? '50-100' : 
-                 priceRange[1] <= 200 ? '100-200' : 'over-200';
-    console.log('💰 Using budget category:', budget, 'for price range:', priceRange);
-    
-    // Initialize user profile with budget
-    const userProfileData: any = {
-      budget
-    };
-    
-    // If user has a profile, integrate relevant fields
+    // Initialize user profile data object
+    const userProfileData: any = {};
+
+    // Integrate relevant fields from the provided userProfile object
     if (userProfile) {
       console.log('👤 User profile data available, integrating preferences');
-    
-      // Map size if available
-      if (userProfile.topsSize) {
-        userProfileData.size = userProfile.topsSize;
-        console.log('👕 Using size preference:', userProfile.topsSize);
-      }
-      
-      // Map style preferences if available
-      if (userProfile.preferredStyles && userProfile.preferredStyles.length > 0) {
-        userProfileData.style_preferences = userProfile.preferredStyles;
-        console.log('🎨 Style preferences:', userProfile.preferredStyles);
-      }
-      
-      // Map and normalize preferred stores if available
-      if (userProfile.preferredBrands && userProfile.preferredBrands.length > 0) {
-        userProfileData.preferred_stores = userProfile.preferredBrands.map(normalizeStoreDomain);
-        console.log('🏬 Preferred brands/stores:', userProfileData.preferred_stores);
-      }
-      
-      // Map gender if available
-      if (userProfile.userGender) {
-        // Simple normalization for gender
-        const gender = userProfile.userGender.toLowerCase();
-        if (gender.includes('male') || gender.includes('man') || gender.includes('men')) {
-          userProfileData.gender = 'men';
-        } else if (gender.includes('female') || gender.includes('woman') || gender.includes('women')) {
-          userProfileData.gender = 'women';
-        } else {
-          userProfileData.gender = 'unisex';
-        }
-        console.log('⚧️ Gender preference:', userProfileData.gender);
-      }
-      
+
       // Map age if available
       if (typeof userProfile.userAge === 'number') {
         userProfileData.age = userProfile.userAge;
         console.log('🎂 Age:', userProfile.userAge);
+      } else {
+        // If age is required by API but not present, you might need a default or omit it
+        // console.log('ℹ️ Age not provided in user profile');
       }
+
+      // Map gender if available
+      if (userProfile.userGender) {
+        const gender = userProfile.userGender.toLowerCase();
+        if (gender.includes('male') || gender.includes('man') || gender.includes('men')) {
+          userProfileData.gender = 'male'; // Match expected API value if needed
+        } else if (gender.includes('female') || gender.includes('woman') || gender.includes('women')) {
+          userProfileData.gender = 'female'; // Match expected API value if needed
+        } else {
+          // Decide on a default or omit if gender is unknown/other
+          // userProfileData.gender = 'unisex'; 
+        }
+        console.log('⚧️ Mapped Gender preference:', userProfileData.gender);
+      }
+
+      // Map style preferences if available
+      if (userProfile.preferredStyles && Array.isArray(userProfile.preferredStyles) && userProfile.preferredStyles.length > 0) {
+        userProfileData.style_preferences = userProfile.preferredStyles;
+        console.log('🎨 Style preferences:', userProfile.preferredStyles);
+      }
+
+      // Map color preferences if available (assuming API expects 'color_preferences')
+      if (userProfile.colorPreferences && Array.isArray(userProfile.colorPreferences) && userProfile.colorPreferences.length > 0) {
+        userProfileData.color_preferences = userProfile.colorPreferences;
+        console.log('🌈 Color preferences:', userProfile.colorPreferences);
+      }
+
+      // Map and normalize preferred stores if available
+      if (userProfile.preferredBrands && Array.isArray(userProfile.preferredBrands) && userProfile.preferredBrands.length > 0) {
+        userProfileData.preferred_stores = userProfile.preferredBrands; // Send original names if API expects them
+        // Or normalize if needed: userProfile.preferredBrands.map(normalizeStoreDomain);
+        console.log('🏬 Preferred brands/stores:', userProfileData.preferred_stores);
+      }
+      
+      // Add budget object with min/max from priceRange
+      userProfileData.budget = {
+         min: priceRange[0],
+         max: priceRange[1]
+      };
+      console.log('💰 Budget object:', userProfileData.budget);
+
     } else {
-      console.log('ℹ️ No user profile available, using default preferences');
+      console.log('ℹ️ No user profile available, sending minimal profile data');
+      // Send at least the budget if required, even without full profile
+      userProfileData.budget = {
+         min: priceRange[0],
+         max: priceRange[1]
+      };
     }
     
-    // Build the request payload according to the schema
+    // Build the request payload according to the *expected* API schema
     const payload = {
-      query,
+      user_query: query,        // Use expected name
       user_profile: userProfileData,
-      direct_search: false, // Use enhanced search by default
-      limit
+      max_products: limit,      // Use expected name
+      direct_search: false, 
     };
     console.log('📦 Request payload prepared:', JSON.stringify(payload));
     
-    console.log('⏳ Sending API request to:', `${API_BASE_URL}/recommendations`);
-    const response = await apiClient.post('/recommendations', payload);
+    // Log the payload right before sending
+    console.log('📤 Sending payload:', payload);
     
-    console.log('✅ Search successful, received', (response.data.response?.length || 0), 'results');
-    // Return the results array from the response
-    return response.data.response;
+    console.log('⏳ Sending API request to:', `${API_BASE_URL}/recommendations`);
+    const response = await apiClient.post<RecommendationsApiResponse>('/recommendations', payload);
+    
+    console.log('✅ Search successful, received', (response.data.products?.length || 0), 'results');
+    
+    // Return the 'products' array from the response
+    return response.data.products || []; // Return empty array if products field is missing
   } catch (error: unknown) {
     if (axios.isAxiosError(error)) {
       console.error('❌ Search failed with error:',
@@ -194,24 +238,4 @@ export async function checkApiHealth() {
     return false;
   }
 
-}
-
-/**
- * Product type definition
- */
-export interface Product {
-  id: string;
-  name: string;
-  price?: number;
-  images: string[];
-  sizes?: string[];
-  description?: string;
-  url: string;
-  site?: string;
-  colors?: string[];
-  materials?: string[];
-  care_instructions?: string;
-  details?: Record<string, any>;
-  metadata?: Record<string, any>;
-  raw_data?: Record<string, any>;
 }

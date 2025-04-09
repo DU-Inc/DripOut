@@ -1,7 +1,5 @@
 // src/screens/OverviewScreen.tsx
 
-/* global setTimeout */
-
 import React, { useRef, useState } from 'react';
 import {
   SafeAreaView,
@@ -41,7 +39,7 @@ const FEATURED_CONTENT = [
     description: 'Organize your clothes, discover new outfits, and try them on with your 3D avatar',
     image: 'https://images.unsplash.com/photo-1562157873-818bc0726f68?q=80&w=800&auto=format',
     screen: '3DTab',
-    gradient: ['#7C6BFF', '#5245CC']
+    gradient: ['#FF4870', '#EF3D47']
   },
   {
     id: '2',
@@ -49,7 +47,7 @@ const FEATURED_CONTENT = [
     description: 'Browse personalized recommendations based on your preferences',
     image: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?q=80&w=800&auto=format',
     screen: 'DiscoverTab',
-    gradient: ['#FF4870', '#FF3B5C']
+    gradient: ['#FF4870', '#EF3D47']
   },
   {
     id: '3',
@@ -57,7 +55,7 @@ const FEATURED_CONTENT = [
     description: 'Share your style, get inspired by others, and join the conversation',
     image: 'https://images.unsplash.com/photo-1540174053853-1cc5d1e21c43?q=80&w=800&auto=format',
     screen: 'SocialTab',
-    gradient: ['#64D2FF', '#5AC8FA']
+    gradient: ['#FF4870', '#EF3D47']
   }
 ];
 
@@ -134,16 +132,16 @@ const OverviewScreen: React.FC = () => {
   const scrollY = useRef(new Animated.Value(0)).current;
   const [activeFeature, setActiveFeature] = useState(0);
 
-  // Colors based on theme
-  const bgColor = isDarkMode ? '#000000' : '#FFFFFF';
-  const textColor = isDarkMode ? '#FFFFFF' : '#000000';
-  const subTextColor = isDarkMode ? '#8E8E93' : '#6E6E73'; // iOS gray
-  const cardBgColor = isDarkMode ? '#1C1C1E' : '#FFFFFF'; // iOS card background
-  const borderColor = isDarkMode ? '#38383A' : '#E5E5EA'; // iOS separator
-  const mainColor = isDarkMode ? '#0A84FF' : '#007AFF'; // iOS blue
-  const secondaryColor = isDarkMode ? '#64D2FF' : '#5AC8FA'; // iOS light blue
-  const accentColor = isDarkMode ? '#FF9F0A' : '#FF9500'; // iOS orange
-  const surfaceColor = isDarkMode ? '#2C2C2E' : '#F2F2F7'; // iOS system gray
+  // Colors based on theme - using the app's RED theme
+  const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
+  const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
+  const textColor = isDarkMode ? '#FFFFFF' : '#202020';
+  const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
+  const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
+  const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
+  const inputBgColor = isDarkMode ? '#222232' : '#F5F5F5';
+  const accentColor = isDarkMode ? '#FF6D8E' : '#FF3B5C'; // Red accent
+  const surfaceColor = isDarkMode ? '#222232' : '#F5F5F5';
 
   // Header animation
   const headerOpacity = scrollY.interpolate({
@@ -158,7 +156,7 @@ const OverviewScreen: React.FC = () => {
 
   const renderFeaturedItem = ({ item, index }: { item: any, index: number }) => (
     <TouchableOpacity 
-      style={[styles.featuredCard, { opacity: activeFeature === index ? 1 : 0.7 }]}
+      style={[styles.featuredCard, { opacity: activeFeature === index ? 1 : 0.8 }]}
       onPress={() => {
         setActiveFeature(index);
         setTimeout(() => navigateToScreen(item.screen), 300);
@@ -170,16 +168,11 @@ const OverviewScreen: React.FC = () => {
         style={styles.featuredImage}
         imageStyle={{ borderRadius: 20 }}
       >
-        <View style={[
-          styles.featuredGradient, 
-          { 
-            backgroundColor: isDarkMode ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)',
-            borderRadius: 20
-          }
-        ]}>
+        {/* Dark overlay */}
+        <View style={styles.featuredOverlay}>
           <View style={styles.featuredContent}>
-            <Text style={[styles.featuredTitle, { color: textColor }]}>{item.title}</Text>
-            <Text style={[styles.featuredDescription, { color: subTextColor }]}>{item.description}</Text>
+            <Text style={[styles.featuredTitle, { color: '#FFFFFF' }]}>{item.title}</Text>
+            <Text style={[styles.featuredDescription, { color: 'rgba(255,255,255,0.8)' }]}>{item.description}</Text>
             <View style={[styles.featuredButton, { backgroundColor: mainColor }]}>
               <Text style={styles.featuredButtonText}>Explore</Text>
               <Icon name="arrow-forward" size={16} color="#FFFFFF" />
@@ -202,7 +195,6 @@ const OverviewScreen: React.FC = () => {
             backgroundColor: cardBgColor,
             opacity: headerOpacity,
             borderBottomColor: borderColor,
-            shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
           }
         ]}
       >
@@ -320,7 +312,6 @@ const OverviewScreen: React.FC = () => {
                   { 
                     backgroundColor: cardBgColor,
                     borderColor: borderColor,
-                    shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
                   }
                 ]}
                 onPress={() => navigateToScreen('DiscoverTab')}
@@ -360,15 +351,12 @@ const OverviewScreen: React.FC = () => {
                 key={board.id}
                 style={[
                   styles.styleBoard, 
-                  { 
-                    backgroundColor: cardBgColor,
-                    shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
-                  }
+                  { backgroundColor: cardBgColor }
                 ]}
                 onPress={() => navigateToScreen('ProfileTab')}
               >
                 <Image source={{ uri: board.image }} style={styles.styleBoardImage} />
-                <View style={styles.styleBoardOverlay}>
+                <View style={[styles.styleBoardOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
                   <Text style={styles.styleBoardTitle}>{board.title}</Text>
                 </View>
               </TouchableOpacity>
@@ -399,10 +387,7 @@ const OverviewScreen: React.FC = () => {
                 key={post.id}
                 style={[
                   styles.communityPost, 
-                  { 
-                    backgroundColor: cardBgColor,
-                    shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
-                  }
+                  { backgroundColor: cardBgColor }
                 ]}
                 onPress={() => navigateToScreen('SocialTab')}
               >
@@ -417,17 +402,17 @@ const OverviewScreen: React.FC = () => {
                 <View style={styles.postActions}>
                   <View style={styles.actionGroup}>
                     <TouchableOpacity style={styles.actionButton}>
-                      <Icon name="heart-outline" size={22} color={textColor} />
+                      <Icon name="heart-outline" size={22} color={mainColor} />
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.actionButton}>
-                      <Icon name="chatbubble-outline" size={22} color={textColor} />
+                      <Icon name="chatbubble-outline" size={22} color={mainColor} />
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.actionButton}>
-                      <Icon name="paper-plane-outline" size={22} color={textColor} />
+                      <Icon name="paper-plane-outline" size={22} color={mainColor} />
                     </TouchableOpacity>
                   </View>
                   <TouchableOpacity style={styles.actionButton}>
-                    <Icon name="bookmark-outline" size={22} color={textColor} />
+                    <Icon name="bookmark-outline" size={22} color={mainColor} />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.postStats}>
@@ -455,10 +440,7 @@ const OverviewScreen: React.FC = () => {
           <TouchableOpacity 
             style={[
               styles.closetCard, 
-              { 
-                backgroundColor: cardBgColor,
-                shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
-              }
+              { backgroundColor: cardBgColor }
             ]}
             onPress={() => navigateToScreen('ClosetTab')}
           >
@@ -479,10 +461,10 @@ const OverviewScreen: React.FC = () => {
                 <Icon name="shirt-outline" size={28} color={mainColor} />
               </View>
               <View style={[styles.closetIcon, { backgroundColor: surfaceColor }]}>
-                <Icon name="glasses-outline" size={28} color={secondaryColor} />
+                <Icon name="glasses-outline" size={28} color={accentColor} />
               </View>
               <View style={[styles.closetIcon, { backgroundColor: surfaceColor }]}>
-                <Icon name="watch-outline" size={28} color={accentColor} />
+                <Icon name="watch-outline" size={28} color={mainColor} />
               </View>
             </View>
           </TouchableOpacity>
@@ -492,14 +474,11 @@ const OverviewScreen: React.FC = () => {
         <View style={{ height: 90 }} />
       </Animated.ScrollView>
       
-      {/* Quick Action Button for messaging */}
+      {/* Quick Action Button */}
       <TouchableOpacity 
         style={[
           styles.messageButton, 
-          { 
-            backgroundColor: mainColor,
-            shadowColor: isDarkMode ? 'rgba(124, 107, 255, 0.5)' : 'rgba(0,0,0,0.3)'
-          }
+          { backgroundColor: mainColor }
         ]}
         onPress={() => navigateToScreen('SocialTab')}
       >
@@ -591,10 +570,11 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
   },
-  featuredGradient: {
+  featuredOverlay: {
     flex: 1,
-    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
+    padding: 20,
   },
   featuredContent: {
     maxWidth: '85%',
@@ -760,7 +740,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 12,
-    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   styleBoardTitle: {
     ...defaultTextStyle,
@@ -897,6 +876,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
