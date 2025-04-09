@@ -22,6 +22,11 @@ import FontAwesome5 from 'react-native-vector-icons/FontAwesome5';
 import { useTheme } from '../styles/themeprovider';
 import { createPost } from '../services/postService';
 import { selectImageFromLibrary, takePhotoWithCamera, ImageAsset } from '../services/imagePickerService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Cache keys matching those in UserProfileScreen
+const POSTS_CACHE_KEY = 'user_posts_cache';
+const POSTS_CACHE_TIMESTAMP_KEY = 'user_posts_cache_timestamp';
 
 // Interface for featured piece (clothing item)
 interface FeaturedPiece {
@@ -202,6 +207,18 @@ const CreatePostScreen: React.FC = () => {
     }
   };
   
+  // Function to clear the posts cache
+  const clearPostsCache = async () => {
+    try {
+      await AsyncStorage.removeItem(POSTS_CACHE_KEY);
+      await AsyncStorage.removeItem(POSTS_CACHE_TIMESTAMP_KEY);
+      console.log('Posts cache cleared after creating new post');
+    } catch (error) {
+      console.warn('Error clearing posts cache:', error);
+      // Non-critical error - continue even if cache clear fails
+    }
+  };
+
   // Create post using the service
   const handleCreatePost = async () => {
     if (!selectedImage) {
@@ -247,6 +264,9 @@ const CreatePostScreen: React.FC = () => {
           setUploadProgress(progress);
         }
       );
+      
+      // Clear the posts cache to ensure fresh data on profile page
+      await clearPostsCache();
       
       setIsUploading(false);
       Alert.alert(
