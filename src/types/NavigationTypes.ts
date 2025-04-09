@@ -24,6 +24,7 @@ export type RootStackParamList = {
   
   // Social features
   CreatePostScreen: undefined;
+  UserDetailScreen: { userId: string; username?: string };
   
   // Legacy types for backward compatibility
   Home: undefined;

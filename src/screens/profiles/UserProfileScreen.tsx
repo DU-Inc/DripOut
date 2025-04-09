@@ -1,6 +1,6 @@
 // src/screens/profiles/UserProfileScreen.tsx
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -19,11 +19,15 @@ import {
   Animated,
   ImageBackground,
   FlatList,
-  Pressable
+  Pressable,
+  RefreshControl,
+  Linking
 } from 'react-native';
 import { db } from '../../Config/firebaseconfig';
 import { auth } from '../../Config/firebaseconfig';
 import { createUserProfile, UserProfile, getUserPreferences, UserPreferences, setUserPreferences } from '../../services/firestoreService';
+import { getPostsByUser, Post } from '../../services/postService';
+import { followUser, unfollowUser, isUserFollowing, getFollowCounts } from '../../services/followService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootStackParamList } from '../../types/NavigationTypes';
 import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -31,7 +35,16 @@ import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useNavigation, NavigationProp } from '@react-navigation/native';
+import { useNavigation, NavigationProp, useFocusEffect } from '@react-navigation/native';
+
+// Cache keys and expiry time
+const POSTS_CACHE_KEY = 'user_posts_cache';
+const POSTS_CACHE_TIMESTAMP_KEY = 'user_posts_cache_timestamp';
+const PROFILE_CACHE_KEY = 'user_profile_cache';
+const PROFILE_CACHE_TIMESTAMP_KEY = 'user_profile_cache_timestamp';
+const PREFERENCES_CACHE_KEY = 'user_preferences_cache';
+const PREFERENCES_CACHE_TIMESTAMP_KEY = 'user_preferences_cache_timestamp';
+const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // 1 hour in milliseconds
 
 // Set default text styles for SF Pro font family
 const defaultTextStyle = {
@@ -92,24 +105,37 @@ const UserProfileScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'posts' | 'outfits' | 'styles'>('posts');
   const [loading, setLoading] = useState(true);
   const [isPreferencesModalVisible, setIsPreferencesModalVisible] = useState(false);
   const [editPreferencesData, setEditPreferencesData] = useState<UserPreferences | null>(null);
   const [selectedStyleBoard, setSelectedStyleBoard] = useState<string | null>(null);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [isPostModalVisible, setIsPostModalVisible] = useState(false);
+  
+  // Follow related states
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [isFollowLoading, setIsFollowLoading] = useState(false);
+  const [followCounts, setFollowCounts] = useState({ followers: 0, following: 0 });
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  
   const scrollY = useRef(new Animated.Value(0)).current;
   const navigation = useNavigation();
 
-  // Theme colors
-  const bgColor = isDarkMode ? '#000000' : '#FFFFFF';
-  const textColor = isDarkMode ? '#FFFFFF' : '#000000';
-  const subTextColor = isDarkMode ? '#8E8E93' : '#6E6E73'; // iOS gray
-  const cardBgColor = isDarkMode ? '#1C1C1E' : '#FFFFFF'; // iOS card background
-  const borderColor = isDarkMode ? '#38383A' : '#E5E5EA'; // iOS separator
-  const mainColor = isDarkMode ? '#0A84FF' : '#007AFF'; // iOS blue
-  const secondaryColor = isDarkMode ? '#64D2FF' : '#5AC8FA'; // iOS light blue
-  const accentColor = isDarkMode ? '#FF9F0A' : '#FF9500'; // iOS orange
-  const surfaceColor = isDarkMode ? '#2C2C2E' : '#F2F2F7'; // iOS system gray
-  const secondarySurfaceColor = isDarkMode ? '#3A3A3C' : '#E5E5EA'; // iOS secondary background
+  // Colors based on theme - using app's red theme
+  const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
+  const textColor = isDarkMode ? '#FFFFFF' : '#202020';
+  const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
+  const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
+  const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
+  const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
+  const secondaryColor = isDarkMode ? '#FF6D8E' : '#FF3B5C'; // Red accent
+  const accentColor = isDarkMode ? '#FF9F0A' : '#FF9500'; // Orange for contrast
+  const surfaceColor = isDarkMode ? '#222232' : '#F5F5F5';
+  const secondarySurfaceColor = isDarkMode ? '#2A2A38' : '#F0F0F5';
   
   // Animated values
   const headerOpacity = scrollY.interpolate({
@@ -136,7 +162,207 @@ const UserProfileScreen: React.FC = () => {
     extrapolate: 'clamp'
   });
 
-  // Subscribe to user profile changes in Firestore
+  // Fetch user posts with caching
+  const fetchPosts = useCallback(async (userId?: string, forceRefresh = false) => {
+    try {
+      // If not forcing refresh, try to get from cache first
+      if (!forceRefresh) {
+        try {
+          const cachedTimestampStr = await AsyncStorage.getItem(POSTS_CACHE_TIMESTAMP_KEY);
+          const cachedPostsStr = await AsyncStorage.getItem(POSTS_CACHE_KEY);
+          
+          if (cachedTimestampStr && cachedPostsStr) {
+            const timestamp = parseInt(cachedTimestampStr);
+            const now = Date.now();
+            
+            // If cache is less than expiry time old, use it
+            if (now - timestamp < CACHE_EXPIRY_TIME) {
+              const cachedPosts = JSON.parse(cachedPostsStr);
+              setUserPosts(cachedPosts);
+              setPostsLoading(false);
+              console.log('Using cached posts data');
+              return;
+            }
+          }
+        } catch (cacheError) {
+          console.warn('Error reading from cache:', cacheError);
+          // Continue with network fetch if cache read fails
+        }
+      }
+      
+      // Cache miss or forced refresh - fetch from network
+      setPostsLoading(true);
+      const posts = await getPostsByUser(userId);
+      setUserPosts(posts);
+      
+      // Update cache
+      try {
+        await AsyncStorage.setItem(POSTS_CACHE_KEY, JSON.stringify(posts));
+        await AsyncStorage.setItem(POSTS_CACHE_TIMESTAMP_KEY, Date.now().toString());
+        console.log('Posts cache updated');
+      } catch (cacheError) {
+        console.warn('Error writing to cache:', cacheError);
+        // Non-critical error, we can continue without caching
+      }
+      
+      setPostsLoading(false);
+    } catch (error) {
+      console.error('Error fetching user posts:', error);
+      setPostsLoading(false);
+    }
+  }, []);
+
+  // Handle refresh with cache invalidation
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const user = auth().currentUser;
+      if (user) {
+        await Promise.all([
+          // Force refresh from network by passing true
+          fetchPosts(user.uid, true),
+          
+          // Fetch preferences from network and update cache
+          getUserPreferences(user.uid).then(async (prefs) => {
+            if (prefs) {
+              setPreferences(prefs);
+              setEditPreferencesData(prefs);
+              
+              try {
+                // Update preferences cache
+                await AsyncStorage.setItem(PREFERENCES_CACHE_KEY, JSON.stringify(prefs));
+                await AsyncStorage.setItem(PREFERENCES_CACHE_TIMESTAMP_KEY, Date.now().toString());
+                console.log('Preferences cache updated');
+              } catch (cacheError) {
+                console.warn('Error writing preferences to cache:', cacheError);
+              }
+            }
+          }),
+          
+          // Refresh follow counts
+          fetchFollowCounts(user.uid),
+          
+          // Check follow status (if viewing another user's profile)
+          profileUserId && user.uid !== profileUserId 
+            ? checkFollowStatus(user.uid, profileUserId) 
+            : Promise.resolve()
+        ]);
+      }
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    }
+    setRefreshing(false);
+  }, [fetchPosts, fetchFollowCounts, checkFollowStatus, profileUserId]);
+
+  // Helper function to fetch and cache user preferences
+  const fetchAndCachePreferences = useCallback(async (userId: string, forceRefresh = false) => {
+    if (!forceRefresh) {
+      try {
+        // Try to get preferences from cache
+        const cachedTimestampStr = await AsyncStorage.getItem(PREFERENCES_CACHE_TIMESTAMP_KEY);
+        const cachedPrefsStr = await AsyncStorage.getItem(PREFERENCES_CACHE_KEY);
+        
+        if (cachedTimestampStr && cachedPrefsStr) {
+          const timestamp = parseInt(cachedTimestampStr);
+          const now = Date.now();
+          
+          // If cache is less than expiry time old, use it
+          if (now - timestamp < CACHE_EXPIRY_TIME) {
+            const cachedPrefs = JSON.parse(cachedPrefsStr);
+            setPreferences(cachedPrefs);
+            setEditPreferencesData(cachedPrefs);
+            console.log('Using cached preferences data');
+            return;
+          }
+        }
+      } catch (cacheError) {
+        console.warn('Error reading preferences from cache:', cacheError);
+      }
+    }
+    
+    // Cache miss or forced refresh - fetch from network
+    try {
+      const userPrefs = await getUserPreferences(userId);
+      if (userPrefs) {
+        setPreferences(userPrefs);
+        setEditPreferencesData(userPrefs);
+        
+        // Update cache
+        try {
+          await AsyncStorage.setItem(PREFERENCES_CACHE_KEY, JSON.stringify(userPrefs));
+          await AsyncStorage.setItem(PREFERENCES_CACHE_TIMESTAMP_KEY, Date.now().toString());
+          console.log('Preferences cache updated');
+        } catch (cacheError) {
+          console.warn('Error writing preferences to cache:', cacheError);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching user preferences:', error);
+    }
+  }, []);
+
+  // Handle follow/unfollow action
+  const handleFollowAction = async () => {
+    try {
+      const currentUser = auth().currentUser;
+      if (!currentUser || !profileUserId) {
+        Alert.alert('Error', 'You need to be logged in to follow users');
+        return;
+      }
+
+      if (currentUser.uid === profileUserId) {
+        Alert.alert('Error', 'You cannot follow yourself');
+        return;
+      }
+
+      setIsFollowLoading(true);
+
+      if (isFollowing) {
+        // Unfollow the user
+        await unfollowUser(currentUser.uid, profileUserId);
+        setIsFollowing(false);
+        // Update follower count (optimistic update, will be refreshed on next fetch)
+        setFollowCounts(prev => ({ ...prev, followers: Math.max(0, prev.followers - 1) }));
+      } else {
+        // Follow the user
+        await followUser(currentUser.uid, profileUserId);
+        setIsFollowing(true);
+        // Update follower count (optimistic update, will be refreshed on next fetch)
+        setFollowCounts(prev => ({ ...prev, followers: prev.followers + 1 }));
+      }
+    } catch (error) {
+      console.error('Error handling follow action:', error);
+      Alert.alert('Error', error.message || 'Failed to update follow status');
+    } finally {
+      setIsFollowLoading(false);
+    }
+  };
+
+  // Check if current user follows the profile user
+  const checkFollowStatus = useCallback(async (currentUserId: string, profileId: string) => {
+    try {
+      if (currentUserId === profileId) {
+        // Don't check follow status if viewing own profile
+        return;
+      }
+      const following = await isUserFollowing(currentUserId, profileId);
+      setIsFollowing(following);
+    } catch (error) {
+      console.error('Error checking follow status:', error);
+    }
+  }, []);
+
+  // Fetch follow counts
+  const fetchFollowCounts = useCallback(async (userId: string) => {
+    try {
+      const counts = await getFollowCounts(userId);
+      setFollowCounts(counts);
+    } catch (error) {
+      console.error('Error fetching follow counts:', error);
+    }
+  }, []);
+
+  // Subscribe to user profile changes in Firestore with caching
   useEffect(() => {
     let profileUnsubscribe: (() => void) | undefined;
     
@@ -147,10 +373,32 @@ const UserProfileScreen: React.FC = () => {
         
         if (user) {
           console.log('Fetching profile for user:', user.uid);
+          setProfileUserId(user.uid); // Store the profile user ID
+          
+          // Try to get profile from cache first
+          try {
+            const cachedTimestampStr = await AsyncStorage.getItem(PROFILE_CACHE_TIMESTAMP_KEY);
+            const cachedProfileStr = await AsyncStorage.getItem(PROFILE_CACHE_KEY);
+            
+            if (cachedTimestampStr && cachedProfileStr) {
+              const timestamp = parseInt(cachedTimestampStr);
+              const now = Date.now();
+              
+              // If cache is less than expiry time old, use it
+              if (now - timestamp < CACHE_EXPIRY_TIME) {
+                const cachedProfile = JSON.parse(cachedProfileStr);
+                setProfile(cachedProfile);
+                setLoading(false);
+                console.log('Using cached profile data');
+              }
+            }
+          } catch (cacheError) {
+            console.warn('Error reading profile from cache:', cacheError);
+          }
           
           // Set up a real-time listener for the user's profile
           const userRef = doc(db, 'users', user.uid);
-          profileUnsubscribe = onSnapshot(userRef, (docSnap) => {
+          profileUnsubscribe = onSnapshot(userRef, async (docSnap) => {
             if (docSnap.exists()) {
               console.log('Profile found:', docSnap.id);
               const userData = docSnap.data() as UserProfile;
@@ -161,6 +409,15 @@ const UserProfileScreen: React.FC = () => {
               }
               
               setProfile(userData);
+              
+              // Update profile cache
+              try {
+                await AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(userData));
+                await AsyncStorage.setItem(PROFILE_CACHE_TIMESTAMP_KEY, Date.now().toString());
+                console.log('Profile cache updated');
+              } catch (cacheError) {
+                console.warn('Error writing profile to cache:', cacheError);
+              }
             } else {
               console.log('No profile found for user');
               setProfile(null);
@@ -171,11 +428,18 @@ const UserProfileScreen: React.FC = () => {
             setLoading(false);
           });
           
-          // Also fetch the user's preferences
-          const userPrefs = await getUserPreferences(user.uid);
-          if (userPrefs) {
-            setPreferences(userPrefs);
-            setEditPreferencesData(userPrefs);
+          // Fetch preferences with caching
+          await fetchAndCachePreferences(user.uid);
+          
+          // Fetch user posts with caching
+          await fetchPosts(user.uid);
+
+          // Fetch follow counts
+          await fetchFollowCounts(user.uid);
+
+          // Check if current user follows this profile (if viewing another user's profile)
+          if (user.uid !== profileUserId && profileUserId) {
+            await checkFollowStatus(user.uid, profileUserId);
           }
         } else {
           console.log('No user logged in');
@@ -197,6 +461,28 @@ const UserProfileScreen: React.FC = () => {
         profileUnsubscribe();
       }
     };
+  }, [fetchPosts, fetchAndCachePreferences, fetchFollowCounts, checkFollowStatus, profileUserId]);
+  
+  // Refresh data when the screen comes into focus, but use cache if available
+  useFocusEffect(
+    useCallback(() => {
+      const user = auth().currentUser;
+      if (user) {
+        // Use cached data by default (forceRefresh = false)
+        fetchPosts(user.uid, false);
+      }
+    }, [fetchPosts])
+  );
+  
+  // Function to clear cache when needed (like after creating a new post)
+  const clearPostsCache = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(POSTS_CACHE_KEY);
+      await AsyncStorage.removeItem(POSTS_CACHE_TIMESTAMP_KEY);
+      console.log('Posts cache cleared');
+    } catch (error) {
+      console.warn('Error clearing posts cache:', error);
+    }
   }, []);
 
   const openPreferencesModal = () => {
@@ -222,6 +508,16 @@ const UserProfileScreen: React.FC = () => {
     if (currentUser && editPreferencesData) {
       const userId = currentUser.uid;
       await setUserPreferences(userId, editPreferencesData);
+      
+      // Update cache with new preferences
+      try {
+        await AsyncStorage.setItem(PREFERENCES_CACHE_KEY, JSON.stringify(editPreferencesData));
+        await AsyncStorage.setItem(PREFERENCES_CACHE_TIMESTAMP_KEY, Date.now().toString());
+        console.log('Preferences cache updated after save');
+      } catch (cacheError) {
+        console.warn('Error updating preferences cache:', cacheError);
+      }
+      
       Alert.alert('Success', 'Your style preferences have been updated.', [
         { text: 'OK', onPress: () => setIsPreferencesModalVisible(false) }
       ]);
@@ -496,285 +792,462 @@ const UserProfileScreen: React.FC = () => {
                 
                 <View style={styles.statsRow}>
                   <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: textColor }]}>3</Text>
-                    <Text style={[styles.statLabel, { color: subTextColor }]}>Outfits</Text>
+                    <Text style={[styles.statValue, { color: textColor }]}>{userPosts.length}</Text>
+                    <Text style={[styles.statLabel, { color: subTextColor }]}>Posts</Text>
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: textColor }]}>74</Text>
+                    <Text style={[styles.statValue, { color: textColor }]}>{followCounts.following}</Text>
                     <Text style={[styles.statLabel, { color: subTextColor }]}>Following</Text>
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
-                    <Text style={[styles.statValue, { color: textColor }]}>128</Text>
+                    <Text style={[styles.statValue, { color: textColor }]}>{followCounts.followers}</Text>
                     <Text style={[styles.statLabel, { color: subTextColor }]}>Followers</Text>
                   </View>
                 </View>
+                
+                {/* Follow/Unfollow Button - Only shown when viewing another user's profile */}
+                {profileUserId && auth().currentUser && profileUserId !== auth().currentUser.uid && (
+                  <TouchableOpacity
+                    style={[
+                      styles.followButton,
+                      { 
+                        backgroundColor: isFollowing ? 'transparent' : mainColor,
+                        borderWidth: isFollowing ? 1 : 0,
+                        borderColor: mainColor
+                      }
+                    ]}
+                    onPress={handleFollowAction}
+                    disabled={isFollowLoading}
+                  >
+                    {isFollowLoading ? (
+                      <ActivityIndicator size="small" color={isFollowing ? mainColor : 'white'} />
+                    ) : (
+                      <Text style={[
+                        styles.followButtonText, 
+                        { color: isFollowing ? mainColor : 'white' }
+                      ]}>
+                        {isFollowing ? 'Unfollow' : 'Follow'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
             </Animated.View>
             
-            {/* Quick Actions */}
-            <View style={[styles.quickActions, { backgroundColor: cardBgColor }]}>
+            {/* Profile Tabs */}
+            <View style={[styles.tabsContainer, { backgroundColor: cardBgColor }]}>
               <TouchableOpacity 
-                style={styles.actionButton}
-                onPress={() => Alert.alert('Coming Soon', 'This feature will be available in a future update.')}
+                style={[
+                  styles.tab, 
+                  activeTab === 'posts' && [styles.activeTab, { borderBottomColor: mainColor }]
+                ]}
+                onPress={() => setActiveTab('posts')}
               >
-                <Icon name="add-circle-outline" size={22} color={mainColor} />
-                <Text style={[styles.actionText, { color: textColor }]}>New Outfit</Text>
+                <Icon 
+                  name="grid-outline" 
+                  size={22} 
+                  color={activeTab === 'posts' ? mainColor : subTextColor} 
+                />
+                <Text style={[
+                  styles.tabText, 
+                  { color: activeTab === 'posts' ? mainColor : subTextColor }
+                ]}>Posts</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={styles.actionButton}
-                onPress={openPreferencesModal}
+                style={[
+                  styles.tab, 
+                  activeTab === 'outfits' && [styles.activeTab, { borderBottomColor: mainColor }]
+                ]}
+                onPress={() => setActiveTab('outfits')}
               >
-                <Icon name="color-palette-outline" size={22} color={accentColor} />
-                <Text style={[styles.actionText, { color: textColor }]}>Style Preferences</Text>
+                <Icon 
+                  name="shirt-outline" 
+                  size={22} 
+                  color={activeTab === 'outfits' ? mainColor : subTextColor} 
+                />
+                <Text style={[
+                  styles.tabText, 
+                  { color: activeTab === 'outfits' ? mainColor : subTextColor }
+                ]}>Outfits</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={styles.actionButton}
-                onPress={async () => {
-                  await AsyncStorage.setItem('onboardingCompleted', 'false');
-                  Alert.alert(
-                    'Onboarding Reset',
-                    'Going to onboarding flow for testing.',
-                    [
-                      { 
-                        text: 'Go Now', 
-                        onPress: () => navigation.reset({
-                          index: 0,
-                          routes: [{ name: 'Onboarding' as never }]
-                        }) 
-                      }
-                    ]
-                  );
-                }}
+                style={[
+                  styles.tab, 
+                  activeTab === 'styles' && [styles.activeTab, { borderBottomColor: mainColor }]
+                ]}
+                onPress={() => setActiveTab('styles')}
               >
-                <Icon name="reload-outline" size={22} color="#FF9500" />
-                <Text style={[styles.actionText, { color: textColor }]}>Test Onboarding</Text>
+                <Icon 
+                  name="color-palette-outline" 
+                  size={22} 
+                  color={activeTab === 'styles' ? mainColor : subTextColor} 
+                />
+                <Text style={[
+                  styles.tabText, 
+                  { color: activeTab === 'styles' ? mainColor : subTextColor }
+                ]}>Style</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
                 style={styles.actionButton}
                 onPress={navigateToSettings}
               >
-                <Icon name="settings-outline" size={22} color={secondaryColor} />
-                <Text style={[styles.actionText, { color: textColor }]}>Profile Settings</Text>
+                <Icon name="settings-outline" size={22} color={subTextColor} />
               </TouchableOpacity>
             </View>
             
-            {/* Style Boards Section */}
-            <View style={styles.sectionContainer}>
-              <View style={styles.sectionHeader}>
-                <Text style={[styles.sectionTitle, { color: textColor }]}>Style Inspiration</Text>
-                <TouchableOpacity>
-                  <Text style={[styles.sectionAction, { color: mainColor }]}>See All</Text>
-                </TouchableOpacity>
-              </View>
-              
-              <FlatList
-                data={STYLE_BOARDS}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.styleBoards}
-                renderItem={({ item }) => (
-                  <TouchableOpacity 
-                    style={[
-                      styles.styleBoard, 
-                      { 
-                        backgroundColor: cardBgColor,
-                        shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)' 
-                      }
-                    ]}
-                    onPress={() => viewStyleBoard(item.id)}
-                  >
-                    <Image source={{ uri: item.image }} style={styles.styleBoardImage} />
-                    <View style={styles.styleBoardBody}>
-                      <Text style={[styles.styleBoardTitle, { color: textColor }]}>{item.title}</Text>
-                      <Text style={[styles.styleBoardCardDescription, { color: subTextColor }]} numberOfLines={1}>
-                        {item.description}
-                      </Text>
-                      <View style={styles.styleBoardMeta}>
-                        <View style={styles.styleBoardItems}>
-                          <Icon name="shirt-outline" size={14} color={subTextColor} />
-                          <Text style={[styles.styleBoardItemCount, { color: subTextColor }]}>
-                            {item.items} items
-                          </Text>
+            {/* Posts Grid */}
+            {activeTab === 'posts' && (
+              <View style={styles.sectionContainer}>
+                {postsLoading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color={mainColor} />
+                    <Text style={[styles.loadingText, { color: subTextColor }]}>Loading posts...</Text>
+                  </View>
+                ) : userPosts.length > 0 ? (
+                  <FlatList
+                    data={userPosts}
+                    numColumns={3}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity 
+                        style={styles.postCard}
+                        onPress={() => {
+                          setSelectedPost(item);
+                          setIsPostModalVisible(true);
+                        }}
+                      >
+                        <Image 
+                          source={{ uri: item.imageUrl || 'https://via.placeholder.com/150' }}
+                          style={styles.postImage} 
+                          resizeMode="cover"
+                        />
+                        <View style={styles.postOverlay}>
+                          <View style={styles.postStats}>
+                            <View style={styles.postStat}>
+                              <Icon name="heart" size={12} color="#FFFFFF" />
+                              <Text style={styles.postStatText}>{item.likes || 0}</Text>
+                            </View>
+                            <View style={styles.postStat}>
+                              <Icon name="chatbubble" size={12} color="#FFFFFF" />
+                              <Text style={styles.postStatText}>{item.comments || 0}</Text>
+                            </View>
+                          </View>
                         </View>
-                        <Icon name="chevron-forward" size={16} color={mainColor} />
-                      </View>
-                    </View>
-                  </TouchableOpacity>
+                      </TouchableOpacity>
+                    )}
+                    keyExtractor={(item) => item.id}
+                    contentContainerStyle={styles.postsGrid}
+                    refreshControl={
+                      <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        tintColor={mainColor}
+                        colors={[mainColor]}
+                      />
+                    }
+                  />
+                ) : (
+                  <View style={styles.emptyPostsContainer}>
+                    <Icon name="images-outline" size={60} color={subTextColor} style={{ opacity: 0.5 }} />
+                    <Text style={[styles.emptyPostsText, { color: textColor }]}>
+                      No Posts Yet
+                    </Text>
+                    <Text style={[styles.emptyPostsSubText, { color: subTextColor }]}>
+                      Share your style by creating your first post
+                    </Text>
+                    <TouchableOpacity 
+                      style={[styles.createPostButton, { backgroundColor: mainColor }]}
+                      onPress={() => navigation.navigate('CreatePostScreen' as never)}
+                    >
+                      <Text style={styles.createPostButtonText}>Create Post</Text>
+                      <Icon name="add-circle" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                    </TouchableOpacity>
+                  </View>
                 )}
-                keyExtractor={item => item.id}
-              />
-            </View>
-            
-            {/* Style Preferences Preview */}
-            <View style={[styles.preferencesPreview, { backgroundColor: cardBgColor }]}>
-              <View style={styles.preferencesHeader}>
-                <View>
-                  <Text style={[styles.preferencesTitle, { color: textColor }]}>
-                    Style Preferences
-                  </Text>
-                  <Text style={[styles.preferencesSubtitle, { color: subTextColor }]}>
-                    Your personal style profile
-                  </Text>
-                </View>
-                <TouchableOpacity 
-                  style={[styles.editButton, { backgroundColor: mainColor }]}
-                  onPress={openPreferencesModal}
-                >
-                  <Text style={[styles.editButtonText, { color: '#FFFFFF' }]}>Edit</Text>
-                </TouchableOpacity>
               </View>
-              
-              {preferences ? (
-                <View style={styles.preferencesBody}>
-                  {/* Style Tags */}
-                  <View style={styles.preferenceSection}>
-                    <Text style={[styles.preferenceType, { color: subTextColor }]}>Style Aesthetic</Text>
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.tagsScrollView}
+            )}
+            
+            {/* Outfits Tab */}
+            {activeTab === 'outfits' && (
+              <View style={styles.sectionContainer}>
+                <View style={styles.outfitsGrid}>
+                  {USER_OUTFITS.map((outfit, index) => (
+                    <TouchableOpacity 
+                      key={outfit.id}
+                      style={[
+                        styles.outfitCard, 
+                        { 
+                          backgroundColor: cardBgColor,
+                          shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)' 
+                        }
+                      ]}
                     >
-                      {preferences.preferredStyles && preferences.preferredStyles.length > 0 ? (
-                        preferences.preferredStyles.map((style, index) => (
-                          <View 
-                            key={index}
-                            style={[
-                              styles.styleTag,
-                              { 
-                                backgroundColor: isDarkMode ? 'rgba(10, 132, 255, 0.2)' : 'rgba(0, 122, 255, 0.1)',
-                                borderColor: isDarkMode ? 'rgba(10, 132, 255, 0.3)' : 'rgba(0, 122, 255, 0.2)'
-                              }
-                            ]}
-                          >
-                            <Text style={[styles.styleTagText, { color: mainColor }]}>{style}</Text>
+                      <Image source={{ uri: outfit.image }} style={styles.outfitImage} />
+                      <View style={styles.outfitOverlay}>
+                        <View style={styles.outfitDetails}>
+                          <Text style={styles.outfitTitle}>{outfit.title}</Text>
+                          <View style={styles.likesContainer}>
+                            <Icon name="heart" size={14} color="#FFFFFF" />
+                            <Text style={styles.likesCount}>{outfit.likes}</Text>
                           </View>
-                        ))
-                      ) : (
-                        <Text style={[styles.emptyPreference, { color: subTextColor }]}>
-                          No style preferences set
-                        </Text>
-                      )}
-                    </ScrollView>
-                  </View>
-                  
-                  {/* Brands */}
-                  <View style={styles.preferenceSection}>
-                    <Text style={[styles.preferenceType, { color: subTextColor }]}>Favorite Brands</Text>
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.tagsScrollView}
-                    >
-                      {preferences.preferredBrands && preferences.preferredBrands.length > 0 ? (
-                        preferences.preferredBrands.map((brand, index) => (
-                          <View 
-                            key={index}
-                            style={[
-                              styles.styleTag,
-                              { 
-                                backgroundColor: isDarkMode ? 'rgba(255, 159, 10, 0.2)' : 'rgba(255, 149, 0, 0.1)',
-                                borderColor: isDarkMode ? 'rgba(255, 159, 10, 0.3)' : 'rgba(255, 149, 0, 0.2)'
-                              }
-                            ]}
-                          >
-                            <Text style={[styles.styleTagText, { color: accentColor }]}>{brand}</Text>
-                          </View>
-                        ))
-                      ) : (
-                        <Text style={[styles.emptyPreference, { color: subTextColor }]}>
-                          No brand preferences set
-                        </Text>
-                      )}
-                    </ScrollView>
-                  </View>
-                  
-                  {/* Colors */}
-                  <View style={styles.preferenceSection}>
-                    <Text style={[styles.preferenceType, { color: subTextColor }]}>Color Palette</Text>
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.tagsScrollView}
-                    >
-                      {preferences.colorPreferences && preferences.colorPreferences.length > 0 ? (
-                        preferences.colorPreferences.map((color, index) => (
-                          <View 
-                            key={index}
-                            style={[
-                              styles.styleTag,
-                              { 
-                                backgroundColor: isDarkMode ? 'rgba(100, 210, 255, 0.2)' : 'rgba(90, 200, 250, 0.1)',
-                                borderColor: isDarkMode ? 'rgba(100, 210, 255, 0.3)' : 'rgba(90, 200, 250, 0.2)'
-                              }
-                            ]}
-                          >
-                            <Text style={[styles.styleTagText, { color: secondaryColor }]}>{color}</Text>
-                          </View>
-                        ))
-                      ) : (
-                        <Text style={[styles.emptyPreference, { color: subTextColor }]}>
-                          No color preferences set
-                        </Text>
-                      )}
-                    </ScrollView>
-                  </View>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-              ) : (
-                <View style={styles.noPreferencesContainer}>
-                  <Icon name="color-palette-outline" size={40} color={isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'} />
-                  <Text style={[styles.noPreferencesText, { color: subTextColor }]}>
-                    Set your style preferences to get personalized fashion recommendations
-                  </Text>
+              </View>
+            )}
+            
+            {/* Style Tab */}
+            {activeTab === 'styles' && (
+              <View style={[styles.preferencesPreview, { backgroundColor: cardBgColor, marginTop: 0 }]}>
+                <View style={styles.preferencesHeader}>
+                  <View>
+                    <Text style={[styles.preferencesTitle, { color: textColor }]}>
+                      Style Preferences
+                    </Text>
+                    <Text style={[styles.preferencesSubtitle, { color: subTextColor }]}>
+                      Your personal style profile
+                    </Text>
+                  </View>
                   <TouchableOpacity 
-                    style={[styles.setPreferencesButton, { backgroundColor: mainColor }]}
+                    style={[styles.editButton, { backgroundColor: mainColor }]}
                     onPress={openPreferencesModal}
                   >
-                    <Text style={styles.setPreferencesButtonText}>Set Preferences</Text>
+                    <Text style={[styles.editButtonText, { color: '#FFFFFF' }]}>Edit</Text>
                   </TouchableOpacity>
                 </View>
-              )}
-            </View>
-            
-            {/* User Outfits */}
-            <View style={styles.sectionContainer}>
-              <View style={styles.sectionHeader}>
-                <Text style={[styles.sectionTitle, { color: textColor }]}>My Outfits</Text>
-                <TouchableOpacity>
-                  <Text style={[styles.sectionAction, { color: mainColor }]}>See All</Text>
-                </TouchableOpacity>
+                
+                {preferences ? (
+                  <View style={styles.preferencesBody}>
+                    {/* Style Tags */}
+                    <View style={styles.preferenceSection}>
+                      <Text style={[styles.preferenceType, { color: subTextColor }]}>Style Aesthetic</Text>
+                      <ScrollView 
+                        horizontal 
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.tagsScrollView}
+                      >
+                        {preferences.preferredStyles && preferences.preferredStyles.length > 0 ? (
+                          preferences.preferredStyles.map((style, index) => (
+                            <View 
+                              key={index}
+                              style={[
+                                styles.styleTag,
+                                { 
+                                  backgroundColor: isDarkMode ? 'rgba(255, 72, 112, 0.2)' : 'rgba(239, 61, 71, 0.1)',
+                                  borderColor: isDarkMode ? 'rgba(255, 72, 112, 0.3)' : 'rgba(239, 61, 71, 0.2)'
+                                }
+                              ]}
+                            >
+                              <Text style={[styles.styleTagText, { color: mainColor }]}>{style}</Text>
+                            </View>
+                          ))
+                        ) : (
+                          <Text style={[styles.emptyPreference, { color: subTextColor }]}>
+                            No style preferences set
+                          </Text>
+                        )}
+                      </ScrollView>
+                    </View>
+                    
+                    {/* Brands */}
+                    <View style={styles.preferenceSection}>
+                      <Text style={[styles.preferenceType, { color: subTextColor }]}>Favorite Brands</Text>
+                      <ScrollView 
+                        horizontal 
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.tagsScrollView}
+                      >
+                        {preferences.preferredBrands && preferences.preferredBrands.length > 0 ? (
+                          preferences.preferredBrands.map((brand, index) => (
+                            <View 
+                              key={index}
+                              style={[
+                                styles.styleTag,
+                                { 
+                                  backgroundColor: isDarkMode ? 'rgba(255, 109, 142, 0.2)' : 'rgba(255, 59, 92, 0.1)',
+                                  borderColor: isDarkMode ? 'rgba(255, 109, 142, 0.3)' : 'rgba(255, 59, 92, 0.2)'
+                                }
+                              ]}
+                            >
+                              <Text style={[styles.styleTagText, { color: secondaryColor }]}>{brand}</Text>
+                            </View>
+                          ))
+                        ) : (
+                          <Text style={[styles.emptyPreference, { color: subTextColor }]}>
+                            No brand preferences set
+                          </Text>
+                        )}
+                      </ScrollView>
+                    </View>
+                    
+                    {/* Style Boards Section */}
+                    <View style={styles.preferenceSection}>
+                      <Text style={[styles.preferenceType, { color: subTextColor }]}>Style Inspiration</Text>
+                      <FlatList
+                        data={STYLE_BOARDS}
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={[styles.styleBoards, { paddingLeft: 0 }]}
+                        renderItem={({ item }) => (
+                          <TouchableOpacity 
+                            style={[
+                              styles.styleBoard, 
+                              { 
+                                backgroundColor: cardBgColor,
+                                shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)',
+                                width: width * 0.6,
+                              }
+                            ]}
+                            onPress={() => viewStyleBoard(item.id)}
+                          >
+                            <Image source={{ uri: item.image }} style={styles.styleBoardImage} />
+                            <View style={styles.styleBoardBody}>
+                              <Text style={[styles.styleBoardTitle, { color: textColor }]}>{item.title}</Text>
+                              <Text style={[styles.styleBoardCardDescription, { color: subTextColor }]} numberOfLines={1}>
+                                {item.description}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                        keyExtractor={item => item.id}
+                      />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.noPreferencesContainer}>
+                    <Icon name="color-palette-outline" size={40} color={isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'} />
+                    <Text style={[styles.noPreferencesText, { color: subTextColor }]}>
+                      Set your style preferences to get personalized fashion recommendations
+                    </Text>
+                    <TouchableOpacity 
+                      style={[styles.setPreferencesButton, { backgroundColor: mainColor }]}
+                      onPress={openPreferencesModal}
+                    >
+                      <Text style={styles.setPreferencesButtonText}>Set Preferences</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
-              
-              <View style={styles.outfitsGrid}>
-                {USER_OUTFITS.map((outfit, index) => (
-                  <TouchableOpacity 
-                    key={outfit.id}
-                    style={[
-                      styles.outfitCard, 
-                      { 
-                        backgroundColor: cardBgColor,
-                        shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)' 
-                      }
-                    ]}
-                  >
-                    <Image source={{ uri: outfit.image }} style={styles.outfitImage} />
-                    <View style={styles.outfitOverlay}>
-                      <View style={styles.outfitDetails}>
-                        <Text style={styles.outfitTitle}>{outfit.title}</Text>
-                        <View style={styles.likesContainer}>
-                          <Icon name="heart" size={14} color="#FFFFFF" />
-                          <Text style={styles.likesCount}>{outfit.likes}</Text>
+            )}
+            
+            {/* Post Detail Modal */}
+            <Modal
+              animationType="slide"
+              transparent={true}
+              visible={isPostModalVisible}
+              onRequestClose={() => setIsPostModalVisible(false)}
+            >
+              <SafeAreaView style={[styles.postModalContainer, { backgroundColor: bgColor }]}>
+                <View style={[styles.postModalHeader, { borderBottomColor: borderColor }]}>
+                  <TouchableOpacity onPress={() => setIsPostModalVisible(false)}>
+                    <Icon name="chevron-back" size={24} color={mainColor} />
+                  </TouchableOpacity>
+                  <Text style={[styles.postModalTitle, { color: textColor }]}>Post</Text>
+                  <TouchableOpacity>
+                    <Icon name="ellipsis-horizontal" size={24} color={mainColor} />
+                  </TouchableOpacity>
+                </View>
+                
+                <ScrollView style={styles.postModalContent}>
+                  {selectedPost && (
+                    <View>
+                      <Image 
+                        source={{ uri: selectedPost.imageUrl || 'https://via.placeholder.com/400' }}
+                        style={styles.postModalImage}
+                      />
+                      
+                      <View style={styles.postModalDetails}>
+                        <View style={styles.postModalUser}>
+                          <Image 
+                            source={{ uri: selectedPost.userAvatar || 'https://via.placeholder.com/30' }}
+                            style={styles.postModalAvatar}
+                          />
+                          <View>
+                            <Text style={[styles.postModalUsername, { color: textColor }]}>
+                              {selectedPost.username || 'User'}
+                            </Text>
+                            <Text style={[styles.postModalTime, { color: subTextColor }]}>
+                              {selectedPost.createdAt ? new Date(selectedPost.createdAt.seconds * 1000).toLocaleDateString() : 'Recently'}
+                            </Text>
+                          </View>
                         </View>
+                        
+                        <Text style={[styles.postModalCaption, { color: textColor }]}>
+                          {selectedPost.caption || ''}
+                        </Text>
+                        
+                        {selectedPost.tags && selectedPost.tags.length > 0 && (
+                          <View style={styles.postModalTags}>
+                            {selectedPost.tags.map((tag, index) => (
+                              <View 
+                                key={index}
+                                style={[styles.postModalTag, { backgroundColor: surfaceColor }]}
+                              >
+                                <Text style={[styles.postModalTagText, { color: mainColor }]}>
+                                  #{tag}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                        
+                        <View style={[styles.postModalStats, { borderTopColor: borderColor, borderBottomColor: borderColor }]}>
+                          <View style={styles.postModalStat}>
+                            <Icon name="heart" size={16} color={mainColor} />
+                            <Text style={[styles.postModalStatText, { color: textColor }]}>
+                              {selectedPost.likes || 0} likes
+                            </Text>
+                          </View>
+                          <View style={styles.postModalStat}>
+                            <Icon name="chatbubble" size={16} color={mainColor} />
+                            <Text style={[styles.postModalStatText, { color: textColor }]}>
+                              {selectedPost.comments || 0} comments
+                            </Text>
+                          </View>
+                        </View>
+                        
+                        {selectedPost.outfitItems && selectedPost.outfitItems.length > 0 && (
+                          <View style={styles.postModalOutfitItems}>
+                            <Text style={[styles.postModalOutfitTitle, { color: textColor }]}>
+                              Featured Pieces
+                            </Text>
+                            {selectedPost.outfitItems.map((item, index) => (
+                              <View 
+                                key={index}
+                                style={[styles.postModalOutfitItem, { borderBottomColor: borderColor }]}
+                              >
+                                <View>
+                                  <Text style={[styles.postModalOutfitItemName, { color: textColor }]}>
+                                    {item.name}
+                                  </Text>
+                                  <Text style={[styles.postModalOutfitItemBrand, { color: subTextColor }]}>
+                                    {item.brand}
+                                  </Text>
+                                </View>
+                                {item.link && (
+                                  <TouchableOpacity 
+                                    style={[styles.postModalOutfitItemLink, { backgroundColor: mainColor }]}
+                                    onPress={() => Linking.openURL(item.link!)}
+                                  >
+                                    <Icon name="link" size={14} color="#FFFFFF" />
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                            ))}
+                          </View>
+                        )}
                       </View>
                     </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
+                  )}
+                </ScrollView>
+              </SafeAreaView>
+            </Modal>
             
             {/* Account Controls */}
             <View style={[styles.accountControls, { backgroundColor: cardBgColor }]}>
@@ -1034,6 +1507,227 @@ const UserProfileScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
+  // Tab styles
+  tabsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginHorizontal: 16,
+    borderRadius: 16,
+    marginTop: -20,
+    marginBottom: 20,
+    paddingVertical: 18,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  tab: {
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+  },
+  tabText: {
+    ...defaultTextStyle,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  // Posts styles
+  postsGrid: {
+    paddingHorizontal: 12,
+  },
+  postCard: {
+    width: (width - 48) / 3,
+    height: (width - 48) / 3,
+    borderRadius: 8,
+    margin: 4,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  postImage: {
+    width: '100%',
+    height: '100%',
+  },
+  postOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    justifyContent: 'flex-end',
+    opacity: 0,
+  },
+  postStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 6,
+  },
+  postStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  postStatText: {
+    ...defaultTextStyle,
+    fontSize: 11,
+    color: '#FFFFFF',
+    marginLeft: 3,
+  },
+  emptyPostsContainer: {
+    paddingVertical: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyPostsText: {
+    ...defaultTextStyle,
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  emptyPostsSubText: {
+    ...defaultTextStyle,
+    fontSize: 15,
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 24,
+    paddingHorizontal: 40,
+  },
+  createPostButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  createPostButtonText: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  // Post modal
+  postModalContainer: {
+    flex: 1,
+  },
+  postModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  postModalTitle: {
+    ...defaultTextStyle,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  postModalContent: {
+    flex: 1,
+  },
+  postModalImage: {
+    width: '100%',
+    height: width,
+    resizeMode: 'cover',
+  },
+  postModalDetails: {
+    padding: 16,
+  },
+  postModalUser: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  postModalAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  postModalUsername: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  postModalTime: {
+    ...defaultTextStyle,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  postModalCaption: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  postModalTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  postModalTag: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  postModalTagText: {
+    ...defaultTextStyle,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  postModalStats: {
+    flexDirection: 'row',
+    paddingVertical: 16,
+    marginBottom: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  postModalStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 24,
+  },
+  postModalStatText: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    marginLeft: 6,
+  },
+  postModalOutfitItems: {
+    marginTop: 8,
+  },
+  postModalOutfitTitle: {
+    ...defaultTextStyle,
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  postModalOutfitItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  postModalOutfitItemName: {
+    ...defaultTextStyle,
+    fontSize: 15,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  postModalOutfitItemBrand: {
+    ...defaultTextStyle,
+    fontSize: 13,
+  },
+  postModalOutfitItemLink: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   container: {
     flex: 1,
   },
@@ -1154,6 +1848,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     width: '80%',
+    marginBottom: 16,
+  },
+  followButton: {
+    paddingHorizontal: 40,
+    paddingVertical: 10,
+    borderRadius: 50,
+    marginBottom: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 140,
+  },
+  followButtonText: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    fontWeight: '600',
   },
   statItem: {
     alignItems: 'center',

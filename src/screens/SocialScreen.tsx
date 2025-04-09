@@ -459,7 +459,26 @@ const SocialScreen: React.FC = () => {
         <View style={styles.inspirationHeader}>
           {/* User info with profile picture */}
           <View style={styles.userInfoContainer}>
-            <TouchableOpacity activeOpacity={0.8}>
+            <TouchableOpacity 
+              activeOpacity={0.8}
+              onPress={() => {
+                // Generate a user ID for the hardcoded user
+                const userId = `user_${item.id}`;
+                
+                // Get username based on post ID
+                const username = item.id === '1' ? 'grace_style' : 
+                  item.id === '2' ? 'fashion_guru' : 
+                  item.id === '3' ? 'trend_watcher' : 
+                  item.id === '4' ? 'clothescritic' : 
+                  item.id === '5' ? 'runway_fan' : 'style_seeker';
+                
+                // Navigate to user detail screen
+                navigation.navigate('UserDetailScreen', { 
+                  userId, 
+                  username 
+                });
+              }}
+            >
               <Image 
                 source={{ uri: `https://i.pravatar.cc/150?u=${item.id}` }} 
                 style={[
@@ -471,7 +490,26 @@ const SocialScreen: React.FC = () => {
               />
             </TouchableOpacity>
             <View style={styles.userTextInfo}>
-              <TouchableOpacity activeOpacity={0.8}>
+              <TouchableOpacity 
+                activeOpacity={0.8} 
+                onPress={() => {
+                  // Generate a user ID for the hardcoded user
+                  const userId = `user_${item.id}`;
+                  
+                  // Get username based on post ID
+                  const username = item.id === '1' ? 'grace_style' : 
+                    item.id === '2' ? 'fashion_guru' : 
+                    item.id === '3' ? 'trend_watcher' : 
+                    item.id === '4' ? 'clothescritic' : 
+                    item.id === '5' ? 'runway_fan' : 'style_seeker';
+                  
+                  // Navigate to user detail screen
+                  navigation.navigate('UserDetailScreen', { 
+                    userId, 
+                    username 
+                  });
+                }}
+              >
                 <View style={styles.usernameContainer}>
                   <Text style={[styles.username, { color: textColor }]}>
                     {item.id === '1' ? 'grace_style' : 
@@ -798,9 +836,23 @@ const SocialScreen: React.FC = () => {
                     ]}
                   >
                     <View style={styles.commentHeader}>
-                      <Text style={[styles.commentUsername, { color: textColor }]}>
-                        {comment.username}
-                      </Text>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          // Generate a user ID for the comment user
+                          const userId = `comment_user_${comment.id}`;
+                          
+                          // Navigate to user detail screen
+                          navigation.navigate('UserDetailScreen', { 
+                            userId, 
+                            username: comment.username 
+                          });
+                        }}
+                      >
+                        <Text style={[styles.commentUsername, { color: textColor }]}>
+                          {comment.username}
+                        </Text>
+                      </TouchableOpacity>
                       <Text style={[styles.commentTime, { color: subTextColor }]}>
                         {comment.timeAgo}
                       </Text>
