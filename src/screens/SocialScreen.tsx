@@ -19,16 +19,29 @@ import {
   Platform,
   UIManager,
   PanResponder,
+  Linking,
+  Alert,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
 
 import { auth } from '../Config/firebaseconfig';
 import { Timestamp } from 'firebase/firestore';
-import { followUser, unfollowUser } from '../services/followService';
+import { followUser, unfollowUser, isUserFollowing } from '../services/followService';
 import { isRealUserId } from '../utils/userUtils';
+import { toggleLikePost, hasUserLikedPost } from '../services/likeService';
+import { toggleSavePost, hasUserSavedPost } from '../services/saveService';
+import { addComment, getCommentsByPost, deleteComment, likeComment, Comment as CommentType } from '../services/commentService';
+import { 
+  getConversations, 
+  ConversationWithDetails, 
+  sendMessage, 
+  markConversationAsRead 
+} from '../services/messageService';
 
 // Add global setTimeout type declaration
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -54,6 +67,8 @@ import { getCachedFeedPosts, Post } from '../services/postService';
 import { getUserProfile, UserProfile } from '../services/firestoreService';
 import { formatDistanceToNow } from 'date-fns';
 
+import { OutfitItem } from '../services/postService';
+
 // Add type definition for fashion post (enhanced post with UI properties)
 interface FashionPost {
   id: string;
@@ -65,10 +80,7 @@ interface FashionPost {
   aesthetic?: string;
   caption: string;
   tags: string[];
-  outfitItems?: Array<{
-    name: string;
-    brand: string;
-  }>;
+  outfitItems: OutfitItem[];
   publishedDate: string;
   comments: Array<{
     id: string;
@@ -76,6 +88,9 @@ interface FashionPost {
     text: string;
     timeAgo: string;
     likes: number;
+    userId?: string;
+    userAvatar?: string;
+    createdAt?: any;
   }>;
   commentCount: number;
   upvotes: number;
@@ -131,8 +146,16 @@ const swipeThreshold = width * 0.3; // 30% of screen width
 
 type SocialScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+// Define type for route params
+type SocialScreenParams = {
+  showMessages?: boolean;
+  messageUserId?: string;
+  messageUsername?: string;
+};
+
 const SocialScreen: React.FC = () => {
   const navigation = useNavigation<SocialScreenNavigationProp>();
+  const route = useRoute<RouteProp<Record<string, SocialScreenParams>, string>>();
   const { isDarkMode } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [refreshing, setRefreshing] = useState(false);
@@ -146,6 +169,15 @@ const SocialScreen: React.FC = () => {
   const [firebasePosts, setFirebasePosts] = useState<Post[]>([]);
   const [fashionPosts, setFashionPosts] = useState<FashionPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [commentsText, setCommentsText] = useState<Record<string, string>>({});
+  const [isAddingComment, setIsAddingComment] = useState<string | null>(null); // Track which post is adding a comment
+  
+  // Messaging state
+  const [conversations, setConversations] = useState<ConversationWithDetails[]>([]);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const [selectedConversation, setSelectedConversation] = useState<ConversationWithDetails | null>(null);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
   
   // Use individual animation values for simplicity
   const [commentHeights] = useState<Record<string, number>>({});
@@ -191,14 +223,75 @@ const SocialScreen: React.FC = () => {
         
         // Generate random values for UI elements that don't exist in the database yet
         const aesthetic = STYLE_AESTHETICS[Math.floor(Math.random() * STYLE_AESTHETICS.length)];
-        const upvotes = post.likes || Math.floor(Math.random() * 500) + 100;
-        const saves = Math.floor(Math.random() * 200) + 50;
-        const isSaved = Math.random() > 0.5;
-        const isUpvoted = Math.random() > 0.6;
-        const isFollowing = Math.random() > 0.6; // Randomly set following status for UI testing
+        // Real data for likes and saves
+        const upvotes = post.likes || 0;
+        const saves = Math.floor(Math.random() * 200) + 50; // In the future, we'd count the actual saves
         
-        // Generate comments if none exist
-        const comments = generateSampleComments(post.id);
+        // Check if current user has liked or saved the post
+        let isSaved = false;
+        let isUpvoted = false;
+        let isFollowing = false;
+        const currentUser = auth().currentUser;
+        
+        if (currentUser && post.id) {
+          try {
+            // Get real like status
+            isUpvoted = await hasUserLikedPost(currentUser.uid, post.id);
+            console.log(`🔍 User ${currentUser.uid} liked post ${post.id}? ${isUpvoted}`);
+            
+            // Get real save status
+            isSaved = await hasUserSavedPost(currentUser.uid, post.id);
+            console.log(`🔍 User ${currentUser.uid} saved post ${post.id}? ${isSaved}`);
+          } catch (err) {
+            console.error('Error checking post interaction status:', err);
+            // Default to not liked/saved on error
+            isSaved = false;
+            isUpvoted = false;
+          }
+        } else {
+          // Use random values for demo/testing
+          isSaved = Math.random() > 0.5;
+          isUpvoted = Math.random() > 0.6;
+        }
+        
+        // Check actual follow status if we have a valid user ID
+        if (currentUser && post.userId && isRealUserId(post.userId)) {
+          try {
+            isFollowing = await isUserFollowing(currentUser.uid, post.userId);
+            console.log(`👤 User ${currentUser.uid} following ${post.userId}? ${isFollowing}`);
+          } catch (err) {
+            console.error('Error checking follow status:', err);
+            // Default to not following on error
+            isFollowing = false;
+          }
+        } else {
+          // Use random for demo/test users
+          isFollowing = Math.random() > 0.6;
+        }
+        
+        // Initialize with empty comments array - we'll only use generated comments for mock posts
+        let comments = [];
+        let commentCount = 0;
+        
+        // For real posts, check the actual comment count
+        if (isRealUserId(post.userId) && !post.id.includes('mock')) {
+          try {
+            // Check real comment count by counting them in Firestore
+            const realComments = await getCommentsByPost(post.id);
+            commentCount = realComments.length;
+            console.log(`Real comment count for post ${post.id}: ${commentCount}`);
+            
+            // Only use generated sample comments for demo posts
+            comments = []; // Real comments will be loaded when opening the comments section
+          } catch (err) {
+            console.error('Error checking comment count:', err);
+            commentCount = post.comments || 0; // Fall back to the post's comment count field
+          }
+        } else {
+          // Generate fake comments for demo posts
+          comments = generateSampleComments(post.id);
+          commentCount = comments.length;
+        }
         
         // Convert tags array to include hashtags if they don't have them
         const formattedTags = (post.tags || []).map(tag => 
@@ -218,15 +311,38 @@ const SocialScreen: React.FC = () => {
           title = title.substring(0, 30) + '...';
         }
         
-        // Create sample outfit items if none exist
-        const outfitItems = post.outfitItems && post.outfitItems.length > 0 ? 
-          post.outfitItems : 
-          [
-            {name: 'Oversized Shirt', brand: 'COS'},
-            {name: 'Slim Trousers', brand: 'Uniqlo'},
-            {name: 'Minimal Sneakers', brand: 'Common Projects'},
-            {name: 'Classic Watch', brand: 'Timex'}
+        // Use real outfit items if available, otherwise only generate for mock posts
+        let outfitItems = post.outfitItems || [];
+        
+        // Only generate sample outfit items for mock posts
+        if (outfitItems.length === 0 && (!isRealUserId(post.userId) || post.id.includes('mock'))) {
+          outfitItems = [
+            {
+              name: 'Oversized Shirt', 
+              brand: 'COS',
+              type: 'shirt',
+              affiliateLink: Math.random() > 0.5 ? 'https://www.cos.com' : undefined
+            },
+            {
+              name: 'Slim Trousers', 
+              brand: 'Uniqlo',
+              type: 'pants',
+              affiliateLink: Math.random() > 0.5 ? 'https://www.uniqlo.com' : undefined
+            },
+            {
+              name: 'Minimal Sneakers', 
+              brand: 'Common Projects',
+              type: 'shoes',
+              affiliateLink: Math.random() > 0.5 ? 'https://www.mrporter.com' : undefined
+            },
+            {
+              name: 'Classic Watch', 
+              brand: 'Timex',
+              type: 'accessory',
+              affiliateLink: Math.random() > 0.5 ? 'https://www.timex.com' : undefined
+            }
           ];
+        }
           
         return {
           ...post,
@@ -237,7 +353,7 @@ const SocialScreen: React.FC = () => {
           publishedDate,
           outfitItems,
           comments,
-          commentCount: comments.length,
+          commentCount,
           upvotes,
           saves,
           isSaved,
@@ -256,11 +372,105 @@ const SocialScreen: React.FC = () => {
     }
   };
 
+  // Check for navigation params to open messages
+  useEffect(() => {
+    const routeParams = route?.params;
+    
+    // Handle the navigation from UserDetailScreen
+    if (routeParams?.showMessages) {
+      console.log('Detected route params to show messages:', routeParams);
+      
+      // Make sure user is logged in
+      const currentUser = auth().currentUser;
+      if (!currentUser) {
+        Alert.alert('Sign In Required', 'You need to be signed in to view messages');
+        return;
+      }
+      
+      setShowMessagesModal(true);
+      
+      // Fetch conversations first, then handle the selection
+      fetchConversations().then(() => {
+        // If we have a userId and username, pre-select that conversation
+        if (routeParams.messageUserId && routeParams.messageUsername) {
+          console.log(`Opening conversation with ${routeParams.messageUsername} (${routeParams.messageUserId})`);
+          
+          // Find if there's an existing conversation with this user
+          const existingConversation = conversations.find(
+            conv => conv.otherUserId === routeParams.messageUserId
+          );
+          
+          if (existingConversation) {
+            console.log('Found existing conversation:', existingConversation);
+            setSelectedConversation(existingConversation);
+          } else {
+            console.log('Creating new conversation placeholder');
+            // Create a placeholder for a new conversation
+            const newConversation: ConversationWithDetails = {
+              participants: [currentUser.uid, routeParams.messageUserId],
+              otherUserId: routeParams.messageUserId,
+              otherUserName: routeParams.messageUsername,
+              otherUserAvatar: null,
+              lastMessageTime: 'Now',
+              updatedAt: new Date()
+            };
+            
+            setSelectedConversation(newConversation);
+          }
+        }
+      }).catch(error => {
+        console.error('Error processing message navigation:', error);
+      });
+    }
+  }, [route?.params]);
+
   // Initial data load
   useEffect(() => {
     console.log('🟢 Initial data load - calling fetchPosts()');
     fetchPosts();
+    fetchConversations();
   }, []);
+  
+  // Function to send a message
+  const handleSendMessage = async () => {
+    try {
+      if (!selectedConversation || !messageText.trim()) {
+        return;
+      }
+      
+      setIsSendingMessage(true);
+      
+      const receiverId = selectedConversation.otherUserId;
+      await sendMessage(receiverId, messageText);
+      
+      // Clear the input
+      setMessageText('');
+      
+      // Refresh conversations to show new message
+      await fetchConversations();
+      
+    } catch (error) {
+      console.error('Error sending message:', error);
+      alert('Failed to send message. Please try again.');
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
+  // Update follow status for a specific user in all posts
+  const updateFollowStatusForUser = async (userId: string, isNowFollowing: boolean) => {
+    console.log(`🔄 Updating follow status for user ${userId} to ${isNowFollowing ? 'following' : 'not following'}`);
+    
+    setFashionPosts(prev => prev.map(post => {
+      if (post.userId === userId) {
+        return {
+          ...post,
+          isFollowing: isNowFollowing
+        };
+      }
+      return post;
+    }));
+  };
 
   // Handle refresh action
   const handleRefresh = async () => {
@@ -326,10 +536,16 @@ const SocialScreen: React.FC = () => {
         // If currently following, unfollow
         await unfollowUser(currentUser.uid, userId);
         console.log(`Successfully unfollowed user ${userId}`);
+        
+        // Update all posts by this user to show not following
+        await updateFollowStatusForUser(userId, false);
       } else {
         // If not following, follow
         await followUser(currentUser.uid, userId);
         console.log(`Successfully followed user ${userId}`);
+        
+        // Update all posts by this user to show following
+        await updateFollowStatusForUser(userId, true);
       }
     } catch (error) {
       console.error('Error toggling follow status:', error);
@@ -350,7 +566,30 @@ const SocialScreen: React.FC = () => {
     }
   };
   
-  // Handle message action (placeholder implementation)
+  // Fetch conversations from Firestore
+  const fetchConversations = async () => {
+    try {
+      setIsLoadingConversations(true);
+      const currentUser = auth().currentUser;
+      if (!currentUser) {
+        console.log('No user logged in, cannot fetch conversations');
+        return;
+      }
+      
+      console.log('Fetching conversations for user', currentUser.uid);
+      const conversationsData = await getConversations();
+      console.log(`Retrieved ${conversationsData.length} conversations`);
+      
+      setConversations(conversationsData);
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+      alert('Failed to load conversations. Please try again.');
+    } finally {
+      setIsLoadingConversations(false);
+    }
+  };
+  
+  // Handle message action for a specific user
   const handleMessage = (userId: string, username: string) => {
     console.log(`MESSAGE USER - userId: ${userId}, username: ${username}`);
     
@@ -359,16 +598,205 @@ const SocialScreen: React.FC = () => {
       alert('Messaging demo accounts is not available.');
       return;
     }
+
+    // Find if there's an existing conversation with this user
+    const existingConversation = conversations.find(
+      conv => conv.otherUserId === userId
+    );
     
-    // In a real implementation, you would navigate to a chat screen or open a chat modal
-    // For now, just show a placeholder message
-    alert(`Message feature coming soon! You would be messaging ${username}.`);
+    if (existingConversation) {
+      // Open the existing conversation
+      setSelectedConversation(existingConversation);
+    } else {
+      // Create a placeholder for a new conversation
+      const newConversation: ConversationWithDetails = {
+        participants: [auth().currentUser?.uid || '', userId],
+        otherUserId: userId,
+        otherUserName: username,
+        otherUserAvatar: null, // We'll fetch this later
+        lastMessageTime: 'Now',
+        updatedAt: new Date()
+      };
+      
+      setSelectedConversation(newConversation);
+    }
+    
+    // Show the messages modal
+    setShowMessagesModal(true);
+  };
+  
+  // Handle upvote action
+  const handleUpvoteToggle = async (postId: string) => {
+    // Current user must be logged in
+    const currentUser = auth().currentUser;
+    if (!currentUser) {
+      alert('You need to be logged in to like posts');
+      return;
+    }
+    
+    // Get the current post
+    const post = fashionPosts.find(p => p.id === postId);
+    if (!post) return;
+    
+    // Check if this is a mock/demo post
+    if (!isRealUserId(post.userId) || post.id.includes('mock')) {
+      alert('Demo posts cannot be liked');
+      return;
+    }
+    
+    try {
+      // Optimistically update UI
+      setFashionPosts(prev => prev.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            isUpvoted: !p.isUpvoted,
+            upvotes: p.isUpvoted ? Math.max(0, p.upvotes - 1) : p.upvotes + 1
+          };
+        }
+        return p;
+      }));
+      
+      // Make the actual API call
+      const isNowLiked = await toggleLikePost(currentUser.uid, postId);
+      console.log(`Successfully ${isNowLiked ? 'liked' : 'unliked'} post ${postId}`);
+    } catch (error) {
+      console.error('Error toggling like status:', error);
+      
+      // Revert UI on error
+      setFashionPosts(prev => prev.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            isUpvoted: post.isUpvoted,
+            upvotes: post.upvotes
+          };
+        }
+        return p;
+      }));
+      
+      // Show error to user
+      alert('Failed to update like status. Please try again.');
+    }
+  };
+  
+  // Handle save action
+  const handleSaveToggle = async (postId: string) => {
+    // Current user must be logged in
+    const currentUser = auth().currentUser;
+    if (!currentUser) {
+      alert('You need to be logged in to save posts');
+      return;
+    }
+    
+    // Get the current post
+    const post = fashionPosts.find(p => p.id === postId);
+    if (!post) return;
+    
+    // Check if this is a mock/demo post
+    if (!isRealUserId(post.userId) || post.id.includes('mock')) {
+      alert('Demo posts cannot be saved');
+      return;
+    }
+    
+    try {
+      // Optimistically update UI
+      setFashionPosts(prev => prev.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            isSaved: !p.isSaved
+          };
+        }
+        return p;
+      }));
+      
+      // Make the actual API call
+      const isNowSaved = await toggleSavePost(currentUser.uid, postId);
+      console.log(`Successfully ${isNowSaved ? 'saved' : 'unsaved'} post ${postId}`);
+    } catch (error) {
+      console.error('Error toggling save status:', error);
+      
+      // Revert UI on error
+      setFashionPosts(prev => prev.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            isSaved: post.isSaved
+          };
+        }
+        return p;
+      }));
+      
+      // Show error to user
+      alert('Failed to update save status. Please try again.');
+    }
+  };
+  
+  // Handle adding a new comment
+  const handleAddComment = async (postId: string, text: string) => {
+    // Validate input
+    if (!text.trim()) {
+      alert('Please enter a comment');
+      return;
+    }
+    
+    // Current user must be logged in
+    const currentUser = auth().currentUser;
+    if (!currentUser) {
+      alert('You need to be logged in to comment');
+      return;
+    }
+    
+    // Get the current post
+    const post = fashionPosts.find(p => p.id === postId);
+    if (!post) return;
+    
+    // Check if this is a mock/demo post
+    if (!isRealUserId(post.userId) || post.id.includes('mock')) {
+      alert('Cannot comment on demo posts');
+      return;
+    }
+    
+    try {
+      // Add the comment to the database
+      const newComment = await addComment(postId, text);
+      
+      // Convert to the app's comment format
+      const formattedComment = {
+        id: newComment.id,
+        username: newComment.username,
+        userId: newComment.userId,
+        text: newComment.text,
+        timeAgo: 'Just now',
+        likes: 0,
+        userAvatar: newComment.userAvatar,
+        createdAt: newComment.createdAt
+      };
+      
+      // Update state with the new comment
+      setFashionPosts(prev => prev.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            comments: [formattedComment, ...p.comments],
+            commentCount: p.commentCount + 1
+          };
+        }
+        return p;
+      }));
+      
+      console.log(`Successfully added comment to post ${postId}`);
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      alert('Failed to add comment. Please try again.');
+    }
   };
   
   // We now use the shared isRealUserId utility function from userUtils.ts
   
   // Toggle comments section expansion - simplified approach
-  const toggleComments = (postId: string) => {
+  const toggleComments = async (postId: string) => {
     // Configure layout animation for smooth transitions
     LayoutAnimation.configureNext({
       duration: 300,
@@ -402,6 +830,43 @@ const SocialScreen: React.FC = () => {
       
       // Set new expanded comments
       setExpandedComments(postId);
+      
+      // Fetch real comments from Firestore if this is a real post
+      const post = fashionPosts.find(p => p.id === postId);
+      if (post && isRealUserId(post.userId) && !post.id.includes('mock')) {
+        try {
+          console.log(`Fetching real comments for post ${postId}`);
+          const comments = await getCommentsByPost(postId);
+          
+          // Convert to the app's comment format - even if we have 0 real comments
+          const formattedComments = comments.map(comment => ({
+            id: comment.id,
+            username: comment.username,
+            userId: comment.userId,
+            text: comment.text,
+            timeAgo: comment.createdAt ? formatDistanceToNow(comment.createdAt.toDate()) + ' ago' : 'Just now',
+            likes: comment.likes,
+            userAvatar: comment.userAvatar,
+            createdAt: comment.createdAt
+          }));
+          
+          // Update the post with real comments and correct comment count
+          setFashionPosts(prev => prev.map(p => {
+            if (p.id === postId) {
+              console.log(`Updating post ${postId} with ${formattedComments.length} real comment(s)`);
+              return {
+                ...p,
+                comments: formattedComments,
+                commentCount: formattedComments.length
+              };
+            }
+            return p;
+          }));
+        } catch (error) {
+          console.error('Error fetching real comments:', error);
+          // Keep using the existing sample comments if there's an error
+        }
+      }
       
       // Animate expansion
       Animated.timing(commentAnimation, {
@@ -865,31 +1330,152 @@ const SocialScreen: React.FC = () => {
         {/* Featured Pieces Section */}
         <View style={styles.piecesContainer}>
           <Text style={[styles.piecesHeading, { color: textColor }]}>Featured Pieces</Text>
-          <View style={styles.piecesGrid}>
-            {item.outfitItems.map((piece: { name: string, brand: string }, i: number) => (
-              <View 
-                key={`piece-${i}`}
-                style={[
-                  styles.pieceItem,
-                  { borderColor: borderColor }
-                ]}
-              >
-                <MaterialIcon 
-                  name={['tshirt-crew', 'shoe-heel', 'sunglasses', 'hat-fedora'][i % 4]} 
-                  size={18} 
-                  color={mainColor} 
-                />
-                <View style={styles.pieceDetails}>
-                  <Text style={[styles.pieceName, { color: textColor }]} numberOfLines={1}>
-                    {piece.name}
+          
+          {item.outfitItems.length > 0 ? (
+            <View>
+              {/* Show indicator that there are more items if count > 4 */}
+              {item.outfitItems.length > 4 && (
+                <View style={styles.piecesCountHeader}>
+                  <Text style={[styles.piecesCount, { color: subTextColor }]}>
+                    {item.outfitItems.length} pieces • Swipe to see all
                   </Text>
-                  <Text style={[styles.pieceBrand, { color: mainColor }]}>
-                    {piece.brand}
-                  </Text>
+                  <View style={styles.swipeIndicators}>
+                    <Icon name="chevron-back" size={12} color={subTextColor} />
+                    <Icon name="chevron-forward" size={12} color={subTextColor} />
+                  </View>
                 </View>
-              </View>
-            ))}
-          </View>
+              )}
+              
+              {/* Horizontal scrollable list for pieces */}
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.piecesScrollView}
+                contentContainerStyle={styles.piecesScrollContent}
+                snapToInterval={item.outfitItems.length > 4 ? (width * 0.88) / 2 : undefined}
+                decelerationRate="fast"
+              >
+                {item.outfitItems.map((piece, i) => {
+                  // Determine icon based on piece type if available, or use fallback
+                  let iconName = 'tshirt-crew';
+                  
+                  if (piece.type) {
+                    if (piece.type === 'shirt') {
+                      iconName = 'tshirt-crew';
+                    } else if (piece.type === 'pants') {
+                      iconName = 'pants';
+                    } else if (piece.type === 'shoes') {
+                      iconName = 'shoe-heel';
+                    } else if (piece.type === 'watch') {
+                      iconName = 'watch';
+                    } else if (piece.type === 'jewelry') {
+                      // Jewelry with item name-based detection
+                      const nameLower = piece.name.toLowerCase();
+                      if (nameLower.includes('ring')) {
+                        iconName = 'diamond-stone';
+                      } else if (nameLower.includes('necklace') || nameLower.includes('chain')) {
+                        iconName = 'necklace';
+                      } else if (nameLower.includes('bracelet')) {
+                        iconName = 'bracelet';
+                      } else if (nameLower.includes('earring')) {
+                        iconName = 'ear-hearing';
+                      } else {
+                        iconName = 'diamond-stone'; // Default jewelry icon
+                      }
+                    } else if (piece.type === 'accessory') {
+                      // Generic accessory - try to detect type from name
+                      const nameLower = piece.name.toLowerCase();
+                      if (nameLower.includes('watch')) {
+                        iconName = 'watch';
+                      } else if (nameLower.includes('glass')) {
+                        iconName = 'sunglasses';
+                      } else if (nameLower.includes('hat') || nameLower.includes('cap')) {
+                        iconName = 'hat-fedora';
+                      } else if (nameLower.includes('bag') || nameLower.includes('purse')) {
+                        iconName = 'shopping-outline';
+                      } else {
+                        iconName = 'sunglasses'; // Default accessory icon
+                      }
+                    }
+                  } else {
+                    // Fallback if no type
+                    iconName = ['tshirt-crew', 'pants', 'shoe-heel', 'watch'][i % 4];
+                  }
+                  
+                  // Determine if piece has affiliate link to style accordingly
+                  const hasLink = !!piece.affiliateLink;
+                  
+                  return (
+                    <TouchableOpacity 
+                      key={`piece-${i}`}
+                      style={[
+                        styles.pieceItem,
+                        { borderColor: hasLink ? mainColor : borderColor },
+                        hasLink && { 
+                          backgroundColor: isDarkMode 
+                            ? 'rgba(124, 107, 255, 0.08)' 
+                            : 'rgba(82, 69, 204, 0.04)' 
+                        }
+                      ]}
+                      onPress={() => {
+                        if (hasLink) {
+                          console.log(`Opening link: ${piece.affiliateLink}`);
+                          // Open link in browser
+                          Linking.canOpenURL(piece.affiliateLink!)
+                            .then(supported => {
+                              if (supported) {
+                                return Linking.openURL(piece.affiliateLink!);
+                              } else {
+                                throw new Error(`Cannot open URL: ${piece.affiliateLink}`);
+                              }
+                            })
+                            .catch(err => {
+                              console.error('Error opening link:', err);
+                              Alert.alert(
+                                'Could not open link',
+                                'The link cannot be opened. It may be invalid or your device does not support opening this type of link.'
+                              );
+                            });
+                        }
+                      }}
+                      activeOpacity={hasLink ? 0.6 : 1}
+                    >
+                      <MaterialIcon 
+                        name={iconName}
+                        size={18} 
+                        color={mainColor} 
+                      />
+                      <View style={styles.pieceDetails}>
+                        <Text style={[styles.pieceName, { color: textColor }]} numberOfLines={1}>
+                          {piece.name}
+                        </Text>
+                        <View style={styles.pieceBrandRow}>
+                          <Text style={[styles.pieceBrand, { color: mainColor }]}>
+                            {piece.brand}
+                          </Text>
+                          {hasLink && (
+                            <FeatherIcon 
+                              name="external-link" 
+                              size={12} 
+                              color={mainColor} 
+                              style={styles.pieceLink}
+                            />
+                          )}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : (
+            <View style={styles.emptyPiecesContainer}>
+              <MaterialIcon name="tshirt-crew-outline" size={24} color={subTextColor} style={{opacity: 0.5}} />
+              <Text style={[styles.emptyPiecesText, {color: subTextColor}]}>
+                No featured pieces for this post
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Post Actions */}
@@ -900,6 +1486,7 @@ const SocialScreen: React.FC = () => {
                 styles.actionButton,
                 item.isUpvoted && { backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.15)' : 'rgba(82, 69, 204, 0.08)' }
               ]}
+              onPress={() => handleUpvoteToggle(item.id)}
             >
               <FeatherIcon 
                 name="arrow-up" 
@@ -932,7 +1519,10 @@ const SocialScreen: React.FC = () => {
                 styles.actionText, 
                 { color: expandedComments === item.id ? mainColor : subTextColor }
               ]}>
-                {item.commentCount} {expandedComments === item.id ? 'Comments' : 'Discuss'}
+                {item.commentCount > 0 
+                  ? `${item.commentCount} ${expandedComments === item.id ? 'Comments' : 'Discuss'}`
+                  : expandedComments === item.id ? 'No comments' : 'Discuss'
+                }
               </Text>
             </TouchableOpacity>
           </View>
@@ -942,6 +1532,7 @@ const SocialScreen: React.FC = () => {
               styles.saveButton,
               item.isSaved && { backgroundColor: isDarkMode ? 'rgba(255, 186, 13, 0.15)' : 'rgba(255, 177, 0, 0.08)' }
             ]}
+            onPress={() => handleSaveToggle(item.id)}
           >
             <FeatherIcon 
               name={item.isSaved ? "bookmark" : "bookmark"} 
@@ -989,6 +1580,14 @@ const SocialScreen: React.FC = () => {
               <FlatList
                 data={expandedComments === item.id ? item.comments : []}
                 keyExtractor={(comment) => comment.id}
+                ListEmptyComponent={() => (
+                  <View style={styles.emptyCommentsContainer}>
+                    <FeatherIcon name="message-circle" size={24} color={subTextColor} style={{ opacity: 0.5 }} />
+                    <Text style={[styles.emptyCommentsText, { color: subTextColor }]}>
+                      No comments yet. Be the first to comment!
+                    </Text>
+                  </View>
+                )}
                 renderItem={({item: comment, index}) => (
                   <View 
                     style={[
@@ -1049,7 +1648,65 @@ const SocialScreen: React.FC = () => {
                     </Text>
                     
                     <View style={styles.commentActions}>
-                      <TouchableOpacity style={styles.commentLike}>
+                      <TouchableOpacity 
+                        style={styles.commentLike}
+                        onPress={() => {
+                          // For real comments, we would call likeComment here
+                          // For demo/mock comments, just show a message
+                          const currentUser = auth().currentUser;
+                          if (!currentUser) {
+                            alert('You need to be logged in to like comments');
+                            return;
+                          }
+                          
+                          if (post.id.includes('mock') || !isRealUserId(post.userId)) {
+                            alert('Cannot like comments on demo posts');
+                            return;
+                          }
+                          
+                          // Optimistically update UI
+                          setFashionPosts(prev => prev.map(p => {
+                            if (p.id === item.id) {
+                              return {
+                                ...p,
+                                comments: p.comments.map(c => {
+                                  if (c.id === comment.id) {
+                                    return {
+                                      ...c,
+                                      likes: c.likes + 1
+                                    };
+                                  }
+                                  return c;
+                                })
+                              };
+                            }
+                            return p;
+                          }));
+                          
+                          // Call the API
+                          likeComment(comment.id).catch(error => {
+                            console.error('Error liking comment:', error);
+                            // Revert UI change on error
+                            setFashionPosts(prev => prev.map(p => {
+                              if (p.id === item.id) {
+                                return {
+                                  ...p,
+                                  comments: p.comments.map(c => {
+                                    if (c.id === comment.id) {
+                                      return {
+                                        ...c,
+                                        likes: comment.likes
+                                      };
+                                    }
+                                    return c;
+                                  })
+                                };
+                              }
+                              return p;
+                            }));
+                          });
+                        }}
+                      >
                         <FeatherIcon name="heart" size={14} color={iconColor} />
                         {comment.likes > 0 && (
                           <Text style={[styles.commentLikeCount, { color: subTextColor }]}>
@@ -1085,9 +1742,50 @@ const SocialScreen: React.FC = () => {
                     borderColor: isDarkMode ? 'rgba(70, 70, 90, 0.3)' : 'rgba(210, 210, 210, 1)'
                   }
                 ]}
+                onChangeText={(text) => {
+                  // Add a comment text state variable for each post
+                  if (!commentsText) {
+                    setCommentsText({});
+                  }
+                  setCommentsText({
+                    ...commentsText,
+                    [item.id]: text
+                  });
+                }}
+                value={commentsText?.[item.id] || ''}
               />
-              <TouchableOpacity style={[styles.postCommentButton, { backgroundColor: mainColor }]}>
-                <FeatherIcon name="send" size={16} color="#FFFFFF" />
+              <TouchableOpacity 
+                style={[styles.postCommentButton, { backgroundColor: mainColor }]}
+                onPress={() => {
+                  if (commentsText?.[item.id]?.trim()) {
+                    // Show loading indicator
+                    const currentPostId = item.id;
+                    setIsAddingComment(currentPostId);
+                    
+                    handleAddComment(currentPostId, commentsText[currentPostId])
+                      .then(() => {
+                        // Clear the input after submitting
+                        setCommentsText({
+                          ...commentsText,
+                          [currentPostId]: ''
+                        });
+                      })
+                      .catch(err => {
+                        console.error('Failed to post comment:', err);
+                        Alert.alert('Error', 'Failed to post comment. Please try again.');
+                      })
+                      .finally(() => {
+                        setIsAddingComment(null);
+                      });
+                  }
+                }}
+                disabled={isAddingComment === item.id}
+              >
+                {isAddingComment === item.id ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <FeatherIcon name="send" size={16} color="#FFFFFF" />
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1127,102 +1825,194 @@ const SocialScreen: React.FC = () => {
   const renderMessagesModal = () => {
     if (!showMessagesModal) return null;
     
-    // Mock message data
-    const MESSAGES = [
-      {
-        id: '1',
-        user: 'sophia_style',
-        avatar: 'https://randomuser.me/api/portraits/women/32.jpg',
-        lastMessage: 'Thanks for the style tip! I tried that outfit combination yesterday.',
-        time: '5m',
-        unread: true
-      },
-      {
-        id: '2',
-        user: 'marcus_fashion',
-        avatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-        lastMessage: 'Have you seen the new collection from that sustainable brand?',
-        time: '27m',
-        unread: false
-      },
-      {
-        id: '3',
-        user: 'olivia_trends',
-        avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-        lastMessage: 'Loved your latest post! Mind sharing where you got that jacket?',
-        time: '2h',
-        unread: true
-      },
-      {
-        id: '4',
-        user: 'alex_stylist',
-        avatar: 'https://randomuser.me/api/portraits/men/22.jpg',
-        lastMessage: 'Would you be interested in collaborating on a style guide?',
-        time: '1d',
-        unread: false
-      },
-    ];
+    // Determine which view to show - conversation list or selected conversation
+    const isConversationSelected = selectedConversation !== null;
     
     return (
-      <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+      <KeyboardAvoidingView
+        style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+      >
         <View style={[styles.messagesModal, { backgroundColor: cardBgColor }]}>
           <View style={styles.messagesHeader}>
-            <Text style={[styles.messagesTitle, { color: textColor }]}>Messages</Text>
-            <TouchableOpacity onPress={() => setShowMessagesModal(false)}>
+            {isConversationSelected ? (
+              // Show back button and conversation name
+              <View style={styles.conversationHeader}>
+                <TouchableOpacity 
+                  style={styles.backButton}
+                  onPress={() => setSelectedConversation(null)}
+                >
+                  <Icon name="arrow-back" size={24} color={textColor} />
+                </TouchableOpacity>
+                <View style={styles.conversationInfo}>
+                  <Text style={[styles.messagesTitle, { color: textColor }]}>
+                    {selectedConversation.otherUserName}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              // Show messages title
+              <View style={styles.messagesHeaderContent}>
+                <Text style={[styles.messagesTitle, { color: textColor }]}>Messages</Text>
+                {isLoadingConversations && <ActivityIndicator size="small" color={mainColor} style={{marginLeft: 10}} />}
+              </View>
+            )}
+            <TouchableOpacity onPress={() => {
+              setShowMessagesModal(false);
+              setSelectedConversation(null);
+            }}>
               <Icon name="close" size={24} color={textColor} />
             </TouchableOpacity>
           </View>
           
-          <FlatList
-            data={MESSAGES}
-            keyExtractor={item => item.id}
-            renderItem={({ item }) => (
+          {isConversationSelected ? (
+            // Show selected conversation messages
+            <View style={styles.conversationContainer}>
+              {/* Message list would go here */}
               <TouchableOpacity 
-                style={[
-                  styles.messageItem, 
-                  item.unread && { backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.08)' : 'rgba(82, 69, 204, 0.04)' }
-                ]}
+                style={styles.conversationMessages} 
+                activeOpacity={1}
+                onPress={() => Keyboard.dismiss()}
               >
-                <Image source={{ uri: item.avatar }} style={styles.messageAvatar} />
-                <View style={styles.messageContent}>
-                  <View style={styles.messageTop}>
-                    <Text style={[styles.messageUser, { color: textColor }]}>{item.user}</Text>
-                    <Text style={[styles.messageTime, { color: subTextColor }]}>{item.time}</Text>
-                  </View>
-                  <Text 
-                    style={[
-                      styles.messageText, 
-                      { color: item.unread ? textColor : subTextColor }
-                    ]} 
-                    numberOfLines={1}
-                  >
-                    {item.lastMessage}
-                  </Text>
-                </View>
-                {item.unread && (
-                  <View style={[styles.unreadIndicator, { backgroundColor: mainColor }]} />
-                )}
-              </TouchableOpacity>
-            )}
-            style={styles.messagesList}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              <View style={styles.emptyMessages}>
-                <Icon name="chatbubbles-outline" size={60} color={subTextColor} />
-                <Text style={[styles.emptyMessagesText, { color: subTextColor }]}>
-                  No messages yet
+                <Text style={[styles.conversationPlaceholder, {color: subTextColor}]}>
+                  This is the beginning of your conversation with {selectedConversation.otherUserName}.
                 </Text>
+              </TouchableOpacity>
+              
+              {/* Message input with keyboard handling */}
+              <View style={styles.messageInputContainer}>
+                <TextInput
+                  placeholder="Type a message..."
+                  placeholderTextColor={subTextColor}
+                  style={[
+                    styles.messageInput,
+                    { 
+                      color: textColor,
+                      backgroundColor: isDarkMode ? 'rgba(22, 23, 31, 0.8)' : 'rgba(240, 240, 240, 0.8)',
+                      borderColor: isDarkMode ? 'rgba(70, 70, 90, 0.3)' : 'rgba(210, 210, 210, 1)'
+                    }
+                  ]}
+                  value={messageText}
+                  onChangeText={setMessageText}
+                  multiline
+                  autoFocus
+                  maxLength={500}
+                  blurOnSubmit={false}
+                  returnKeyType="send"
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    handleSendMessage();
+                  }}
+                />
+                <TouchableOpacity 
+                  style={[
+                    styles.sendMessageButton, 
+                    { backgroundColor: mainColor },
+                    (!messageText.trim() || isSendingMessage) && { opacity: 0.5 }
+                  ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    handleSendMessage();
+                  }}
+                  disabled={!messageText.trim() || isSendingMessage}
+                >
+                  {isSendingMessage ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <FeatherIcon name="send" size={20} color="#FFFFFF" />
+                  )}
+                </TouchableOpacity>
               </View>
-            }
-          />
-          
-          <TouchableOpacity 
-            style={[styles.newMessageButton, { backgroundColor: mainColor }]}
-          >
-            <FeatherIcon name="edit-2" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
+            </View>
+          ) : (
+            // Show conversations list
+            <>
+              <FlatList
+                data={conversations}
+                keyExtractor={item => item.id || item.otherUserId}
+                renderItem={({ item }) => {
+                  // Calculate if there are unread messages from this user
+                  const hasUnread = item.unreadCount && 
+                                   item.unreadCount[auth().currentUser?.uid || ''] > 0;
+                                   
+                  return (
+                    <TouchableOpacity 
+                      style={[
+                        styles.messageItem, 
+                        hasUnread && { backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.08)' : 'rgba(82, 69, 204, 0.04)' }
+                      ]}
+                      onPress={() => {
+                        setSelectedConversation(item);
+                        // Mark as read when opening conversation
+                        if (hasUnread) {
+                          markConversationAsRead(item.otherUserId)
+                            .then(() => fetchConversations())
+                            .catch(err => console.error('Error marking as read:', err));
+                        }
+                      }}
+                    >
+                      <Image 
+                        source={{ 
+                          uri: item.otherUserAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.otherUserName)}&background=random` 
+                        }} 
+                        style={styles.messageAvatar} 
+                      />
+                      <View style={styles.messageContent}>
+                        <View style={styles.messageTop}>
+                          <Text style={[styles.messageUser, { color: textColor }]}>
+                            {item.otherUserName}
+                          </Text>
+                          <Text style={[styles.messageTime, { color: subTextColor }]}>
+                            {item.lastMessageTime}
+                          </Text>
+                        </View>
+                        <Text 
+                          style={[
+                            styles.messageText, 
+                            { color: hasUnread ? textColor : subTextColor }
+                          ]} 
+                          numberOfLines={1}
+                        >
+                          {item.lastMessage || 'Start a conversation...'}
+                        </Text>
+                      </View>
+                      {hasUnread && (
+                        <View style={[styles.unreadIndicator, { backgroundColor: mainColor }]} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+                style={styles.messagesList}
+                showsVerticalScrollIndicator={false}
+                refreshing={isLoadingConversations}
+                onRefresh={fetchConversations}
+                ListEmptyComponent={
+                  <View style={styles.emptyMessages}>
+                    <Icon name="chatbubbles-outline" size={60} color={subTextColor} />
+                    <Text style={[styles.emptyMessagesText, { color: subTextColor }]}>
+                      {isLoadingConversations 
+                        ? 'Loading conversations...' 
+                        : 'No messages yet. Start a conversation!'}
+                    </Text>
+                  </View>
+                }
+              />
+              
+              {/* New message button - we'll change this to be a ComposeIcon in the header instead */}
+              <TouchableOpacity 
+                style={[styles.newMessageButton, { backgroundColor: mainColor }]}
+                onPress={() => {
+                  // This would be replaced with a navigation to a user search screen
+                  alert('To message someone, tap on their profile in a post.');
+                }}
+              >
+                <FeatherIcon name="edit-2" size={24} color="#FFFFFF" />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     );
   };
 
@@ -1255,7 +2045,15 @@ const SocialScreen: React.FC = () => {
         <View style={styles.headerRightContainer}>
           <TouchableOpacity 
             style={styles.headerIconButton}
-            onPress={() => setShowMessagesModal(true)}
+            onPress={() => {
+              const currentUser = auth().currentUser;
+              if (!currentUser) {
+                Alert.alert('Sign In Required', 'You need to be signed in to view messages');
+                return;
+              }
+              setShowMessagesModal(true);
+              fetchConversations();
+            }}
           >
             <FeatherIcon 
               name="message-circle" 
@@ -1371,6 +2169,12 @@ const SocialScreen: React.FC = () => {
         ]}
         onPress={() => {
           console.log("Navigate to create post screen");
+          // Check if user is logged in
+          const currentUser = auth().currentUser;
+          if (!currentUser) {
+            Alert.alert('Sign In Required', 'You need to be signed in to create posts');
+            return;
+          }
           navigation.navigate('CreatePostScreen');
         }}
       >
@@ -1473,8 +2277,8 @@ const styles = StyleSheet.create({
   },
   createPostButton: {
     position: 'absolute',
-    right: 20,
-    bottom: 100, // Positioned above the tab bar
+    right: 90, // Moved to the left to avoid conflict with message button
+    bottom: 20, // Same level as message button
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -1736,6 +2540,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 14,
   },
+  piecesCountHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  piecesCount: {
+    ...defaultTextStyle,
+    fontSize: 12,
+  },
+  swipeIndicators: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  piecesScrollView: {
+    marginBottom: 4,
+  },
+  piecesScrollContent: {
+    paddingRight: 16,
+    paddingBottom: 8,
+  },
   piecesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1744,9 +2569,9 @@ const styles = StyleSheet.create({
   pieceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '46%',
-    marginHorizontal: '2%',
-    marginBottom: 12,
+    width: width * 0.4, // Wider items for horizontal scroll
+    marginRight: 12,
+    marginBottom: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
@@ -1765,6 +2590,29 @@ const styles = StyleSheet.create({
     ...defaultTextStyle,
     fontSize: 12,
     marginTop: 3,
+  },
+  pieceBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+  },
+  pieceLink: {
+    marginLeft: 4,
+  },
+  emptyPiecesContainer: {
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.1)',
+    borderRadius: 16,
+    borderStyle: 'dashed',
+    marginTop: 8,
+  },
+  emptyPiecesText: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    marginTop: 8,
   },
   
   // Post actions
@@ -1927,7 +2775,7 @@ const styles = StyleSheet.create({
   },
   messagesModal: {
     width: '90%',
-    height: '80%',
+    maxHeight: '80%',
     borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -2001,6 +2849,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 12,
   },
+  emptyCommentsContainer: {
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyCommentsText: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 10,
+  },
   newMessageButton: {
     position: 'absolute',
     right: 20,
@@ -2016,4 +2875,94 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 5,
   },
+  
+  // Conversation styles
+  conversationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  messagesHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  backButton: {
+    padding: 5,
+    marginRight: 10,
+  },
+  conversationInfo: {
+    flex: 1,
+  },
+  conversationContainer: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'space-between', // This ensures the input stays at the bottom
+  },
+  conversationMessages: {
+    flex: 1,
+    padding: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 100, // Ensure there's always space here
+  },
+  conversationPlaceholder: {
+    textAlign: 'center',
+    fontSize: 14,
+    opacity: 0.7,
+    lineHeight: 20,
+  },
+  messageInputContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(150, 150, 150, 0.2)',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.05)', // Subtle background to distinguish input area
+    minHeight: 60,
+  },
+  messageInput: {
+    flex: 1,
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    fontSize: 16, // Slightly larger font
+    maxHeight: 100,
+    minHeight: 40,
+  },
+  sendMessageButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
 });
+
+const getClothingIconName = (itemName: string): string => {
+  const lowerCaseName = itemName.toLowerCase();
+  if (lowerCaseName.includes('shirt') || lowerCaseName.includes('top')) {
+    return 'tshirt-crew';
+  } else if (lowerCaseName.includes('shoe') || lowerCaseName.includes('sneaker') || lowerCaseName.includes('boot') || lowerCaseName.includes('heel')) {
+    return 'shoe-sneaker'; // More generic shoe icon
+  } else if (lowerCaseName.includes('pants') || lowerCaseName.includes('jeans') || lowerCaseName.includes('trousers')) {
+    // MaterialCommunityIcons doesn't have a great "pants" icon.
+    // 'hanger' or 'tag' might be generic fallbacks. Using 'hanger'.
+    return 'hanger';
+  } else if (lowerCaseName.includes('hat') || lowerCaseName.includes('cap')) {
+    return 'hat-fedora';
+  } else if (lowerCaseName.includes('glasses') || lowerCaseName.includes('sunglasses')) {
+    return 'sunglasses';
+  } else if (lowerCaseName.includes('watch')) {
+    return 'watch';
+  } else if (lowerCaseName.includes('bag') || lowerCaseName.includes('purse')) {
+    return 'purse';
+  } else if (lowerCaseName.includes('jacket') || lowerCaseName.includes('coat')) {
+    return 'hanger';
+  }
+  // Default fallback icon
+  return 'hanger';
+};

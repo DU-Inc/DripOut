@@ -454,7 +454,16 @@ const UserDetailScreen: React.FC = () => {
                           
                           // In a real app, you'd navigate to a chat screen or open a chat modal
                           console.log(`MESSAGE USER from details - userId: ${userId}, username: ${userData.username}`);
-                          alert(`Message feature coming soon! You would be messaging ${userData.username}.`);
+                          // Navigate to the SocialTab first
+                          // @ts-ignore - navigation accepts these params
+                          navigation.navigate('MainTabs', {
+                            screen: 'SocialTab',
+                            params: { 
+                              showMessages: true, 
+                              messageUserId: userData.userID,
+                              messageUsername: userData.username
+                            }
+                          });
                         }}
                       >
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
