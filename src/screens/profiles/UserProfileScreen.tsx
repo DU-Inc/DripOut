@@ -38,12 +38,13 @@ import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, NavigationProp, useFocusEffect } from '@react-navigation/native';
 
 // Cache keys and expiry time
-const POSTS_CACHE_KEY = 'user_posts_cache';
-const POSTS_CACHE_TIMESTAMP_KEY = 'user_posts_cache_timestamp';
-const PROFILE_CACHE_KEY = 'user_profile_cache';
-const PROFILE_CACHE_TIMESTAMP_KEY = 'user_profile_cache_timestamp';
-const PREFERENCES_CACHE_KEY = 'user_preferences_cache';
-const PREFERENCES_CACHE_TIMESTAMP_KEY = 'user_preferences_cache_timestamp';
+// Using function to create user-specific cache keys
+const getUserPostsCacheKey = (userId: string) => `user_posts_cache_${userId}`;
+const getUserPostsTimestampKey = (userId: string) => `user_posts_cache_timestamp_${userId}`;
+const getUserProfileCacheKey = (userId: string) => `user_profile_cache_${userId}`;
+const getUserProfileTimestampKey = (userId: string) => `user_profile_cache_timestamp_${userId}`;
+const getUserPrefsCacheKey = (userId: string) => `user_preferences_cache_${userId}`;
+const getUserPrefsTimestampKey = (userId: string) => `user_preferences_cache_timestamp_${userId}`;
 const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // 1 hour in milliseconds
 
 // Set default text styles for SF Pro font family
@@ -165,11 +166,23 @@ const UserProfileScreen: React.FC = () => {
   // Fetch user posts with caching
   const fetchPosts = useCallback(async (userId?: string, forceRefresh = false) => {
     try {
+      if (!userId) {
+        console.error('No userId provided to fetchPosts');
+        setPostsLoading(false);
+        return;
+      }
+      
+      // Get user-specific cache keys
+      const postsCacheKey = getUserPostsCacheKey(userId);
+      const postsTimestampKey = getUserPostsTimestampKey(userId);
+      
+      console.log(`Fetching posts for user: ${userId}, cache key: ${postsCacheKey}`);
+      
       // If not forcing refresh, try to get from cache first
       if (!forceRefresh) {
         try {
-          const cachedTimestampStr = await AsyncStorage.getItem(POSTS_CACHE_TIMESTAMP_KEY);
-          const cachedPostsStr = await AsyncStorage.getItem(POSTS_CACHE_KEY);
+          const cachedTimestampStr = await AsyncStorage.getItem(postsTimestampKey);
+          const cachedPostsStr = await AsyncStorage.getItem(postsCacheKey);
           
           if (cachedTimestampStr && cachedPostsStr) {
             const timestamp = parseInt(cachedTimestampStr);
@@ -180,7 +193,7 @@ const UserProfileScreen: React.FC = () => {
               const cachedPosts = JSON.parse(cachedPostsStr);
               setUserPosts(cachedPosts);
               setPostsLoading(false);
-              console.log('Using cached posts data');
+              console.log(`Using cached posts data for user ${userId}`);
               return;
             }
           }
@@ -195,11 +208,11 @@ const UserProfileScreen: React.FC = () => {
       const posts = await getPostsByUser(userId);
       setUserPosts(posts);
       
-      // Update cache
+      // Update cache with user-specific keys
       try {
-        await AsyncStorage.setItem(POSTS_CACHE_KEY, JSON.stringify(posts));
-        await AsyncStorage.setItem(POSTS_CACHE_TIMESTAMP_KEY, Date.now().toString());
-        console.log('Posts cache updated');
+        await AsyncStorage.setItem(postsCacheKey, JSON.stringify(posts));
+        await AsyncStorage.setItem(postsTimestampKey, Date.now().toString());
+        console.log(`Posts cache updated for user ${userId}`);
       } catch (cacheError) {
         console.warn('Error writing to cache:', cacheError);
         // Non-critical error, we can continue without caching
@@ -256,11 +269,14 @@ const UserProfileScreen: React.FC = () => {
 
   // Helper function to fetch and cache user preferences
   const fetchAndCachePreferences = useCallback(async (userId: string, forceRefresh = false) => {
+    const prefsCacheKey = getUserPrefsCacheKey(userId);
+    const prefsTimestampKey = getUserPrefsTimestampKey(userId);
+    
     if (!forceRefresh) {
       try {
         // Try to get preferences from cache
-        const cachedTimestampStr = await AsyncStorage.getItem(PREFERENCES_CACHE_TIMESTAMP_KEY);
-        const cachedPrefsStr = await AsyncStorage.getItem(PREFERENCES_CACHE_KEY);
+        const cachedTimestampStr = await AsyncStorage.getItem(prefsTimestampKey);
+        const cachedPrefsStr = await AsyncStorage.getItem(prefsCacheKey);
         
         if (cachedTimestampStr && cachedPrefsStr) {
           const timestamp = parseInt(cachedTimestampStr);
@@ -271,7 +287,7 @@ const UserProfileScreen: React.FC = () => {
             const cachedPrefs = JSON.parse(cachedPrefsStr);
             setPreferences(cachedPrefs);
             setEditPreferencesData(cachedPrefs);
-            console.log('Using cached preferences data');
+            console.log(`Using cached preferences data for user ${userId}`);
             return;
           }
         }
@@ -289,9 +305,9 @@ const UserProfileScreen: React.FC = () => {
         
         // Update cache
         try {
-          await AsyncStorage.setItem(PREFERENCES_CACHE_KEY, JSON.stringify(userPrefs));
-          await AsyncStorage.setItem(PREFERENCES_CACHE_TIMESTAMP_KEY, Date.now().toString());
-          console.log('Preferences cache updated');
+          await AsyncStorage.setItem(prefsCacheKey, JSON.stringify(userPrefs));
+          await AsyncStorage.setItem(prefsTimestampKey, Date.now().toString());
+          console.log(`Preferences cache updated for user ${userId}`);
         } catch (cacheError) {
           console.warn('Error writing preferences to cache:', cacheError);
         }
@@ -375,10 +391,14 @@ const UserProfileScreen: React.FC = () => {
           console.log('Fetching profile for user:', user.uid);
           setProfileUserId(user.uid); // Store the profile user ID
           
+          // Get user-specific profile cache keys
+          const profileCacheKey = getUserProfileCacheKey(user.uid);
+          const profileTimestampKey = getUserProfileTimestampKey(user.uid);
+          
           // Try to get profile from cache first
           try {
-            const cachedTimestampStr = await AsyncStorage.getItem(PROFILE_CACHE_TIMESTAMP_KEY);
-            const cachedProfileStr = await AsyncStorage.getItem(PROFILE_CACHE_KEY);
+            const cachedTimestampStr = await AsyncStorage.getItem(profileTimestampKey);
+            const cachedProfileStr = await AsyncStorage.getItem(profileCacheKey);
             
             if (cachedTimestampStr && cachedProfileStr) {
               const timestamp = parseInt(cachedTimestampStr);
@@ -389,7 +409,7 @@ const UserProfileScreen: React.FC = () => {
                 const cachedProfile = JSON.parse(cachedProfileStr);
                 setProfile(cachedProfile);
                 setLoading(false);
-                console.log('Using cached profile data');
+                console.log(`Using cached profile data for user ${user.uid}`);
               }
             }
           } catch (cacheError) {
@@ -410,11 +430,14 @@ const UserProfileScreen: React.FC = () => {
               
               setProfile(userData);
               
-              // Update profile cache
+              // Update profile cache with user-specific keys
               try {
-                await AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(userData));
-                await AsyncStorage.setItem(PROFILE_CACHE_TIMESTAMP_KEY, Date.now().toString());
-                console.log('Profile cache updated');
+                const profileCacheKey = getUserProfileCacheKey(user.uid);
+                const profileTimestampKey = getUserProfileTimestampKey(user.uid);
+                
+                await AsyncStorage.setItem(profileCacheKey, JSON.stringify(userData));
+                await AsyncStorage.setItem(profileTimestampKey, Date.now().toString());
+                console.log(`Profile cache updated for user ${user.uid}`);
               } catch (cacheError) {
                 console.warn('Error writing profile to cache:', cacheError);
               }
@@ -475,11 +498,23 @@ const UserProfileScreen: React.FC = () => {
   );
   
   // Function to clear cache when needed (like after creating a new post)
-  const clearPostsCache = useCallback(async () => {
+  const clearPostsCache = useCallback(async (userId?: string) => {
     try {
-      await AsyncStorage.removeItem(POSTS_CACHE_KEY);
-      await AsyncStorage.removeItem(POSTS_CACHE_TIMESTAMP_KEY);
-      console.log('Posts cache cleared');
+      if (!userId) {
+        const currentUser = auth().currentUser;
+        if (!currentUser) {
+          console.warn('No user ID available to clear cache');
+          return;
+        }
+        userId = currentUser.uid;
+      }
+      
+      const postsCacheKey = getUserPostsCacheKey(userId);
+      const postsTimestampKey = getUserPostsTimestampKey(userId);
+      
+      await AsyncStorage.removeItem(postsCacheKey);
+      await AsyncStorage.removeItem(postsTimestampKey);
+      console.log(`Posts cache cleared for user ${userId}`);
     } catch (error) {
       console.warn('Error clearing posts cache:', error);
     }
@@ -578,13 +613,47 @@ const UserProfileScreen: React.FC = () => {
     setSelectedStyleBoard(null);
   };
 
-  // Handle sign out properly
+  // Handle sign out properly with cache clearing
   const handleSignOut = async () => {
     try {
+      // Store the user ID before signing out
+      const currentUser = auth().currentUser;
+      const userId = currentUser?.uid;
+      
       // Import the appStateManager to update auth state
       const { appStateManager } = require('../../utils/appStateManager');
+      
+      // Clear all user-specific caches if we have a valid user ID
+      if (userId) {
+        // Clear posts cache
+        const postsCacheKey = getUserPostsCacheKey(userId);
+        const postsTimestampKey = getUserPostsTimestampKey(userId);
+        
+        // Clear profile cache
+        const profileCacheKey = getUserProfileCacheKey(userId);
+        const profileTimestampKey = getUserProfileTimestampKey(userId);
+        
+        // Clear preferences cache
+        const prefsCacheKey = getUserPrefsCacheKey(userId);
+        const prefsTimestampKey = getUserPrefsTimestampKey(userId);
+        
+        console.log('Clearing all caches for user:', userId);
+        
+        await Promise.all([
+          AsyncStorage.removeItem(postsCacheKey),
+          AsyncStorage.removeItem(postsTimestampKey),
+          AsyncStorage.removeItem(profileCacheKey),
+          AsyncStorage.removeItem(profileTimestampKey),
+          AsyncStorage.removeItem(prefsCacheKey),
+          AsyncStorage.removeItem(prefsTimestampKey)
+        ]);
+        
+        console.log('All user caches cleared successfully');
+      }
+      
       // Sign out with Firebase
       await auth().signOut();
+      
       // Update app state manager (redundant with our Firebase listener, but for safety)
       appStateManager.setAuthenticated(false);
       console.log('User signed out successfully');

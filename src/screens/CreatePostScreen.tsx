@@ -207,12 +207,23 @@ const CreatePostScreen: React.FC = () => {
     }
   };
   
-  // Function to clear the posts cache
+  // Function to clear the posts cache with user-specific key
   const clearPostsCache = async () => {
     try {
-      await AsyncStorage.removeItem(POSTS_CACHE_KEY);
-      await AsyncStorage.removeItem(POSTS_CACHE_TIMESTAMP_KEY);
-      console.log('Posts cache cleared after creating new post');
+      const currentUser = auth().currentUser;
+      if (!currentUser) {
+        console.warn('No user ID available to clear cache');
+        return;
+      }
+      
+      // Use user-specific cache keys
+      const userId = currentUser.uid;
+      const postsCacheKey = `user_posts_cache_${userId}`;
+      const postsTimestampKey = `user_posts_cache_timestamp_${userId}`;
+      
+      await AsyncStorage.removeItem(postsCacheKey);
+      await AsyncStorage.removeItem(postsTimestampKey);
+      console.log(`Posts cache cleared for user ${userId} after creating new post`);
     } catch (error) {
       console.warn('Error clearing posts cache:', error);
       // Non-critical error - continue even if cache clear fails

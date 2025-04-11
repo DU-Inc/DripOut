@@ -584,14 +584,36 @@ export const isBiometricAuthEnabled = async (): Promise<boolean> => {
 // Firebase Sign Out function
 export const signOutUser = async () => {
   try {
+    // Get user ID before signing out to clear user-specific data
+    const userId = auth().currentUser?.uid;
+    
     await auth().signOut();
-    // Clear all auth-related storage
+    
+    // Items to remove from AsyncStorage
+    const itemsToRemove = [
+      'firebaseUserToken',
+      'lastActivityTimestamp',
+      'authCreateTimestamp',
+      'useBiometricAuth',
+      'onboardingCompleted'
+    ];
+    
+    // Add user-specific search cache key if we have a user ID
+    if (userId) {
+      itemsToRemove.push(`recentSearches_${userId}`);
+      
+      // Also clear any other user-specific cache keys (posts, profile, preferences)
+      itemsToRemove.push(`user_posts_cache_${userId}`);
+      itemsToRemove.push(`user_posts_cache_timestamp_${userId}`);
+      itemsToRemove.push(`user_profile_cache_${userId}`);
+      itemsToRemove.push(`user_profile_cache_timestamp_${userId}`);
+      itemsToRemove.push(`user_preferences_cache_${userId}`);
+      itemsToRemove.push(`user_preferences_cache_timestamp_${userId}`);
+    }
+    
+    // Clear all auth-related storage and user-specific caches
     await Promise.all([
-      AsyncStorage.removeItem('firebaseUserToken'),
-      AsyncStorage.removeItem('lastActivityTimestamp'),
-      AsyncStorage.removeItem('authCreateTimestamp'),
-      AsyncStorage.removeItem('useBiometricAuth'),
-      AsyncStorage.removeItem('onboardingCompleted'),
+      ...itemsToRemove.map(key => AsyncStorage.removeItem(key)),
       authCache.invalidateCache()
     ]);
     
@@ -600,7 +622,7 @@ export const signOutUser = async () => {
     appStateManager.setOnboarding(false);
     appStateManager.setSignupInProgress(false);
     
-    console.log('User signed out successfully');
+    console.log('User signed out successfully and all user caches cleared');
     
   } catch (error) {
     console.error('Sign Out Error:', error);

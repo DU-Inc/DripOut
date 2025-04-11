@@ -185,18 +185,24 @@ export const getPostsByUser = async (userId?: string): Promise<Post[]> => {
 /**
  * Get all posts for the feed
  * 
+ * @param limit Optional number of posts to limit the query to
  * @returns Array of all posts ordered by creation date
  */
-export const getAllPosts = async (): Promise<Post[]> => {
+export const getAllPosts = async (limitCount: number = 20): Promise<Post[]> => {
   try {
+    console.log(`Fetching all posts with limit ${limitCount}`);
     const postsQuery = query(
       collection(db, 'posts'),
-      orderBy('createdAt', 'desc')
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
     );
 
     const querySnapshot = await getDocs(postsQuery);
     const posts: Post[] = [];
 
+    console.log(`Fetched ${querySnapshot.size} posts from Firestore`);
+
+    // Process each post document
     querySnapshot.forEach((doc) => {
       const data = doc.data();
       posts.push({
@@ -206,10 +212,10 @@ export const getAllPosts = async (): Promise<Post[]> => {
         userAvatar: data.userAvatar,
         imageUrl: data.imageUrl,
         caption: data.caption,
-        tags: data.tags,
+        tags: data.tags || [], // Ensure tags exists even if missing in Firestore
         outfitItems: data.outfitItems || [], // Include outfit items
-        likes: data.likes,
-        comments: data.comments,
+        likes: data.likes || 0,
+        comments: data.comments || 0,
         createdAt: data.createdAt,
       });
     });
@@ -217,6 +223,97 @@ export const getAllPosts = async (): Promise<Post[]> => {
     return posts;
   } catch (error) {
     console.error('Error getting all posts:', error);
+    throw error;
+  }
+};
+
+/**
+ * Cache key for storing feed posts in AsyncStorage
+ */
+const FEED_POSTS_CACHE_KEY = 'feed_posts_cache';
+const FEED_POSTS_TIMESTAMP_KEY = 'feed_posts_cache_timestamp';
+
+/**
+ * Get all posts for the feed with caching
+ * 
+ * @param forceRefresh Whether to force a refresh from Firestore
+ * @param cacheMaxAge Maximum age of cache in milliseconds (default 5 minutes)
+ * @returns Array of all posts ordered by creation date
+ */
+export const getCachedFeedPosts = async (
+  forceRefresh: boolean = false,
+  cacheMaxAge: number = 5 * 60 * 1000 // 5 minutes
+): Promise<Post[]> => {
+  try {
+    // Get current user ID for cache segregation
+    const currentUser = auth().currentUser;
+    if (!currentUser) {
+      console.log('No authenticated user, fetching posts without cache');
+      return getAllPosts();
+    }
+    
+    const userId = currentUser.uid;
+    const userSpecificCacheKey = `${FEED_POSTS_CACHE_KEY}_${userId}`;
+    const userSpecificTimestampKey = `${FEED_POSTS_TIMESTAMP_KEY}_${userId}`;
+    
+    // Check if we need to force refresh
+    if (forceRefresh) {
+      console.log('Force refresh requested, bypassing cache');
+      const posts = await getAllPosts();
+      
+      // Update cache with fresh data
+      await AsyncStorage.setItem(userSpecificCacheKey, JSON.stringify(posts));
+      await AsyncStorage.setItem(userSpecificTimestampKey, Date.now().toString());
+      
+      return posts;
+    }
+    
+    // Check cache timestamp
+    const timestampStr = await AsyncStorage.getItem(userSpecificTimestampKey);
+    const cachedPostsStr = await AsyncStorage.getItem(userSpecificCacheKey);
+    
+    // If we have valid cache data and it's not too old
+    if (timestampStr && cachedPostsStr) {
+      const timestamp = parseInt(timestampStr, 10);
+      const currentTime = Date.now();
+      
+      // If cache is still fresh
+      if (currentTime - timestamp < cacheMaxAge) {
+        console.log('Using cached posts data');
+        return JSON.parse(cachedPostsStr) as Post[];
+      }
+    }
+    
+    // Cache is too old or doesn't exist, fetch fresh data
+    console.log('Cache expired or missing, fetching fresh posts data');
+    const posts = await getAllPosts();
+    
+    // Update cache with fresh data
+    await AsyncStorage.setItem(userSpecificCacheKey, JSON.stringify(posts));
+    await AsyncStorage.setItem(userSpecificTimestampKey, Date.now().toString());
+    
+    return posts;
+  } catch (error) {
+    console.error('Error getting cached feed posts:', error);
+    
+    // Try to return cached data even if refresh failed
+    try {
+      const currentUser = auth().currentUser;
+      if (currentUser) {
+        const userId = currentUser.uid;
+        const userSpecificCacheKey = `${FEED_POSTS_CACHE_KEY}_${userId}`;
+        const cachedPostsStr = await AsyncStorage.getItem(userSpecificCacheKey);
+        
+        if (cachedPostsStr) {
+          console.log('Returning cached posts due to refresh error');
+          return JSON.parse(cachedPostsStr) as Post[];
+        }
+      }
+    } catch (cacheError) {
+      console.error('Error reading cached data as fallback:', cacheError);
+    }
+    
+    // If all else fails, throw the original error
     throw error;
   }
 };

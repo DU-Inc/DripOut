@@ -27,9 +27,11 @@ import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../styles/themeprovider';
 import Fuse from 'fuse.js';
+import { searchUsers, getUserProfileByUsername, UserProfile } from '../services/firestoreService';
+import { auth } from '../Config/firebaseconfig';
+import { getFollowCounts } from '../services/followService';
 
-// Mock data from Social Screen - in a real app, this would come from Firebase
-// Let's define the interfaces first
+// Define interfaces for app data
 interface User {
   id: string;
   username: string;
@@ -65,7 +67,8 @@ const defaultTextStyle = {
   letterSpacing: 0.1, // SF Pro typically has slightly tighter letter spacing
 };
 
-// Generate fashion posts similar to the SocialScreen
+// Generate fashion posts similar to the SocialScreen - KEEPING MOCK POSTS FOR NOW
+// These would be replaced with Firestore data in a complete implementation
 const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
   // Different styling notes & captions
   const captions = [
@@ -107,95 +110,6 @@ const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
   };
 });
 
-// Mock users data
-const MOCK_USERS: User[] = [
-  { 
-    id: 'user_0', 
-    username: 'grace_style', 
-    displayName: 'Grace Willis', 
-    bio: 'Fashion enthusiast | Minimal aesthetics | NYC based stylist',
-    profileImage: 'https://i.pravatar.cc/150?u=0',
-    isVerified: true,
-    followers: 12400,
-    following: 342
-  },
-  { 
-    id: 'user_1', 
-    username: 'fashion_guru', 
-    displayName: 'Alex Morgan', 
-    bio: 'Sharing style tips & outfit inspirations | DM for collabs',
-    profileImage: 'https://i.pravatar.cc/150?u=1',
-    followers: 8700,
-    following: 512
-  },
-  { 
-    id: 'user_2', 
-    username: 'trend_watcher', 
-    displayName: 'Sophia Chen', 
-    bio: 'Fashion forecaster & trend analyst | Documenting street style worldwide',
-    profileImage: 'https://i.pravatar.cc/150?u=2',
-    isVerified: true,
-    followers: 15800,
-    following: 763
-  },
-  { 
-    id: 'user_3', 
-    username: 'clothescritic', 
-    displayName: 'James Wilson', 
-    bio: 'Honest reviews on sustainable fashion | Eco-conscious style choices',
-    profileImage: 'https://i.pravatar.cc/150?u=3',
-    followers: 5200,
-    following: 428
-  },
-  { 
-    id: 'user_4', 
-    username: 'runway_fan', 
-    displayName: 'Zoe Martinez', 
-    bio: 'Fashion week coverage | Luxury brand enthusiast | Paris & Milan',
-    profileImage: 'https://i.pravatar.cc/150?u=4',
-    followers: 9300,
-    following: 631
-  },
-  { 
-    id: 'user_5', 
-    username: 'style_seeker', 
-    displayName: 'Liam Johnson', 
-    bio: 'Finding style inspiration everywhere | Affordable fashion picks',
-    profileImage: 'https://i.pravatar.cc/150?u=5',
-    followers: 7600,
-    following: 894
-  },
-  // Add extra users for better search results
-  { 
-    id: 'user_6', 
-    username: 'mindful_stylist', 
-    displayName: 'Emma Peterson', 
-    bio: 'Mindful approach to fashion | Capsule wardrobe expert',
-    profileImage: 'https://i.pravatar.cc/150?u=6',
-    followers: 4200,
-    following: 305
-  },
-  { 
-    id: 'user_7', 
-    username: 'fashion_forward', 
-    displayName: 'David Kim', 
-    bio: 'Pushing boundaries with avant-garde style | Fashion photography',
-    profileImage: 'https://i.pravatar.cc/150?u=7',
-    followers: 11500,
-    following: 430
-  },
-  { 
-    id: 'user_8', 
-    username: 'ethical_fashion', 
-    displayName: 'Olivia Green', 
-    bio: 'Ethical & sustainable fashion advocate | Fair trade certified',
-    profileImage: 'https://i.pravatar.cc/150?u=8',
-    isVerified: true,
-    followers: 18200,
-    following: 563
-  }
-];
-
 // Extract all tags from posts and create a Tag array with counts
 const UNIQUE_TAGS: Tag[] = Array.from(
   new Set(
@@ -218,15 +132,17 @@ const SearchScreen: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   
-  // References for search instances
-  const userSearchRef = useRef<Fuse<User>>();
+  // References for search instances (for post and tag searches which still use mock data)
   const postSearchRef = useRef<Fuse<Post>>();
   const tagSearchRef = useRef<Fuse<Tag>>();
   
   // Search results
-  const [userResults, setUserResults] = useState<Fuse.FuseResult<User>[]>([]);
+  const [firebaseUsers, setFirebaseUsers] = useState<UserProfile[]>([]);
   const [postResults, setPostResults] = useState<Fuse.FuseResult<Post>[]>([]);
   const [tagResults, setTagResults] = useState<Fuse.FuseResult<Tag>[]>([]);
+  
+  // User display data with follow counts
+  const [userDisplayData, setUserDisplayData] = useState<User[]>([]);
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -241,15 +157,8 @@ const SearchScreen: React.FC = () => {
   const surfaceColor = isDarkMode ? '#222232' : '#F5F5F5';
   const inputBgColor = isDarkMode ? '#1E1E2E' : '#F2F2F2';
   
-  // Initialize Fuse instances
+  // Initialize search instances for posts and tags (still using mock data)
   useEffect(() => {
-    // Initialize Fuse.js instances for fuzzy search
-    userSearchRef.current = new Fuse(MOCK_USERS, {
-      keys: ['username', 'displayName', 'bio'],
-      threshold: 0.4,
-      includeScore: true
-    });
-    
     postSearchRef.current = new Fuse(FASHION_POSTS, {
       keys: ['caption', 'tags', 'username'],
       threshold: 0.3,
@@ -278,11 +187,55 @@ const SearchScreen: React.FC = () => {
     };
   }, []);
   
+  // Process Firestore user data into display format
+  useEffect(() => {
+    const processUserData = async () => {
+      if (firebaseUsers.length === 0) return;
+      
+      try {
+        const usersWithCounts = await Promise.all(
+          firebaseUsers.map(async (user) => {
+            // Default placeholder image if no profile picture
+            const profileImageUrl = user.profilePictureURL || 'https://i.pravatar.cc/150?u=default';
+            
+            // Get follow counts from Firestore (if service exists)
+            let followerCount = 0;
+            let followingCount = 0;
+            try {
+              const counts = await getFollowCounts(user.userID);
+              followerCount = counts.followers;
+              followingCount = counts.following;
+            } catch (error) {
+              console.log('Error fetching follow counts:', error);
+            }
+            
+            return {
+              id: user.userID,
+              username: user.username,
+              displayName: user.userDisplayName || user.fullName || '',
+              bio: user.bio || '',
+              profileImage: profileImageUrl,
+              isVerified: user.isVerified || false,
+              followers: followerCount,
+              following: followingCount
+            };
+          })
+        );
+        
+        setUserDisplayData(usersWithCounts);
+      } catch (error) {
+        console.error('Error processing user data:', error);
+      }
+    };
+    
+    processUserData();
+  }, [firebaseUsers]);
+  
   // Perform search when query changes
   useEffect(() => {
     if (searchQuery.trim() === '') {
       // Clear results when search is empty
-      setUserResults([]);
+      setFirebaseUsers([]);
       setPostResults([]);
       setTagResults([]);
       setIsSearching(false);
@@ -292,32 +245,44 @@ const SearchScreen: React.FC = () => {
     setIsSearching(true);
     
     // Short delay for better UX
-    const searchTimeout = setTimeout(() => {
-      if (userSearchRef.current) {
-        const users = userSearchRef.current.search(searchQuery);
-        setUserResults(users);
+    const searchTimeout = setTimeout(async () => {
+      try {
+        // Real Firebase user search
+        const users = await searchUsers(searchQuery);
+        setFirebaseUsers(users);
+        
+        // Mock post search (would be replaced with Firestore implementation)
+        if (postSearchRef.current) {
+          const posts = postSearchRef.current.search(searchQuery);
+          setPostResults(posts);
+        }
+        
+        // Mock tag search (would be replaced with Firestore implementation)
+        if (tagSearchRef.current) {
+          const tags = tagSearchRef.current.search(searchQuery);
+          setTagResults(tags);
+        }
+      } catch (error) {
+        console.error('Search error:', error);
+      } finally {
+        setIsSearching(false);
       }
-      
-      if (postSearchRef.current) {
-        const posts = postSearchRef.current.search(searchQuery);
-        setPostResults(posts);
-      }
-      
-      if (tagSearchRef.current) {
-        const tags = tagSearchRef.current.search(searchQuery);
-        setTagResults(tags);
-      }
-      
-      setIsSearching(false);
     }, 300);
     
     return () => clearTimeout(searchTimeout);
   }, [searchQuery]);
   
-  // Load recent searches from AsyncStorage
+  // Load recent searches from AsyncStorage with user-specific key
   const loadRecentSearches = async () => {
     try {
-      const savedSearches = await AsyncStorage.getItem('recentSearches');
+      const currentUser = auth().currentUser;
+      if (!currentUser) return;
+      
+      // Use user-specific key to prevent cross-account contamination
+      const userId = currentUser.uid;
+      const recentSearchesKey = `recentSearches_${userId}`;
+      
+      const savedSearches = await AsyncStorage.getItem(recentSearchesKey);
       if (savedSearches) {
         setRecentSearches(JSON.parse(savedSearches));
       }
@@ -326,11 +291,18 @@ const SearchScreen: React.FC = () => {
     }
   };
   
-  // Save search query to recent searches
+  // Save search query to recent searches with user-specific key
   const saveSearchQuery = async (query: string) => {
     if (!query.trim()) return;
     
     try {
+      const currentUser = auth().currentUser;
+      if (!currentUser) return;
+      
+      // Use user-specific key to prevent cross-account contamination
+      const userId = currentUser.uid;
+      const recentSearchesKey = `recentSearches_${userId}`;
+      
       // Add to front, remove duplicates, limit to 10
       const updatedSearches = [
         query, 
@@ -338,17 +310,24 @@ const SearchScreen: React.FC = () => {
       ].slice(0, 10);
       
       setRecentSearches(updatedSearches);
-      await AsyncStorage.setItem('recentSearches', JSON.stringify(updatedSearches));
+      await AsyncStorage.setItem(recentSearchesKey, JSON.stringify(updatedSearches));
     } catch (error) {
       console.error('Error saving recent search:', error);
     }
   };
   
-  // Clear recent searches
+  // Clear recent searches with user-specific key
   const clearRecentSearches = async () => {
     try {
+      const currentUser = auth().currentUser;
+      if (!currentUser) return;
+      
+      // Use user-specific key to prevent cross-account contamination
+      const userId = currentUser.uid;
+      const recentSearchesKey = `recentSearches_${userId}`;
+      
       setRecentSearches([]);
-      await AsyncStorage.removeItem('recentSearches');
+      await AsyncStorage.removeItem(recentSearchesKey);
     } catch (error) {
       console.error('Error clearing recent searches:', error);
     }
@@ -385,7 +364,7 @@ const SearchScreen: React.FC = () => {
       
       // Auto-select the tab with most results
       const resultCounts = {
-        accounts: userResults.length,
+        accounts: userDisplayData.length,
         posts: postResults.length,
         tags: tagResults.length
       };
@@ -398,35 +377,32 @@ const SearchScreen: React.FC = () => {
   };
   
   // Render user item
-  const renderUserItem = ({ item }: { item: Fuse.FuseResult<User> }) => {
-    const user = item.item;
+  const renderUserItem = ({ item }: { item: User }) => {
     return (
       <TouchableOpacity 
         style={styles.userItem}
         activeOpacity={0.7}
-        onPress={() => handleUserSelect(user)}
+        onPress={() => handleUserSelect(item)}
       >
         <Image 
-          source={{ uri: user.profileImage }} 
+          source={{ uri: item.profileImage }} 
           style={styles.userAvatar} 
         />
         <View style={styles.userInfo}>
           <View style={styles.userNameRow}>
             <Text style={[styles.username, { color: textColor }]}>
-              {user.username}
+              {item.username}
             </Text>
-            {user.isVerified && (
+            {item.isVerified && (
               <Icon name="checkmark-circle" size={14} color="#0095F6" style={styles.verifiedBadge} />
             )}
           </View>
           <Text style={[styles.displayName, { color: subTextColor }]} numberOfLines={1}>
-            {user.displayName || ''}
+            {item.displayName || ''}
           </Text>
-          {user.followers && (
-            <Text style={[styles.followersText, { color: subTextColor }]}>
-              {user.followers.toLocaleString()} followers
-            </Text>
-          )}
+          <Text style={[styles.followersText, { color: subTextColor }]}>
+            {item.followers?.toLocaleString() || 0} followers
+          </Text>
         </View>
       </TouchableOpacity>
     );
@@ -519,7 +495,13 @@ const SearchScreen: React.FC = () => {
           onPress={() => {
             const updated = recentSearches.filter(search => search !== item);
             setRecentSearches(updated);
-            AsyncStorage.setItem('recentSearches', JSON.stringify(updated));
+            
+            const currentUser = auth().currentUser;
+            if (currentUser) {
+              const userId = currentUser.uid;
+              const recentSearchesKey = `recentSearches_${userId}`;
+              AsyncStorage.setItem(recentSearchesKey, JSON.stringify(updated));
+            }
           }}
         >
           <Icon name="close" size={18} color={subTextColor} />
@@ -530,13 +512,13 @@ const SearchScreen: React.FC = () => {
   
   // Calculate result counts for tabs
   const resultCounts = {
-    accounts: userResults.length,
+    accounts: userDisplayData.length,
     posts: postResults.length,
     tags: tagResults.length
   };
   
   // Determine if we have any results
-  const hasResults = userResults.length > 0 || postResults.length > 0 || tagResults.length > 0;
+  const hasResults = userDisplayData.length > 0 || postResults.length > 0 || tagResults.length > 0;
   
   // Show recents when no search or no results
   const showRecents = searchQuery.trim() === '' || !hasResults;
@@ -699,11 +681,18 @@ const SearchScreen: React.FC = () => {
             {/* Accounts Tab */}
             {activeTab === 'accounts' && (
               <FlatList
-                data={userResults}
+                data={userDisplayData}
                 renderItem={renderUserItem}
-                keyExtractor={(item) => `user-${item.item.id}`}
+                keyExtractor={(item) => `user-${item.id}`}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.resultsList}
+                ListEmptyComponent={() => (
+                  <View style={styles.emptyContainer}>
+                    <Text style={[styles.emptyTitle, { color: textColor }]}>
+                      No matching users found
+                    </Text>
+                  </View>
+                )}
               />
             )}
             

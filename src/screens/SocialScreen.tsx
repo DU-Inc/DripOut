@@ -45,15 +45,22 @@ import FontAwesome from 'react-native-vector-icons/FontAwesome';
 // No longer need custom bottom navigation bar with tab navigator
 import { useTheme } from '../styles/themeprovider';
 
-// Add type definition for fashion post
+import { getCachedFeedPosts, Post } from '../services/postService';
+import { getUserProfile, UserProfile } from '../services/firestoreService';
+import { formatDistanceToNow } from 'date-fns';
+
+// Add type definition for fashion post (enhanced post with UI properties)
 interface FashionPost {
   id: string;
-  title: string;
+  userId: string;
+  username: string;
+  userAvatar?: string;
+  title?: string;
   gallery: string[];
-  aesthetic: string;
+  aesthetic?: string;
   caption: string;
   tags: string[];
-  outfitItems: Array<{
+  outfitItems?: Array<{
     name: string;
     brand: string;
   }>;
@@ -70,162 +77,43 @@ interface FashionPost {
   saves: number;
   isSaved: boolean;
   isUpvoted: boolean;
+  createdAt?: any;
 }
 
-// Generate fashion inspiration posts for the feed
-const FASHION_POSTS = Array.from({ length: 6 }).map((_, i) => {
-  // Fashion inspiration titles
-  const inspirationTitles = [
-    'Urban Minimalism',
-    'Modern Vintage Fusion',
-    'Structured Casual',
-    'Elevated Basics',
-    'Technical Athleisure',
-    'Sustainable Luxury'
-  ];
-  
-  // Different styling notes
-  const stylingNotes = [
-    'Streamlined silhouettes with monochromatic color blocking create visual interest while maintaining a clean aesthetic. Focus on premium fabrics and perfect fit.',
-    'Blending contemporary elements with classic vintage pieces for a timeless yet fresh look. The contrast between old and new creates unique visual interest.',
-    'Soft draping combined with architectural lines creates a balanced silhouette that\'s both refined and comfortable for everyday wear.',
-    'Reimagining wardrobe essentials with premium materials and subtle design details. The beauty is in the precision of construction and quality of materials.',
-    'Technical fabrics and functional details combined with thoughtful layering for a look that transitions seamlessly between activities.',
-    'Environmentally conscious design choices featuring organic materials and ethical production methods, without compromising on style or quality.'
-  ];
-  
-  // Style aesthetics
-  const aesthetics = [
-    'Minimalist',
-    'Vintage Revival',
-    'Modern Classic',
-    'Scandinavian',
-    'Tech Streetwear',
-    'Sustainable Luxury'
-  ];
-  
-  // Caption and tags for each post
-  const postCaptions = [
-    'Clean lines and monochromatic palettes that embody simplicity and sophistication.',
-    'Contemporary takes on classic vintage pieces that blend nostalgia with modern sensibilities.',
-    'Timeless pieces reimagined with subtle contemporary details for everyday elegance.',
-    'Functional minimalism with clean lines, natural materials, and subdued colors.',
-    'Performance-driven designs blending urban style with technical innovation.',
-    'Eco-conscious luxury focusing on ethical production and sustainable materials.'
-  ];
-  
-  // Tags for each post
-  const postTags = [
-    ['#minimalism', '#monochrome', '#essentials', '#quality'],
-    ['#vintage', '#retro', '#reuse', '#timeless'],
-    ['#classic', '#tailored', '#structured', '#refined'],
-    ['#scandinavian', '#nordic', '#clean', '#functional'],
-    ['#techwear', '#urban', '#performance', '#innovative'],
-    ['#sustainable', '#ethical', '#conscious', '#eco']
-  ];
-  
-  // Generate data for outfit details - more comprehensive with multiple items
-  const outfitItems = [
-    [
-      {name: 'Oversized Wool Blazer', brand: 'Arket'},
-      {name: 'Ribbed Tank', brand: 'COS'},
-      {name: 'Wide-Leg Trousers', brand: 'Toteme'},
-      {name: 'Leather Loafers', brand: 'ATP Atelier'}
-    ],
-    [
-      {name: 'Vintage Denim Jacket', brand: 'Levi\'s'},
-      {name: 'Silk Button-Down', brand: 'Equipment'},
-      {name: 'High-Rise Jeans', brand: 'AGOLDE'},
-      {name: 'Square-Toe Boots', brand: 'By Far'}
-    ],
-    [
-      {name: 'Belted Trench Coat', brand: 'Burberry'},
-      {name: 'Cashmere Turtleneck', brand: 'Vince'},
-      {name: 'Tailored Pants', brand: 'The Row'},
-      {name: 'Leather Chelsea Boots', brand: 'Common Projects'}
-    ],
-    [
-      {name: 'Merino Crewneck', brand: 'Uniqlo'},
-      {name: 'Relaxed Oxford Shirt', brand: 'Acne Studios'},
-      {name: 'Straight-Leg Chinos', brand: 'A.P.C.'},
-      {name: 'Minimal Sneakers', brand: 'Axel Arigato'}
-    ],
-    [
-      {name: 'Technical Parka', brand: 'Nanamica'},
-      {name: 'Performance T-Shirt', brand: 'Lululemon'},
-      {name: 'Tapered Track Pants', brand: 'Y-3'},
-      {name: 'Knit Runners', brand: 'Adidas'}
-    ],
-    [
-      {name: 'Organic Cotton Overshirt', brand: 'Asket'},
-      {name: 'Recycled Wool Sweater', brand: 'Patagonia'},
-      {name: 'Hemp Twill Pants', brand: 'Story Mfg.'},
-      {name: 'Vegan Leather Boots', brand: 'Veja'}
-    ]
-  ];
-  
-  // Generate style approach and notes
-  const inspoTag = Math.random() > 0.5 ? 'Fashion Forward' : 'Timeless Style';
-  const publishedDate = [`April ${i + 1}`, `May ${i + 10}`, `June ${i + 5}`][i % 3];
-  const upvotes = Math.floor(Math.random() * 500) + 100;
-  const saves = Math.floor(Math.random() * 200) + 50;
-  
-  // Generate fake comments
-  const commentUsernames = ['grace_style', 'fashion_guru', 'trend_watcher', 'clothescritic', 'runway_fan', 'style_seeker', 'fashionista', 'denim_lover', 'minimal_style'];
+// Generate sample comments for posts without comments yet
+const generateSampleComments = (postId: string) => {
+  const commentUsernames = ['grace_style', 'fashion_guru', 'trend_watcher', 'clothescritic', 'runway_fan', 'style_seeker'];
   const commentTexts = [
-    'Love this aesthetic! Would definitely try combining these pieces.',
+    'Love this! Would definitely try this style.',
     'The color palette is perfect for this season.',
-    'Where can I find something similar to that key piece?',
+    'Where can I find something similar to that?',
     'Been looking for this exact style inspiration, thanks for sharing!',
-    'Already saved this to my collection, great curation!',
-    'The silhouette is so flattering, going to try this look tomorrow.',
-    'This is exactly what I\'ve been searching for. Do you think it works for all body types?',
-    'I\'ve been trying to incorporate more pieces like this into my wardrobe.',
-    'The styling here is impeccable. Love how the pieces complement each other.',
-    'Just bought something similar and was looking for styling ideas. This is perfect!',
-    'Can you recommend any affordable alternatives for the featured pieces?',
-    'This would work great for my upcoming event. Thanks for the inspiration!'
+    'Already saved this to my collection, great post!',
+    'The silhouette is so flattering, going to try this look tomorrow.'
   ];
   
-  const comments = Array.from({ length: Math.floor(Math.random() * 6) + 5 }).map((_, j) => ({
-    id: `${i}-${j}`,
+  return Array.from({ length: Math.floor(Math.random() * 3) + 2 }).map((_, j) => ({
+    id: `${postId}-${j}`,
     username: commentUsernames[Math.floor(Math.random() * commentUsernames.length)],
     text: commentTexts[Math.floor(Math.random() * commentTexts.length)],
     timeAgo: `${Math.floor(Math.random() * 12) + 1}h ago`,
     likes: Math.floor(Math.random() * 20)
   }));
-  
-  // Generate color palette
-  const colorPalettes = [
-    ['#0F0F0F', '#FFFFFF', '#ECECEC', '#9E9E9E'],
-    ['#151A30', '#7A8CB2', '#DCE8F2', '#EAC696'],
-    ['#2E2922', '#A68C69', '#F1EFDC', '#CBD3CE'],
-    ['#294243', '#0F979A', '#F3F1E0', '#D97762'],
-    ['#141E29', '#23395B', '#8EA8C3', '#CBB3BF'],
-    ['#3C403D', '#667761', '#ABC4A1', '#E9F5DB']
-  ];
-  
-  return {
-    id: i.toString(),
-    title: inspirationTitles[i],
-    gallery: [
-      `https://picsum.photos/800/1000?random=${i * 3 + 51}`,
-      `https://picsum.photos/800/1000?random=${i * 3 + 52}`,
-      `https://picsum.photos/800/1000?random=${i * 3 + 53}`
-    ],
-    aesthetic: aesthetics[i],
-    caption: postCaptions[i],
-    tags: postTags[i],
-    outfitItems: outfitItems[i],
-    publishedDate,
-    comments,
-    commentCount: comments.length,
-    upvotes,
-    saves,
-    isSaved: Math.random() > 0.5,
-    isUpvoted: Math.random() > 0.6
-  };
-});
+};
+
+// These are style aesthetics to assign to posts
+const STYLE_AESTHETICS = [
+  'Minimalist',
+  'Vintage Revival',
+  'Modern Classic',
+  'Scandinavian',
+  'Tech Streetwear',
+  'Sustainable Luxury',
+  'Urban Chic',
+  'Boho',
+  'Preppy',
+  'Athleisure'
+];
 
 // Trending topics for the filter chips
 const TRENDING_TOPICS = [
@@ -248,6 +136,11 @@ const SocialScreen: React.FC = () => {
   const [expandedComments, setExpandedComments] = useState<string | null>(null);
   const [showMessagesModal, setShowMessagesModal] = useState(false);
   
+  // State for real data
+  const [firebasePosts, setFirebasePosts] = useState<Post[]>([]);
+  const [fashionPosts, setFashionPosts] = useState<FashionPost[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
   // Use individual animation values for simplicity
   const [commentHeights] = useState<Record<string, number>>({});
   const commentAnimation = useRef(new Animated.Value(0)).current;
@@ -257,12 +150,99 @@ const SocialScreen: React.FC = () => {
   const panXValues = useRef<Record<string, Animated.Value>>({});
   const panResponders = useRef<Record<string, any>>({});
 
-  // Simulate refresh action
-  const handleRefresh = () => {
+  // Fetch posts from Firebase
+  const fetchPosts = async (forceRefresh = false) => {
+    try {
+      setIsLoading(true);
+      // Get posts from Firestore with caching
+      const posts = await getCachedFeedPosts(forceRefresh);
+      setFirebasePosts(posts);
+      
+      // Convert to FashionPost format
+      const enhancedPosts = await Promise.all(posts.map(async (post) => {
+        // Format post dates
+        const publishedDate = post.createdAt ? 
+          formatDistanceToNow(post.createdAt.toDate ? post.createdAt.toDate() : new Date(post.createdAt)) + ' ago' : 
+          '1 day ago';
+        
+        // Generate random values for UI elements that don't exist in the database yet
+        const aesthetic = STYLE_AESTHETICS[Math.floor(Math.random() * STYLE_AESTHETICS.length)];
+        const upvotes = post.likes || Math.floor(Math.random() * 500) + 100;
+        const saves = Math.floor(Math.random() * 200) + 50;
+        const isSaved = Math.random() > 0.5;
+        const isUpvoted = Math.random() > 0.6;
+        
+        // Generate comments if none exist
+        const comments = generateSampleComments(post.id);
+        
+        // Convert tags array to include hashtags if they don't have them
+        const formattedTags = (post.tags || []).map(tag => 
+          tag.startsWith('#') ? tag : `#${tag}`
+        );
+        
+        // Create gallery array from the single image
+        const gallery = [post.imageUrl];
+        // Add more images if we want to simulate multiple images
+        if (Math.random() > 0.5) {
+          gallery.push(`https://picsum.photos/800/1000?random=${Math.floor(Math.random() * 100)}`);
+        }
+        
+        // Create title from caption if none exists
+        let title = post.caption.split('.')[0];
+        if (title && title.length > 30) {
+          title = title.substring(0, 30) + '...';
+        }
+        
+        // Create sample outfit items if none exist
+        const outfitItems = post.outfitItems && post.outfitItems.length > 0 ? 
+          post.outfitItems : 
+          [
+            {name: 'Oversized Shirt', brand: 'COS'},
+            {name: 'Slim Trousers', brand: 'Uniqlo'},
+            {name: 'Minimal Sneakers', brand: 'Common Projects'},
+            {name: 'Classic Watch', brand: 'Timex'}
+          ];
+          
+        return {
+          ...post,
+          title,
+          gallery,
+          aesthetic,
+          tags: formattedTags,
+          publishedDate,
+          outfitItems,
+          comments,
+          commentCount: comments.length,
+          upvotes,
+          saves,
+          isSaved,
+          isUpvoted
+        } as FashionPost;
+      }));
+      
+      setFashionPosts(enhancedPosts);
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+      // If we have no posts, create an empty array
+      setFashionPosts([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Initial data load
+  useEffect(() => {
+    fetchPosts();
+  }, []);
+
+  // Handle refresh action
+  const handleRefresh = async () => {
     setRefreshing(true);
-    setTimeout(() => {
+    try {
+      await fetchPosts(true); // Force refresh from Firestore
+    } finally {
       setRefreshing(false);
-    }, 1500);
+    }
   };
 
   // Colors based on theme
@@ -675,10 +655,14 @@ const SocialScreen: React.FC = () => {
 
         {/* Tags Section */}
         <View style={styles.tagsContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {item.tags.map((tag: string, i: number) => (
+          <FlatList
+            data={item.tags}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(_, index) => `tag-${index}`}
+            renderItem={({item: tag, index}) => (
               <TouchableOpacity 
-                key={`tag-${i}`}
+                key={`tag-${index}`}
                 style={[
                   styles.tagPill,
                   { 
@@ -691,8 +675,8 @@ const SocialScreen: React.FC = () => {
                   {tag}
                 </Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+            )}
+          />
         </View>
 
         {/* Featured Pieces Section */}
@@ -818,18 +802,15 @@ const SocialScreen: React.FC = () => {
             </View>
             
             {/* Scrollable comments list */}
-            <ScrollView 
-              style={styles.commentsScrollView}
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled={true}
-            >
-              <View style={styles.commentsList}>
-                {expandedComments === item.id && item.comments.map((comment: { id: string, username: string, text: string, timeAgo: string, likes: number }, i: number) => (
+            <View style={styles.commentsScrollView}>
+              <FlatList
+                data={expandedComments === item.id ? item.comments : []}
+                keyExtractor={(comment) => comment.id}
+                renderItem={({item: comment, index}) => (
                   <View 
-                    key={comment.id} 
                     style={[
                       styles.commentItem,
-                      i !== item.comments.length - 1 && { 
+                      index !== item.comments.length - 1 && { 
                         borderBottomWidth: 1, 
                         borderBottomColor: 'rgba(150, 150, 150, 0.1)'
                       }
@@ -879,9 +860,12 @@ const SocialScreen: React.FC = () => {
                       </TouchableOpacity>
                     </View>
                   </View>
-                ))}
-              </View>
-            </ScrollView>
+                )}
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled={true}
+                style={styles.commentsList}
+              />
+            </View>
             
             {/* Add comment input */}
             <View style={styles.addCommentRow}>
@@ -1091,56 +1075,82 @@ const SocialScreen: React.FC = () => {
       </View>
 
       {/* Main Content */}
-      <Animated.FlatList
-        data={FASHION_POSTS}
-        renderItem={renderFashionPost}
-        keyExtractor={item => item.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.listContent,
-          isDarkMode && { paddingTop: 4 }
-        ]}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
-        scrollEventThrottle={16}
-        refreshing={refreshing}
-        onRefresh={handleRefresh}
-        ListHeaderComponent={
-          <>
-            {/* Trending Topics Filter */}
-            <View style={styles.topicsContainer}>
-              <Text style={[styles.topicsHeading, { color: textColor }]}>
-                Trending Inspiration
-              </Text>
-              <FlatList
-                data={TRENDING_TOPICS}
-                renderItem={renderTrendingTopic}
-                keyExtractor={item => item}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.topicsList}
-              />
-            </View>
-
-            {refreshing && (
-              <View style={styles.refreshIndicator}>
-                <ActivityIndicator size="small" color={isDarkMode ? '#FF6B6B' : mainColor} />
-                <Text style={[
-                  styles.refreshText, 
-                  { color: isDarkMode ? '#B8B8CC' : subTextColor }
-                ]}>
-                  Refreshing...
+      {isLoading && !refreshing ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={mainColor} />
+          <Text style={[styles.loadingText, { color: subTextColor }]}>
+            Loading fashion feed...
+          </Text>
+        </View>
+      ) : (
+        <Animated.FlatList
+          data={fashionPosts}
+          renderItem={renderFashionPost}
+          keyExtractor={item => item.id}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.listContent,
+            isDarkMode && { paddingTop: 4 }
+          ]}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: false }
+          )}
+          scrollEventThrottle={16}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          ListHeaderComponent={
+            <>
+              {/* Trending Topics Filter */}
+              <View style={styles.topicsContainer}>
+                <Text style={[styles.topicsHeading, { color: textColor }]}>
+                  Trending Inspiration
                 </Text>
+                <FlatList
+                  data={TRENDING_TOPICS}
+                  renderItem={renderTrendingTopic}
+                  keyExtractor={item => item}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.topicsList}
+                />
               </View>
-            )}
-          </>
-        }
-        ListFooterComponent={
-          <View style={{ height: 90 }} />
-        }
-      />
+
+              {refreshing && (
+                <View style={styles.refreshIndicator}>
+                  <ActivityIndicator size="small" color={isDarkMode ? '#FF6B6B' : mainColor} />
+                  <Text style={[
+                    styles.refreshText, 
+                    { color: isDarkMode ? '#B8B8CC' : subTextColor }
+                  ]}>
+                    Refreshing...
+                  </Text>
+                </View>
+              )}
+            </>
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <FeatherIcon name="instagram" size={60} color={subTextColor} style={{ opacity: 0.5 }} />
+              <Text style={[styles.emptyTitle, { color: textColor }]}>
+                No Posts Yet
+              </Text>
+              <Text style={[styles.emptySubtitle, { color: subTextColor }]}>
+                Be the first to share your fashion inspiration
+              </Text>
+              <TouchableOpacity 
+                style={[styles.createFirstPostButton, { backgroundColor: mainColor }]}
+                onPress={() => navigation.navigate('CreatePostScreen')}
+              >
+                <Text style={styles.createFirstPostButtonText}>Create Post</Text>
+              </TouchableOpacity>
+            </View>
+          }
+          ListFooterComponent={
+            <View style={{ height: 90 }} />
+          }
+        />
+      )}
 
       {/* Floating Action Button for creating posts */}
       <TouchableOpacity 
@@ -1176,6 +1186,48 @@ export default SocialScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    marginTop: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+    paddingHorizontal: 20,
+  },
+  emptyTitle: {
+    ...defaultTextStyle,
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  createFirstPostButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 20,
+  },
+  createFirstPostButtonText: {
+    ...defaultTextStyle,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
     paddingHorizontal: 20,

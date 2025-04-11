@@ -1,4 +1,4 @@
-import { doc, setDoc, getDoc, DocumentReference, DocumentData } from 'firebase/firestore';
+import { doc, setDoc, getDoc, DocumentReference, DocumentData, collection, query, where, orderBy, limit, getDocs, startAt, endAt } from 'firebase/firestore';
 import { db } from '../Config/firebaseconfig';
 
 // Add global setTimeout type declaration at the top of the file
@@ -208,6 +208,169 @@ export const getUserPreferences = async (userId: string): Promise<UserPreference
     }
   } catch (error) {
     console.error('Error fetching user preferences: ', error);
+    return null;
+  }
+};
+
+/**
+ * Search for users in Firestore by username, display name, full name or email.
+ * 
+ * @param searchTerm The search term to look for in usernames, display names, full names, and emails
+ * @param maxResults Maximum number of results to return (default 20)
+ * @returns Array of UserProfile objects matching the search criteria
+ */
+export const searchUsers = async (searchTerm: string, maxResults: number = 20): Promise<UserProfile[]> => {
+  try {
+    if (!searchTerm.trim()) {
+      return [];
+    }
+
+    console.log(`Searching for users with term: '${searchTerm}'`);
+    
+    // Convert the search term to lowercase for case-insensitive searching
+    const searchTermLower = searchTerm.toLowerCase();
+    const searchTermUpper = searchTerm.toLowerCase() + '\uf8ff'; // Unicode character after all other characters
+    
+    // Create a query against the users collection
+    const usersCollection = collection(db, 'users');
+    let results: UserProfile[] = [];
+    const userIds = new Set<string>();
+    
+    // Try to match by email first (exact match with contains logic)
+    const emailQuery = query(
+      usersCollection,
+      where('email', '>=', searchTermLower),
+      where('email', '<=', searchTermUpper),
+      orderBy('email'),
+      limit(maxResults)
+    );
+    
+    console.log('Executing email search query');
+    const emailSnapshot = await getDocs(emailQuery);
+    
+    if (!emailSnapshot.empty) {
+      console.log(`Found ${emailSnapshot.size} results matching email`);
+      emailSnapshot.forEach(doc => {
+        const userData = doc.data() as UserProfile;
+        results.push(userData);
+        userIds.add(userData.userID);
+      });
+    }
+    
+    // Next, try to match by username
+    if (results.length < maxResults) {
+      const remainingResults = maxResults - results.length;
+      
+      const usernameQuery = query(
+        usersCollection,
+        where('username', '>=', searchTermLower),
+        where('username', '<=', searchTermUpper),
+        orderBy('username'),
+        limit(remainingResults)
+      );
+      
+      console.log('Executing username search query');
+      const usernameSnapshot = await getDocs(usernameQuery);
+      
+      if (!usernameSnapshot.empty) {
+        console.log(`Found ${usernameSnapshot.size} results matching username`);
+        usernameSnapshot.forEach(doc => {
+          const userData = doc.data() as UserProfile;
+          if (!userIds.has(userData.userID)) {
+            results.push(userData);
+            userIds.add(userData.userID);
+          }
+        });
+      }
+    }
+    
+    // If we didn't get enough results, try display name
+    if (results.length < maxResults) {
+      const remainingResults = maxResults - results.length;
+      
+      const displayNameQuery = query(
+        usersCollection,
+        where('userDisplayName', '>=', searchTermLower),
+        where('userDisplayName', '<=', searchTermUpper),
+        orderBy('userDisplayName'),
+        limit(remainingResults)
+      );
+      
+      console.log('Executing display name search query');
+      const displayNameSnapshot = await getDocs(displayNameQuery);
+      
+      if (!displayNameSnapshot.empty) {
+        console.log(`Found ${displayNameSnapshot.size} results matching display name`);
+        displayNameSnapshot.forEach(doc => {
+          const userData = doc.data() as UserProfile;
+          if (!userIds.has(userData.userID)) {
+            results.push(userData);
+            userIds.add(userData.userID);
+          }
+        });
+      }
+    }
+    
+    // Add fullName search if there's space for more results
+    if (results.length < maxResults) {
+      const remainingResults = maxResults - results.length;
+      
+      const fullNameQuery = query(
+        usersCollection,
+        where('fullName', '>=', searchTermLower),
+        where('fullName', '<=', searchTermUpper),
+        orderBy('fullName'),
+        limit(remainingResults)
+      );
+      
+      console.log('Executing full name search query');
+      const fullNameSnapshot = await getDocs(fullNameQuery);
+      
+      if (!fullNameSnapshot.empty) {
+        console.log(`Found ${fullNameSnapshot.size} results matching full name`);
+        fullNameSnapshot.forEach(doc => {
+          const userData = doc.data() as UserProfile;
+          if (!userIds.has(userData.userID)) {
+            results.push(userData);
+            userIds.add(userData.userID);
+          }
+        });
+      }
+    }
+    
+    console.log(`Total results: Found ${results.length} users matching search term '${searchTerm}'`);
+    return results;
+  } catch (error) {
+    console.error('Error searching users: ', error);
+    return [];
+  }
+};
+
+/**
+ * Get a specific user's profile by username
+ * 
+ * @param username The username to look for
+ * @returns UserProfile object if found, or null
+ */
+export const getUserProfileByUsername = async (username: string): Promise<UserProfile | null> => {
+  try {
+    const usersCollection = collection(db, 'users');
+    const usernameQuery = query(
+      usersCollection,
+      where('username', '==', username.toLowerCase())
+    );
+    
+    const querySnapshot = await getDocs(usernameQuery);
+    
+    if (!querySnapshot.empty) {
+      // Return the first matching user (should only be one)
+      return querySnapshot.docs[0].data() as UserProfile;
+    } else {
+      console.log(`No user found with username '${username}'`);
+      return null;
+    }
+  } catch (error) {
+    console.error('Error fetching user by username: ', error);
     return null;
   }
 };
