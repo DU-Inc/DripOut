@@ -1,510 +1,425 @@
 // src/screens/OverviewScreen.tsx
+// Infinite scroll feed implementation
 
-/* global setTimeout */
-
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   View,
-  ScrollView,
-  TouchableOpacity,
-  Image,
   Dimensions,
   Animated,
   Platform,
-  ImageBackground,
-  FlatList
+  FlatList,
+  ActivityIndicator,
+  TouchableOpacity,
+  RefreshControl,
+  ScrollView,
+  PanResponder,
+  NativeScrollEvent
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
-import FeatherIcon from 'react-native-vector-icons/Feather';
-import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
-import ThreeDBox from "../components/3DComponents/ThreeDBox";
+import AnimatedLoadingIndicator from '../components/common/AnimatedLoadingIndicator';
 
-// Set default text styles for SF Pro font family
+// Add explicit global setTimeout declaration for TypeScript
+declare const setTimeout: (callback: () => void, ms: number) => number;
+
+const { width } = Dimensions.get('window');
+
+// Default text styles for SF Pro font family
 const defaultTextStyle = {
-  fontFamily: Platform.OS === 'ios' ? 'System' : 'SF Pro Text', // System font on iOS is SF Pro
-  letterSpacing: 0.1, // SF Pro typically has slightly tighter letter spacing
+  fontFamily: Platform.OS === 'ios' ? 'System' : 'SF Pro Text',
+  letterSpacing: 0.1,
 };
 
-const { width, height } = Dimensions.get('window');
+// Sample post data structure
+interface FeedItem {
+  id: string;
+  type: 'post' | 'product' | 'outfit' | 'ad' | 'collection';
+  content: any; // This will be specific to each card type
+}
 
-// Mock featured sections
-const FEATURED_CONTENT = [
-  {
-    id: '1',
-    title: 'Create Your Digital Wardrobe',
-    description: 'Organize your clothes, discover new outfits, and try them on with your 3D avatar',
-    image: 'https://images.unsplash.com/photo-1562157873-818bc0726f68?q=80&w=800&auto=format',
-    screen: '3DTab',
-    gradient: ['#7C6BFF', '#5245CC']
-  },
-  {
-    id: '2',
-    title: 'Find Your Style',
-    description: 'Browse personalized recommendations based on your preferences',
-    image: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?q=80&w=800&auto=format',
-    screen: 'DiscoverTab',
-    gradient: ['#FF4870', '#FF3B5C']
-  },
-  {
-    id: '3',
-    title: 'Connect with Fashion Community',
-    description: 'Share your style, get inspired by others, and join the conversation',
-    image: 'https://images.unsplash.com/photo-1540174053853-1cc5d1e21c43?q=80&w=800&auto=format',
-    screen: 'SocialTab',
-    gradient: ['#64D2FF', '#5AC8FA']
-  }
+// Sample filter options
+const FILTER_OPTIONS = [
+  { id: 'all', label: 'All' },
+  { id: 'trending', label: 'Trending' },
+  { id: 'new', label: 'New Arrivals' },
+  { id: 'popular', label: 'Popular' },
+  { id: 'recommended', label: 'For You' },
+  { id: 'sale', label: 'On Sale' },
+  { id: 'winter', label: 'Winter Collection' },
+  { id: 'summer', label: 'Summer Styles' }
 ];
 
-// Mock trending products
-const TRENDING_PRODUCTS = [
-  {
-    id: '1',
-    name: 'Minimalist Tee',
-    price: '$39',
-    image: 'https://images.unsplash.com/photo-1576566588028-4147f3842f27?q=80&w=600&auto=format',
-  },
-  {
-    id: '2',
-    name: 'Denim Jacket',
-    price: '$89',
-    image: 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?q=80&w=600&auto=format',
-  },
-  {
-    id: '3',
-    name: 'Classic Watch',
-    price: '$129',
-    image: 'https://images.unsplash.com/photo-1524805444758-089113d48a6d?q=80&w=600&auto=format',
-  },
-  {
-    id: '4',
-    name: 'Leather Bag',
-    price: '$149',
-    image: 'https://images.unsplash.com/photo-1605733513597-a8f8341084e6?q=80&w=600&auto=format',
-  }
-];
+// Helper function to generate unique IDs
+const generateUniqueId = (): string => {
+  return Math.random().toString(36).substring(2, 15) + 
+         Math.random().toString(36).substring(2, 15) + 
+         Date.now().toString(36);
+};
 
-// Mock style boards
-const STYLE_BOARDS = [
-  {
-    id: '1',
-    title: 'Minimalist Elegance',
-    image: 'https://images.unsplash.com/photo-1613552465135-e5bba888a4ed?q=80&w=600&auto=format',
-  },
-  {
-    id: '2',
-    title: 'Street Style',
-    image: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?q=80&w=600&auto=format',
-  },
-  {
-    id: '3',
-    title: 'Urban Casual',
-    image: 'https://images.unsplash.com/photo-1614676471928-2ed0ad1061a4?q=80&w=600&auto=format',
-  }
-];
-
-// Mock community posts
-const COMMUNITY_POSTS = [
-  {
-    id: '1',
-    username: 'sophia_style',
-    avatar: 'https://randomuser.me/api/portraits/women/32.jpg',
-    image: 'https://images.unsplash.com/photo-1485968579580-b6d095142e6e?q=80&w=600&auto=format',
-    likes: 248,
-    comments: 34,
-  },
-  {
-    id: '2',
-    username: 'marcus_fashion',
-    avatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-    image: 'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?q=80&w=600&auto=format',
-    likes: 176,
-    comments: 23,
-  }
-];
+// Pull-to-refresh threshold
+const REFRESH_THRESHOLD = 80;
 
 const OverviewScreen: React.FC = () => {
   const navigation = useNavigation();
   const { isDarkMode } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
-  const [activeFeature, setActiveFeature] = useState(0);
+  const pullY = useRef(new Animated.Value(0)).current;
+  
+  // Reference to the FlatList
+  const flatListRef = useRef<FlatList>(null);
+  
+  // Keep track of current scroll position
+  const scrollYValue = useRef(0);
+  
+  // Feed state
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [isPullingDown, setIsPullingDown] = useState(false);
 
-  // Colors based on theme
+  // Theme colors
   const bgColor = isDarkMode ? '#000000' : '#FFFFFF';
   const textColor = isDarkMode ? '#FFFFFF' : '#000000';
-  const subTextColor = isDarkMode ? '#8E8E93' : '#6E6E73'; // iOS gray
-  const cardBgColor = isDarkMode ? '#1C1C1E' : '#FFFFFF'; // iOS card background
-  const borderColor = isDarkMode ? '#38383A' : '#E5E5EA'; // iOS separator
-  const mainColor = isDarkMode ? '#0A84FF' : '#007AFF'; // iOS blue
-  const secondaryColor = isDarkMode ? '#64D2FF' : '#5AC8FA'; // iOS light blue
-  const accentColor = isDarkMode ? '#FF9F0A' : '#FF9500'; // iOS orange
-  const surfaceColor = isDarkMode ? '#2C2C2E' : '#F2F2F7'; // iOS system gray
+  const subTextColor = isDarkMode ? '#8E8E93' : '#6E6E73';
+  const cardBgColor = isDarkMode ? '#1C1C1E' : '#FFFFFF';
+  const borderColor = isDarkMode ? '#38383A' : '#E5E5EA';
+  const mainColor = isDarkMode ? '#0A84FF' : '#007AFF';
+  const filterBgColor = isDarkMode ? '#1C1C1E' : '#F2F2F7';
+  const filterActiveBgColor = isDarkMode ? '#2C2C2E' : '#E5E5EA';
 
-  // Header animation
+  // Update scrollYValue when the animated value changes
+  scrollY.addListener(({ value }) => {
+    scrollYValue.current = value;
+  });
+
+  // Header animation - Super smooth transition with even more steps
+  const headerHeight = scrollY.interpolate({
+    inputRange: [0, 10, 20, 30, 40, 50, 60],
+    outputRange: [50, 48, 40, 30, 20, 10, 0], // More steps for smoother transition
+    extrapolate: 'clamp'
+  });
+  
   const headerOpacity = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [0, 1],
+    inputRange: [0, 10, 20, 30, 40, 50, 60],
+    outputRange: [1, 0.9, 0.8, 0.6, 0.4, 0.2, 0], // More steps for smoother fade
+    extrapolate: 'clamp'
+  });
+  
+  const titleScale = scrollY.interpolate({
+    inputRange: [0, 10, 20, 30, 40, 50, 60],
+    outputRange: [1, 0.98, 0.96, 0.94, 0.92, 0.9, 0.88], // More subtle scaling
+    extrapolate: 'clamp'
+  });
+  
+  // Animation for the pull-to-refresh indicator
+  const refreshIndicatorHeight = pullY.interpolate({
+    inputRange: [0, REFRESH_THRESHOLD],
+    outputRange: [0, 80],
     extrapolate: 'clamp'
   });
 
-  const navigateToScreen = (screenName: string) => {
-    navigation.navigate(screenName as never);
-  };
+  // Setup pan responder for custom pull-to-refresh
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Only activate when pulling down at the top of the list
+        return !refreshing && !loading && gestureState.dy > 0 && scrollYValue.current === 0;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        // Update the pull distance
+        pullY.setValue(Math.max(0, gestureState.dy));
+        if (gestureState.dy > REFRESH_THRESHOLD && !isPullingDown) {
+          setIsPullingDown(true);
+        } else if (gestureState.dy <= REFRESH_THRESHOLD && isPullingDown) {
+          setIsPullingDown(false);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        // If pulled enough, trigger refresh
+        if (gestureState.dy > REFRESH_THRESHOLD) {
+          handleRefresh();
+        }
+        
+        // Animate the pull distance back to 0
+        Animated.timing(pullY, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: false
+        }).start();
+      }
+    })
+  ).current;
 
-  const renderFeaturedItem = ({ item, index }: { item: any, index: number }) => (
-    <TouchableOpacity 
-      style={[styles.featuredCard, { opacity: activeFeature === index ? 1 : 0.7 }]}
-      onPress={() => {
-        setActiveFeature(index);
-        setTimeout(() => navigateToScreen(item.screen), 300);
-      }}
-      activeOpacity={0.9}
-    >
-      <ImageBackground 
-        source={{ uri: item.image }} 
-        style={styles.featuredImage}
-        imageStyle={{ borderRadius: 20 }}
+  // Cleanup function to remove listeners on unmount
+  useEffect(() => {
+    return () => {
+      scrollY.removeAllListeners();
+    };
+  }, [scrollY]);
+
+  // Fetch feed data
+  const fetchFeed = useCallback(async (pageNumber: number, refresh: boolean = false, filter: string = activeFilter) => {
+    if (loading || (!hasMore && !refresh)) return;
+    
+    try {
+      setLoading(true);
+      
+      // Simulating API call with timeout
+      await new Promise(resolve => setTimeout(() => resolve(true), 1000));
+      
+      // This would be replaced with actual API call
+      // const response = await api.getFeed(pageNumber, filter);
+      
+      // Simulated data for testing - now with truly unique IDs
+      const newItems: FeedItem[] = Array.from({ length: 10 }, (_, i) => ({
+        id: generateUniqueId(), // Unique ID that won't collide
+        type: ['post', 'product', 'outfit', 'ad', 'collection'][Math.floor(Math.random() * 5)] as FeedItem['type'],
+        content: {
+          title: `${filter !== 'all' ? filter + ' - ' : ''}Item ${pageNumber}-${i}`,
+          description: 'This is a sample item in the feed',
+          timestamp: new Date().toISOString(),
+        }
+      }));
+      
+      if (refresh) {
+        setFeedItems(newItems);
+        setPage(1);
+      } else {
+        setFeedItems(prev => [...prev, ...newItems]);
+      }
+      
+      // Check if there's more data to load
+      setHasMore(pageNumber < 5); // For testing, limit to 5 pages
+      
+    } catch (error) {
+      console.error('Error fetching feed:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+      setIsPullingDown(false);
+    }
+  }, [loading, hasMore, activeFilter]);
+
+  // Initial load
+  useEffect(() => {
+    fetchFeed(1);
+  }, [fetchFeed]);
+
+  // Handle refresh
+  const handleRefresh = useCallback(() => {
+    if (refreshing) return;
+    setRefreshing(true);
+    fetchFeed(1, true);
+  }, [refreshing, fetchFeed]);
+
+  // Handle loading more
+  const handleLoadMore = useCallback(() => {
+    if (loading || !hasMore) return;
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchFeed(nextPage);
+  }, [loading, hasMore, page, fetchFeed]);
+
+  // Handle filter change
+  const handleFilterChange = useCallback((filterId: string) => {
+    if (filterId === activeFilter) return;
+    setActiveFilter(filterId);
+    setPage(1);
+    setFeedItems([]);
+    setHasMore(true);
+    fetchFeed(1, true, filterId);
+  }, [activeFilter, fetchFeed]);
+
+  // Render item based on type
+  const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
+    // This would be implemented with separate card components for each type
+    return (
+      <View 
+        style={[styles.feedCard, { 
+          backgroundColor: cardBgColor,
+          borderColor: borderColor,
+        }]}
       >
-        <View style={[
-          styles.featuredGradient, 
-          { 
-            backgroundColor: isDarkMode ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)',
-            borderRadius: 20
-          }
-        ]}>
-          <View style={styles.featuredContent}>
-            <Text style={[styles.featuredTitle, { color: textColor }]}>{item.title}</Text>
-            <Text style={[styles.featuredDescription, { color: subTextColor }]}>{item.description}</Text>
-            <View style={[styles.featuredButton, { backgroundColor: mainColor }]}>
-              <Text style={styles.featuredButtonText}>Explore</Text>
-              <Icon name="arrow-forward" size={16} color="#FFFFFF" />
-            </View>
-          </View>
+        <View style={styles.cardHeader}>
+          <Text style={[styles.cardType, { color: mainColor }]}>{item.type.toUpperCase()}</Text>
+          <Text style={[styles.cardTitle, { color: textColor }]}>{item.content.title}</Text>
         </View>
-      </ImageBackground>
-    </TouchableOpacity>
-  );
+        <View style={styles.cardBody}>
+          <Text style={[styles.cardDescription, { color: subTextColor }]}>
+            {item.content.description}
+          </Text>
+        </View>
+        <View style={styles.cardFooter}>
+          <Text style={[styles.cardTimestamp, { color: subTextColor }]}>
+            {new Date(item.content.timestamp).toLocaleDateString()}
+          </Text>
+        </View>
+      </View>
+    );
+  }, [cardBgColor, borderColor, mainColor, textColor, subTextColor]);
+
+  // Render filter item
+  const renderFilterItem = useCallback((filter: typeof FILTER_OPTIONS[0]) => {
+    const isActive = filter.id === activeFilter;
+    return (
+      <TouchableOpacity
+        key={filter.id}
+        style={styles.filterItem}
+        onPress={() => handleFilterChange(filter.id)}
+      >
+        <Text 
+          style={[
+            styles.filterText, 
+            { 
+              color: isActive ? mainColor : subTextColor,
+              fontWeight: '600', // All filter items are bold now
+            }
+          ]}
+        >
+          {filter.label}
+        </Text>
+      </TouchableOpacity>
+    );
+  }, [activeFilter, mainColor, subTextColor, handleFilterChange]);
+
+  // Render footer (loading indicator)
+  const renderFooter = useCallback(() => {
+    if (!loading || refreshing) return null;
+    
+    return (
+      <View style={styles.footerContainer}>
+        <AnimatedLoadingIndicator 
+          text="" 
+          size="small" 
+          includeIcons={false} 
+          customColor={mainColor}
+        />
+      </View>
+    );
+  }, [loading, refreshing, mainColor]);
+
+  // Render header with pull-to-refresh
+  const renderHeader = useCallback(() => {
+    return (
+      <Animated.View style={[styles.pullToRefreshContainer, { height: refreshIndicatorHeight }]}>
+        {isPullingDown || refreshing ? (
+          <AnimatedLoadingIndicator 
+            text="" 
+            size="small" 
+            includeIcons={false} 
+            customColor={mainColor}
+          />
+        ) : null}
+      </Animated.View>
+    );
+  }, [refreshIndicatorHeight, isPullingDown, refreshing, mainColor]);
+
+  // Empty list component
+  const renderEmpty = useCallback(() => {
+    if (loading) return null;
+    
+    return (
+      <View style={styles.emptyContainer}>
+        <Text style={[styles.emptyText, { color: textColor }]}>No items to display</Text>
+        <TouchableOpacity 
+          style={[styles.emptyButton, { backgroundColor: mainColor }]}
+          onPress={() => fetchFeed(1, true)}
+        >
+          <Text style={styles.emptyButtonText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }, [loading, textColor, mainColor, fetchFeed]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       
-      {/* Floating Header */}
+      {/* Collapsible App Name Header - Left aligned */}
       <Animated.View 
         style={[
-          styles.header, 
+          styles.appNameHeader, 
           { 
-            backgroundColor: cardBgColor,
+            backgroundColor: bgColor,
+            height: headerHeight,
             opacity: headerOpacity,
-            borderBottomColor: borderColor,
-            shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
           }
         ]}
       >
-        <Text style={[styles.headerTitle, { color: textColor }]}>DripOut</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerButton}>
-            <Icon name="search" size={22} color={mainColor} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerButton}>
-            <Icon name="notifications-outline" size={22} color={mainColor} />
-          </TouchableOpacity>
-        </View>
+        <Animated.Text 
+          style={[
+            styles.appNameText, 
+            { 
+              color: textColor,
+              transform: [{ scale: titleScale }] 
+            }
+          ]}
+        >
+          DripOut
+        </Animated.Text>
       </Animated.View>
       
-      <Animated.ScrollView
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
-        scrollEventThrottle={16}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Welcome Header */}
-        <View style={styles.welcomeSection}>
-          <Text style={[styles.welcomeTitle, { color: textColor }]}>DripOut</Text>
-          <Text style={[styles.welcomeSubtitle, { color: subTextColor }]}>Your personal style assistant</Text>
-        </View>
-        
-        {/* Featured Sections */}
-        <View style={styles.featuredSection}>
-          <Text style={[styles.sectionTitle, { color: textColor }]}>Featured</Text>
-          <FlatList
-            data={FEATURED_CONTENT}
-            renderItem={renderFeaturedItem}
-            keyExtractor={item => item.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            pagingEnabled
-            snapToInterval={width - 60}
-            decelerationRate="fast"
-            contentContainerStyle={styles.featuredList}
-            onMomentumScrollEnd={(e) => {
-              const contentOffset = e.nativeEvent.contentOffset.x;
-              const viewSize = width - 60;
-              const index = Math.round(contentOffset / viewSize);
-              setActiveFeature(index);
-            }}
-          />
-          <View style={styles.featuredDots}>
-            {FEATURED_CONTENT.map((_, index) => (
-              <View 
-                key={index} 
-                style={[
-                  styles.featuredDot, 
-                  { backgroundColor: activeFeature === index ? mainColor : surfaceColor }
-                ]} 
-              />
-            ))}
-          </View>
-        </View>
-        
-        {/* 3D Avatar Section */}
-        <View style={[styles.avatarSection, { backgroundColor: surfaceColor }]}>
-          <View style={styles.avatarHeader}>
-            <Text style={[styles.sectionTitle, { color: textColor }]}>Your 3D Avatar</Text>
-            <TouchableOpacity 
-              onPress={() => navigateToScreen('3DTab')}
-              style={styles.viewAllButton}
-            >
-              <Text style={[styles.viewAllText, { color: mainColor }]}>View</Text>
-              <Icon name="chevron-forward" size={16} color={mainColor} />
-            </TouchableOpacity>
-          </View>
-          
-          <View style={[styles.avatarContainer, { backgroundColor: cardBgColor }]}>
-            <ThreeDBox
-              width={0.78}
-              height={0.65}
-              imageUrl={require('../assets/images/3dimage.png')}
-            />
-            <TouchableOpacity 
-              style={[styles.tryOnButton, { backgroundColor: mainColor }]}
-              onPress={() => navigateToScreen('3DTab')}
-            >
-              <Text style={styles.tryOnButtonText}>Try On Clothes</Text>
-              <Icon name="shirt-outline" size={18} color="#FFFFFF" style={{ marginLeft: 6 }} />
-            </TouchableOpacity>
-          </View>
-        </View>
-        
-        {/* Trending Products Section */}
-        <View style={styles.trendingSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: textColor }]}>Trending Now</Text>
-            <TouchableOpacity 
-              onPress={() => navigateToScreen('DiscoverTab')}
-              style={styles.viewAllButton}
-            >
-              <Text style={[styles.viewAllText, { color: mainColor }]}>View All</Text>
-              <Icon name="chevron-forward" size={16} color={mainColor} />
-            </TouchableOpacity>
-          </View>
-          
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.trendingList}
-          >
-            {TRENDING_PRODUCTS.map((product) => (
-              <TouchableOpacity 
-                key={product.id}
-                style={[
-                  styles.productCard, 
-                  { 
-                    backgroundColor: cardBgColor,
-                    borderColor: borderColor,
-                    shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
-                  }
-                ]}
-                onPress={() => navigateToScreen('DiscoverTab')}
-              >
-                <Image source={{ uri: product.image }} style={styles.productImage} />
-                <View style={styles.productDetails}>
-                  <Text style={[styles.productName, { color: textColor }]} numberOfLines={1}>
-                    {product.name}
-                  </Text>
-                  <Text style={[styles.productPrice, { color: mainColor }]}>{product.price}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-        
-        {/* Style Boards Section */}
-        <View style={styles.styleBoardsSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: textColor }]}>Style Boards</Text>
-            <TouchableOpacity 
-              onPress={() => navigateToScreen('ProfileTab')}
-              style={styles.viewAllButton}
-            >
-              <Text style={[styles.viewAllText, { color: mainColor }]}>View All</Text>
-              <Icon name="chevron-forward" size={16} color={mainColor} />
-            </TouchableOpacity>
-          </View>
-          
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.styleBoardsGrid}
-          >
-            {STYLE_BOARDS.map((board) => (
-              <TouchableOpacity 
-                key={board.id}
-                style={[
-                  styles.styleBoard, 
-                  { 
-                    backgroundColor: cardBgColor,
-                    shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
-                  }
-                ]}
-                onPress={() => navigateToScreen('ProfileTab')}
-              >
-                <Image source={{ uri: board.image }} style={styles.styleBoardImage} />
-                <View style={styles.styleBoardOverlay}>
-                  <Text style={styles.styleBoardTitle}>{board.title}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-        
-        {/* Community Section */}
-        <View style={[styles.communitySection, { backgroundColor: surfaceColor }]}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: textColor }]}>Community</Text>
-            <TouchableOpacity 
-              onPress={() => navigateToScreen('SocialTab')}
-              style={styles.viewAllButton}
-            >
-              <Text style={[styles.viewAllText, { color: mainColor }]}>View All</Text>
-              <Icon name="chevron-forward" size={16} color={mainColor} />
-            </TouchableOpacity>
-          </View>
-          
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.communityPosts}
-          >
-            {COMMUNITY_POSTS.map((post) => (
-              <TouchableOpacity 
-                key={post.id}
-                style={[
-                  styles.communityPost, 
-                  { 
-                    backgroundColor: cardBgColor,
-                    shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
-                  }
-                ]}
-                onPress={() => navigateToScreen('SocialTab')}
-              >
-                <View style={styles.postHeader}>
-                  <View style={styles.postUser}>
-                    <Image source={{ uri: post.avatar }} style={styles.userAvatar} />
-                    <Text style={[styles.username, { color: textColor }]}>{post.username}</Text>
-                  </View>
-                  <Icon name="ellipsis-horizontal" size={18} color={subTextColor} />
-                </View>
-                <Image source={{ uri: post.image }} style={styles.postImage} />
-                <View style={styles.postActions}>
-                  <View style={styles.actionGroup}>
-                    <TouchableOpacity style={styles.actionButton}>
-                      <Icon name="heart-outline" size={22} color={textColor} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButton}>
-                      <Icon name="chatbubble-outline" size={22} color={textColor} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButton}>
-                      <Icon name="paper-plane-outline" size={22} color={textColor} />
-                    </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity style={styles.actionButton}>
-                    <Icon name="bookmark-outline" size={22} color={textColor} />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.postStats}>
-                  <Text style={[styles.postLikes, { color: textColor }]}>{post.likes} likes</Text>
-                  <Text style={[styles.postComments, { color: subTextColor }]}>View all {post.comments} comments</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-        
-        {/* Closet Section */}
-        <View style={styles.closetSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: textColor }]}>Your Closet</Text>
-            <TouchableOpacity 
-              onPress={() => navigateToScreen('ClosetTab')}
-              style={styles.viewAllButton}
-            >
-              <Text style={[styles.viewAllText, { color: mainColor }]}>Open</Text>
-              <Icon name="chevron-forward" size={16} color={mainColor} />
-            </TouchableOpacity>
-          </View>
-          
-          <TouchableOpacity 
-            style={[
-              styles.closetCard, 
-              { 
-                backgroundColor: cardBgColor,
-                shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)'
-              }
-            ]}
-            onPress={() => navigateToScreen('ClosetTab')}
-          >
-            <View style={styles.closetContent}>
-              <View>
-                <Text style={[styles.closetTitle, { color: textColor }]}>Manage Your Wardrobe</Text>
-                <Text style={[styles.closetDescription, { color: subTextColor }]}>
-                  Organize outfits, track items, and create new looks
-                </Text>
-              </View>
-              <View style={[styles.closetButton, { backgroundColor: mainColor }]}>
-                <Icon name="arrow-forward" size={20} color="#FFFFFF" />
-              </View>
-            </View>
-            
-            <View style={styles.closetIconsRow}>
-              <View style={[styles.closetIcon, { backgroundColor: surfaceColor }]}>
-                <Icon name="shirt-outline" size={28} color={mainColor} />
-              </View>
-              <View style={[styles.closetIcon, { backgroundColor: surfaceColor }]}>
-                <Icon name="glasses-outline" size={28} color={secondaryColor} />
-              </View>
-              <View style={[styles.closetIcon, { backgroundColor: surfaceColor }]}>
-                <Icon name="watch-outline" size={28} color={accentColor} />
-              </View>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* Footer space for tab bar */}
-        <View style={{ height: 90 }} />
-      </Animated.ScrollView>
-      
-      {/* Quick Action Button for messaging */}
-      <TouchableOpacity 
+      {/* Horizontal Filter Bar - This stays fixed */}
+      <View 
         style={[
-          styles.messageButton, 
+          styles.filterContainer, 
           { 
-            backgroundColor: mainColor,
-            shadowColor: isDarkMode ? 'rgba(124, 107, 255, 0.5)' : 'rgba(0,0,0,0.3)'
+            backgroundColor: bgColor,
+            borderBottomColor: 'transparent', // Removed border
           }
         ]}
-        onPress={() => navigateToScreen('SocialTab')}
       >
-        <FeatherIcon name="message-circle" size={24} color="#FFFFFF" />
-      </TouchableOpacity>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScrollContent}
+        >
+          {FILTER_OPTIONS.map(renderFilterItem)}
+        </ScrollView>
+      </View>
+      
+      {/* Feed List with custom pull-to-refresh */}
+      <View style={styles.listContainer} {...panResponder.panHandlers}>
+        {renderHeader()}
+        <FlatList
+          ref={flatListRef}
+          data={feedItems}
+          renderItem={renderFeedItem}
+          keyExtractor={item => item.id}
+          contentContainerStyle={[styles.feedContainer, { paddingTop: 12 }]} // Reduced top padding
+          showsVerticalScrollIndicator={false}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={renderFooter}
+          ListEmptyComponent={renderEmpty}
+          scrollEventThrottle={16}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: false }
+          )}
+          // Standard RefreshControl removed, using custom pull-to-refresh
+        />
+      </View>
+      
+      {/* Initial loading state */}
+      {loading && feedItems.length === 0 && !refreshing && (
+        <View style={[styles.initialLoadingContainer, { backgroundColor: bgColor }]}>
+          <AnimatedLoadingIndicator 
+            text="" 
+            size="small" 
+            includeIcons={false}
+            customColor={mainColor}
+          />
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -513,394 +428,131 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 60,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  // App Name Header (Collapsible)
+  appNameHeader: {
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
     paddingHorizontal: 20,
-    zIndex: 100,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  headerTitle: {
-    ...defaultTextStyle,
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  headerActions: {
-    flexDirection: 'row',
-  },
-  headerButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  scrollContent: {
-    paddingTop: 20,
-  },
-  welcomeSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  welcomeTitle: {
-    ...defaultTextStyle,
-    fontSize: 34,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  welcomeSubtitle: {
-    ...defaultTextStyle,
-    fontSize: 18,
-    marginTop: 6,
-  },
-  // Featured Section
-  featuredSection: {
-    marginBottom: 30,
-  },
-  sectionTitle: {
-    ...defaultTextStyle,
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 16,
-    paddingHorizontal: 20,
-  },
-  featuredList: {
-    paddingHorizontal: 10,
-    paddingBottom: 10,
-  },
-  featuredCard: {
-    width: width - 60,
-    height: 220,
-    marginHorizontal: 10,
-    borderRadius: 20,
+    paddingBottom: 2, // Reduced from 5 to 2 to bring closer to filters
     overflow: 'hidden',
   },
-  featuredImage: {
-    width: '100%',
-    height: '100%',
+  appNameText: {
+    ...defaultTextStyle,
+    fontSize: 24, // Reduced from 32 to 24
+    fontWeight: '700', // Slightly reduced weight
+    letterSpacing: 0.5,
+  },
+  // Filter Bar (Fixed)
+  filterContainer: {
+    height: 34, // Reduced from 40 to 34
     justifyContent: 'center',
   },
-  featuredGradient: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'center',
-  },
-  featuredContent: {
-    maxWidth: '85%',
-  },
-  featuredTitle: {
-    ...defaultTextStyle,
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  featuredDescription: {
-    ...defaultTextStyle,
-    fontSize: 15,
-    fontWeight: '400',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  featuredButton: {
-    flexDirection: 'row',
+  filterScrollContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 0, // Removed vertical padding
     alignItems: 'center',
+  },
+  filterItem: {
+    paddingHorizontal: 8, // Reduced from 12 to 8
+    paddingVertical: 2, // Reduced from 4 to 2
+    marginRight: 12, // Reduced from 16 to 12
+  },
+  filterText: {
+    ...defaultTextStyle,
+    fontSize: 14, // Reduced from 16 to 14
+    fontWeight: '600', // All items are bold by default
+  },
+  // List container for custom pull-to-refresh
+  listContainer: {
+    flex: 1,
+  },
+  // Pull to refresh
+  pullToRefreshContainer: {
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  // Feed content
+  feedContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  feedCard: {
+    borderRadius: 16,
+    marginBottom: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardHeader: {
+    padding: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  cardType: {
+    ...defaultTextStyle,
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  cardTitle: {
+    ...defaultTextStyle,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  cardBody: {
+    padding: 16,
+  },
+  cardDescription: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  cardFooter: {
+    padding: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  cardTimestamp: {
+    ...defaultTextStyle,
+    fontSize: 14,
+  },
+  footerContainer: {
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 300,
+  },
+  emptyText: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  emptyButton: {
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
-    alignSelf: 'flex-start',
   },
-  featuredButtonText: {
-    ...defaultTextStyle,
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginRight: 6,
-  },
-  featuredDots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 12,
-  },
-  featuredDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 4,
-  },
-  // Avatar Section
-  avatarSection: {
-    paddingTop: 24,
-    paddingBottom: 30,
-    marginBottom: 30,
-  },
-  avatarHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 20,
-  },
-  viewAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  viewAllText: {
-    ...defaultTextStyle,
-    fontSize: 16,
-    fontWeight: '600',
-    marginRight: 2,
-  },
-  avatarContainer: {
-    marginHorizontal: 20,
-    borderRadius: 20,
-    padding: 20,
-    alignItems: 'center',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  tryOnButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
-    marginTop: 16,
-  },
-  tryOnButtonText: {
+  emptyButtonText: {
     ...defaultTextStyle,
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  // Trending Section
-  trendingSection: {
-    marginBottom: 30,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  trendingList: {
-    paddingLeft: 20,
-    paddingRight: 10,
-  },
-  productCard: {
-    width: 160,
-    borderRadius: 16,
-    marginRight: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  productImage: {
-    width: '100%',
-    height: 160,
-    resizeMode: 'cover',
-  },
-  productDetails: {
-    padding: 12,
-  },
-  productName: {
-    ...defaultTextStyle,
-    fontSize: 15,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  productPrice: {
-    ...defaultTextStyle,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  // Style Boards Section
-  styleBoardsSection: {
-    marginBottom: 30,
-  },
-  styleBoardsGrid: {
-    paddingLeft: 20,
-    paddingRight: 10,
-  },
-  styleBoard: {
-    width: width * 0.7,
-    height: 180,
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginRight: 16,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  styleBoardImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  styleBoardOverlay: {
+  initialLoadingContainer: {
     position: 'absolute',
+    top: 0,
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 12,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  styleBoardTitle: {
-    ...defaultTextStyle,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  // Community Section
-  communitySection: {
-    paddingTop: 24,
-    paddingBottom: 30,
-    marginBottom: 30,
-  },
-  communityPosts: {
-    paddingLeft: 20,
-    paddingRight: 10,
-  },
-  communityPost: {
-    width: width * 0.8, // Set width for horizontal scrolling
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginRight: 16, // Add horizontal margin
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  postHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-  },
-  postUser: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  userAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 10,
-  },
-  username: {
-    ...defaultTextStyle,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  postImage: {
-    width: '100%',
-    height: 300,
-    resizeMode: 'cover',
-  },
-  postActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 12,
-  },
-  actionGroup: {
-    flexDirection: 'row',
-  },
-  actionButton: {
-    marginRight: 16,
-  },
-  postStats: {
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  postLikes: {
-    ...defaultTextStyle,
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  postComments: {
-    ...defaultTextStyle,
-    fontSize: 14,
-  },
-  // Closet Section
-  closetSection: {
-    marginBottom: 30,
-  },
-  closetCard: {
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 20,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  closetContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  closetTitle: {
-    ...defaultTextStyle,
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  closetDescription: {
-    ...defaultTextStyle,
-    fontSize: 14,
-    maxWidth: '90%',
-  },
-  closetButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  closetIconsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  closetIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  // Message Button
-  messageButton: {
-    position: 'absolute',
-    right: 20,
-    bottom: 100,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    zIndex: 10,
   },
 });
 

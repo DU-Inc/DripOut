@@ -12,7 +12,8 @@ import {
   Platform,
   LayoutAnimation,
   BackHandler,
-  Dimensions
+  Dimensions,
+  StyleSheet
 } from 'react-native';
 import { useTheme } from "../../styles/theme/ThemeContext";
 import { createAuthStyles } from '../../styles/components/auth.styles';
@@ -108,7 +109,7 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
   const [isTermsChecked, setIsTermsChecked] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [shouldShowPasswordField, setShouldShowPasswordField] = useState(initialValidated);
-  const [useFaceId, setUseFaceId] = useState(false);
+  const [useFaceId, setUseFaceId] = useState<boolean>(false);
   
   // Phone verification state
   const [showVerificationPanel, setShowVerificationPanel] = useState(false);
@@ -165,12 +166,16 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
   // Add a ref to preserve the password
   const passwordRef = useRef(password);
 
-  // Initialize the biometric auth hook
+  // Initialize the biometric auth hook with updated functionality
   const { 
     isAvailable: isBiometricAvailable, 
+    isEnabled: isBiometricEnabled,
+    isLocked: isBiometricLocked,
     biometricType,
     authenticateWithBiometrics,
-    storeCredentialsForBiometrics
+    storeCredentialsForBiometrics,
+    toggleBiometricAuth,
+    resetFailureCount
   } = useBiometricAuth();
 
   // Add state for verification expiration tracking
@@ -184,6 +189,17 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
   const [userFirstName, setUserFirstName] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [onboardingProgress, setOnboardingProgress] = useState<{[key: string]: boolean}>({});
+
+  // First, add a new ref to track biometric auth attempts and prevent multiple simultaneous attempts
+  const biometricAuthInProgress = useRef<boolean>(false);
+  const isMounted = useRef<boolean>(false);
+
+  // Add a new state to track retry attempts
+  const [bioAuthRetryCount, setBioAuthRetryCount] = useState<number>(0);
+  const MAX_BIO_AUTH_RETRIES = 4;
+
+  // Key for storing biometric preference in AsyncStorage
+  const BIOMETRIC_ENABLED_KEY = 'biometricAuthEnabled';
 
   // Animation logic based on field focus
   useEffect(() => {
@@ -969,24 +985,30 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
     return isValid;
   };
 
-  // Add a function to attempt biometric authentication on mount if enabled
+  // Then modify the automatic biometric authentication effect to prevent multiple attempts
   useEffect(() => {
+    let mounted = true;
+    isMounted.current = true;
+    
     const tryBiometricAuth = async () => {
+      // Only proceed if not already attempting biometric auth
+      if (biometricAuthInProgress.current) return;
+      
       try {
-        // First check if biometric auth is available and enabled on the device
-        if (isBiometricAvailable) {
-          // Check if there are stored credentials for biometric auth
+        // If component unmounted, stop further processing
+        if (!mounted) return;
+        
+        // Only try biometric auth if it's available, enabled, and not locked
+        if (isBiometricAvailable && isBiometricEnabled && !isBiometricLocked) {
+          // Check for stored credentials first
           const storedIdentifier = await AsyncStorage.getItem('biometricAuthIdentifier');
           const storedPassword = await AsyncStorage.getItem('biometricAuthPassword');
-          const biometricEnabled = await isBiometricAuthEnabled();
           
-          // If we have stored credentials and biometric is enabled, 
-          // attempt biometric auth automatically for returning users
-          if (storedIdentifier && storedPassword && biometricEnabled) {
-            console.log('Stored credentials found, attempting biometric authentication...');
+          if (storedIdentifier && storedPassword) {
+            // Set biometric auth in progress flag
+            biometricAuthInProgress.current = true;
             
-            // If identifier field is empty, pre-fill it with stored value
-            if (!identifier && storedIdentifier) {
+            // Pre-fill identifier without showing password field yet
               setIdentifier(storedIdentifier);
               
               // Update identifier type
@@ -994,67 +1016,119 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
               setIdentifierType(type);
               setIdentifierValid(validateIdentifier(storedIdentifier, type));
               
-              // Set appropriate state based on auth method
-              if (type === IdentifierType.PHONE) {
-                setPhoneIdentifier(storedIdentifier);
-              } else {
-                setEmailIdentifier(storedIdentifier);
-              }
-            }
+            // Store password but don't set it in the field yet
+            passwordRef.current = storedPassword;
             
-            // Now trigger biometric auth
+            // Attempt biometric authentication directly
             const authenticated = await authenticateWithBiometrics();
             
+            // Only proceed if the component is still mounted
+            if (!mounted) return;
+            
             if (authenticated) {
-              // Set the password in the form
-              setPassword(storedPassword);
-              setPasswordValid(validatePassword(storedPassword));
-              setUseFaceId(true);
+              // Since we're doing direct auth, just sign in without showing password field
+              setLoading(true);
               
-              // Show the password field with the password filled in
-              if (!shouldShowPasswordField) {
+              try {
+                // Call Firebase sign-in service directly with stored credentials
+                const result = await signIn(storedIdentifier, storedPassword, useFaceId);
+                
+                // Reset biometric failure count on successful sign in
+                await resetFailureCount();
+                
+                console.log('Biometric authentication successful, signed in');
+                
+                // Get user ID for fetching details
+                const userId = result.userCredential.user.uid;
+                
+                // Fetch the user's first name and onboarding progress
+                await fetchUserDetails(userId);
+                
+                // Handle onboarding status
+                if (result.needsOnboarding) {
+                  console.log('User needs onboarding after biometric auth');
+                  setLoading(false);
+                  appStateManager.setShowOnboardingOptions(true);
+                  setShowOptionsSheet(true);
+                }
+              } catch (error) {
+                console.error('Error signing in after biometric auth:', error);
+                
+                // If sign-in fails after biometric auth, show password field for manual entry
+                setPassword('');
+                setPasswordValid(false);
                 setShouldShowPasswordField(true);
                 showPasswordField();
-              }
-              
-              // Sign in automatically with the stored credentials
-              setTimeout(() => {
-                handleSignIn();
-              }, 500);
-            }
-          } else if (identifierValid && useFaceId) {
-            // Fall back to previous behavior if user has manually entered identifier
-            // and toggled biometric auth
-            const authenticated = await authenticateWithBiometrics();
-            
-            if (authenticated) {
-              const storedPassword = await AsyncStorage.getItem('biometricAuthPassword');
-              if (storedPassword) {
-                setPassword(storedPassword);
-                setPasswordValid(true);
                 
-                if (!shouldShowPasswordField) {
+                // Show appropriate error
+                const authError = error as AuthErrorResponse;
+                if (authError.code === 'auth/wrong-password') {
+                  Alert.alert(
+                    'Sign In Failed',
+                    'Your stored password appears to be out of date. Please sign in manually.'
+                  );
+                } else {
+                  Alert.alert(
+                    'Sign In Failed',
+                    authError.userFriendlyMessage || 'An error occurred during sign in.'
+                  );
+                }
+              } finally {
+                setLoading(false);
+                biometricAuthInProgress.current = false;
+              }
+            } else {
+              biometricAuthInProgress.current = false;
+              
+              // If biometric auth failed or was canceled, show password field for manual entry
+              setPassword('');
+              if (identifierValid) {
                   setShouldShowPasswordField(true);
                   showPasswordField();
-                }
-                
-                setTimeout(() => {
-                  handleSignIn();
-                }, 500);
               }
             }
           }
         }
       } catch (error) {
-        console.error('Biometric authentication setup failed:', error);
-        // Continue with normal sign in if biometric auth fails
+        console.error('Biometric authentication attempt failed:', error);
+        biometricAuthInProgress.current = false;
       }
     };
     
-    // Attempt biometric auth after a short delay to let the screen render
-    const timer = setTimeout(tryBiometricAuth, 500);
+    // Run biometric auth after a short delay on mount to let the screen render
+    const timer = setTimeout(() => {
+      // Only try biometric auth if no auth is in progress and we're mounted
+      if (!biometricAuthInProgress.current && mounted) {
+        tryBiometricAuth();
+      }
+    }, 1000);
+    
+    return () => {
+      mounted = false;
+      isMounted.current = false;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Add a separate useFocusEffect for handling when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      // Only try biometric auth if no auth is in progress and we're mounted
+      if (!biometricAuthInProgress.current && isMounted.current) {
+        const timer = setTimeout(() => {
+          // Only try bioauth on focus if it's not already in progress
+          if (!biometricAuthInProgress.current && isMounted.current) {
+            console.log("Screen in focus, checking for biometric auth");
+            // Set flag to check biometric auth next time
+            // (without immediately triggering it to avoid multiple auth attempts)
+          }
+        }, 500); // Shorter delay for focus check
+        
     return () => clearTimeout(timer);
-  }, [isBiometricAvailable, useFaceId, identifierValid, identifier]);
+      }
+      return () => {};
+    }, [])
+  );
 
   // Function to fetch user's first name and onboarding progress
   const fetchUserDetails = async (userId: string) => {
@@ -1100,14 +1174,19 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
     setShowOptionsSheet(false);
     
     setTimeout(() => {
-      // Set the onboarding flag to true to navigate to the onboarding screen
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
+      // Then set the onboarding flag to true to trigger navigation to onboarding screen
       appStateManager.setOnboarding(true);
       
-      // Directly navigate to the Onboarding screen
-      navigation.navigate('Onboarding', { 
-        progress: onboardingProgress,
-        resuming: true // Flag to indicate resuming from previous session
-      });
+      // Store onboarding progress in AsyncStorage to be accessed by the onboarding screens
+      AsyncStorage.setItem('onboardingProgress', JSON.stringify(onboardingProgress))
+        .then(() => console.log('Stored onboarding progress in AsyncStorage'))
+        .catch(err => console.error('Failed to store onboarding progress:', err));
+      
+      // Directly navigate to the OnboardingFlow screen without parameters
+      navigation.navigate('OnboardingFlow');
       
       // Reset the SignIn screen's state after navigation
       setTimeout(() => {
@@ -1129,6 +1208,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
     setShowOptionsSheet(false);
     
     setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
       // Set onboarding flag to false to go home
       appStateManager.setOnboarding(false);
       
@@ -1154,6 +1236,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
     setShowOptionsSheet(false);
     
     setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
       // Set onboarding flag to false to go home
       appStateManager.setOnboarding(false);
       
@@ -1214,23 +1299,37 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       const result = await signIn(identifier, password, useFaceId);
       console.log('Sign-in result:', JSON.stringify(result));
       
-      // If user toggled biometric auth, store the credentials securely
+      // Store biometric preference and credentials if enabled
       if (useFaceId && isBiometricAvailable) {
         try {
-          // Update biometric preference in the user profile
-          await setBiometricAuth(result.userCredential.user.uid, true);
+          console.log("Storing credentials for biometric auth");
+          // Store credentials for biometric auth
+          await storeCredentialsForBiometrics(identifier, password);
           
-          // Store credentials for biometric auth - now storing identifier instead of just email
-          await Promise.all([
-            storeCredentialsForBiometrics(identifier, password),
-            AsyncStorage.setItem('biometricAuthIdentifier', identifier)
-          ]);
+          // Also update AsyncStorage preference (should already be true, but ensure it)
+          await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'true');
+          
+          // Update biometric preference in the user profile for persistence
+          await toggleBiometricAuth(true, result.userCredential.user.uid);
+          
+          // Reset retry counter after successful sign-in
+          setBioAuthRetryCount(0);
         } catch (error) {
           console.error('Error setting up biometric auth:', error);
           // Non-critical error, continue with sign in
         }
+      } else if (!useFaceId && isBiometricAvailable) {
+        // If biometric was toggled off, update the preference
+        try {
+          await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'false');
+          await toggleBiometricAuth(false, result.userCredential.user.uid);
+        } catch (error) {
+          console.error('Error updating biometric preference:', error);
+          // Non-critical error, continue with sign in
+        }
       }
       
+      // Rest of handleSignIn remains the same...
       // Handle successful login
       console.log('User successfully signed in');
       // Note: authentication state was already set to true by the auth service
@@ -1247,6 +1346,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
         console.log('User needs onboarding, showing options sheet');
         // Set loading to false
         setLoading(false);
+        
+        // Update appStateManager to track that options sheet should be shown
+        appStateManager.setShowOnboardingOptions(true);
         
         // Directly show the options sheet using component state
         setShowOptionsSheet(true);
@@ -1504,7 +1606,7 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
     navigation.navigate('SignUp', params);
   };
 
-  // Update the toggle biometric function to check availability
+  // Update the toggle biometric function to update AsyncStorage
   const handleToggleBiometric = async () => {
     if (!isBiometricAvailable) {
       Alert.alert(
@@ -1515,89 +1617,354 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       return;
     }
     
-    // Toggle the state
-    setUseFaceId(!useFaceId);
-    
-    // If user is enabling biometric auth, show additional information
-    if (!useFaceId) {
+    // If toggling off, confirm with the user
+    if (useFaceId) {
+      Alert.alert(
+        `Disable ${biometricType}`,
+        `Are you sure you want to disable ${biometricType} authentication?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Disable', 
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                console.log("Disabling biometric authentication");
+                // Update local state
+                setUseFaceId(false);
+                
+                // Update AsyncStorage first
+                await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'false');
+                console.log("Updated AsyncStorage preference to false");
+                
+                // Get current user ID if signed in
+                const currentUser = auth().currentUser;
+                if (currentUser) {
+                  console.log("Also updating database biometric preference to false");
+                  // Update database with user preference (for persistence)
+                  await toggleBiometricAuth(false, currentUser.uid);
+                }
+                
+                Alert.alert(
+                  `${biometricType} Disabled`,
+                  `${biometricType} authentication has been disabled.`
+                );
+              } catch (error) {
+                console.error('Error disabling biometric auth:', error);
+                Alert.alert('Error', 'Failed to disable biometric authentication.');
+              }
+            } 
+          }
+        ]
+      );
+    } else {
+      // If toggling on, first check if they have entered credentials
+      if (!identifierValid || !passwordValid) {
+        Alert.alert(
+          `Enable ${biometricType}`,
+          `Please enter your email/username and password first, then sign in to enable ${biometricType} authentication.`,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      // If they have entered credentials, show information message
       Alert.alert(
         `Enable ${biometricType}`,
         `You can use ${biometricType} for faster sign-in. Your credentials will be stored securely on your device.`,
-        [{ text: 'OK' }]
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Enable',
+            onPress: async () => {
+              // Update local state
+              setUseFaceId(true);
+              
+              try {
+                // Store preference in AsyncStorage
+                await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'true');
+                console.log("Updated AsyncStorage preference to true");
+                
+                // The credentials will be stored after successful authentication
+                // We don't need to store them now as the handleSignIn function will do that
+                
+                // Show confirmation
+                Alert.alert(
+                  `${biometricType} Enabled`,
+                  `${biometricType} will be activated after you sign in successfully. Please proceed with sign in.`
+                );
+              } catch (error) {
+                console.error("Error enabling biometric auth:", error);
+                Alert.alert("Error", "Failed to enable biometric authentication.");
+                // Revert UI state on error
+                setUseFaceId(false);
+              }
+            }
+          }
+        ]
       );
     }
   };
-
-  // Fix the verification expiry timer initialization
-  const startVerificationExpiryTimer = () => {
-    // Clear any existing timer
-    if (verificationTimerRef.current) {
-      clearInterval(verificationTimerRef.current);
+  
+  // Modify handleFaceIdIconPress function to use useCallback to prevent infinite loops
+  const handleFaceIdIconPress = useCallback(async () => {
+    // Skip if auth already in progress
+    if (biometricAuthInProgress.current || loading) return;
+    
+    // Check if exceeded retry limit
+    if (bioAuthRetryCount >= MAX_BIO_AUTH_RETRIES) {
+          Alert.alert(
+        'Authentication Limit Reached',
+        `You've attempted biometric authentication ${MAX_BIO_AUTH_RETRIES} times. Please sign in with your credentials.`,
+        [{ text: 'OK' }]
+      );
+      return;
     }
     
-    // Calculate initial remaining time (should be VERIFICATION_EXPIRY_SECONDS initially)
-    const initialRemaining = Math.max(0, Math.floor((verificationExpiryTime - Date.now()) / 1000));
-    setVerificationRemainingTime(initialRemaining);
+    // Increment retry counter
+    setBioAuthRetryCount(prevCount => prevCount + 1);
     
-    // Start the timer
-    verificationTimerRef.current = setInterval(() => {
-      const remaining = Math.floor((verificationExpiryTime - Date.now()) / 1000);
-      
-      if (remaining <= 0) {
-        // Verification code has expired
-        if (verificationTimerRef.current) {
-          clearInterval(verificationTimerRef.current);
-          verificationTimerRef.current = null;
-        }
-        
-        setVerificationRemainingTime(0);
-        
-        // Only show expiration alert if verification panel is still shown
-        if (showVerificationPanel) {
-          setPhoneAuthError("Verification code has expired. Please request a new code.");
-          Alert.alert(
-            "Verification Code Expired",
-            "The verification code has expired. Please request a new code.",
-            [{ 
-              text: "OK",
+    // Check if biometric is available on device
+    if (!isBiometricAvailable) {
+      Alert.alert(
+        'Biometric Authentication Not Available',
+        'Your device does not appear to support biometric authentication.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Check if biometric is enabled via toggle
+    if (!useFaceId) {
+      Alert.alert(
+        `${biometricType} Not Enabled`,
+        `Please enable ${biometricType} authentication using the toggle switch to use this feature.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Enable Now', 
               onPress: () => {
-                // Reset verification state to allow requesting a new code
-                setShowVerificationPanel(false);
-                setVerificationCode('');
-                setAttemptsLeft(MAX_INVALID_ATTEMPTS);
-              }
-            }]
+              // Update local state to turn on toggle
+              setUseFaceId(true);
+            } 
+          }
+        ]
+      );
+      return;
+    }
+    
+    // Check if biometric is locked due to too many failures
+    if (isBiometricLocked) {
+      Alert.alert(
+        `${biometricType} Temporarily Locked`,
+        `${biometricType} authentication has been temporarily locked due to too many failed attempts. Please sign in with your credentials to reset.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Attempt biometric authentication
+    try {
+      biometricAuthInProgress.current = true;
+      setLoading(true);
+      
+      // Fetch stored credentials
+      const storedIdentifier = await AsyncStorage.getItem('biometricAuthIdentifier');
+      const storedPassword = await AsyncStorage.getItem('biometricAuthPassword');
+      
+      if (!storedIdentifier || !storedPassword) {
+        Alert.alert(
+          'Missing Credentials',
+          'No stored credentials found. Please sign in with your email and password first.',
+          [{ text: 'OK' }]
+        );
+        biometricAuthInProgress.current = false;
+        setLoading(false);
+        return;
+      }
+      
+      // Attempt biometric authentication
+      const authenticated = await authenticateWithBiometrics();
+      
+      if (authenticated) {
+        // Reset retry counter on success
+        setBioAuthRetryCount(0);
+        
+        try {
+          // Sign in with stored credentials
+          const result = await signIn(storedIdentifier, storedPassword, useFaceId);
+          
+          // Reset biometric failure count on successful sign in
+          await resetFailureCount();
+          
+          console.log('Biometric authentication successful, signed in');
+          
+          // Get user ID for fetching details
+          const userId = result.userCredential.user.uid;
+          
+          // Fetch the user's first name and onboarding progress
+          await fetchUserDetails(userId);
+          
+          // Handle onboarding status
+          if (result.needsOnboarding) {
+            console.log('User needs onboarding after manual biometric auth');
+            appStateManager.setShowOnboardingOptions(true);
+            setShowOptionsSheet(true);
+          }
+        } catch (error) {
+          console.error('Error signing in after manual biometric auth:', error);
+          
+          // If sign-in fails after biometric auth, show password field for manual entry
+          setPassword('');
+          setPasswordValid(false);
+          setShouldShowPasswordField(true);
+          showPasswordField();
+          
+          // Show appropriate error
+          const authError = error as AuthErrorResponse;
+          Alert.alert(
+            'Sign In Failed',
+            authError.userFriendlyMessage || 'An error occurred during sign in.'
           );
         }
-      } else {
-        setVerificationRemainingTime(remaining);
+      } else if (bioAuthRetryCount >= MAX_BIO_AUTH_RETRIES) {
+        Alert.alert(
+          'Authentication Limit Reached',
+          `You've attempted biometric authentication ${MAX_BIO_AUTH_RETRIES + 1} times. Please sign in with your credentials.`,
+          [{ text: 'OK' }]
+        );
       }
-    }, 1000) as unknown as number;
-  };
-
-  // Add tracking for verification failures
-  const trackVerificationFailure = (reason: string) => {
-    // Increment resend attempts counter
-    const updatedResendAttempts = resendAttempts + 1;
-    setResendAttempts(updatedResendAttempts);
-    
-    // Check if we've hit the resend limit
-    if (updatedResendAttempts >= MAX_RESEND_ATTEMPTS) {
-      setResendLimitReached(true);
-      
-      // Reset the limit after 1 hour
-      setTimeout(() => {
-        setResendLimitReached(false);
-        setResendAttempts(0);
-      }, 60 * 60 * 1000); // 1 hour
+    } catch (error) {
+      console.error('Error with manual biometric authentication:', error);
+      Alert.alert(
+        'Authentication Failed',
+        'Failed to authenticate using biometrics. Please sign in with your credentials.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      biometricAuthInProgress.current = false;
+      setLoading(false);
     }
-    
-    // Log the failure with timestamp and reason
-    console.log(`Verification failure at ${new Date().toISOString()} - Reason: ${reason}`);
-    
-    // In a production app, we would also send this to analytics/monitoring
-    // trackEvent('verification_failure', { reason, timestamp: Date.now() });
-  };
+  }, [bioAuthRetryCount, isBiometricAvailable, useFaceId, isBiometricLocked, biometricType, loading]);
+
+  // Effect to check AsyncStorage (not DB) for biometric preference on load
+  useEffect(() => {
+    const checkLocalBiometricPreference = async () => {
+      try {
+        console.log("Checking for biometric auth preference in AsyncStorage");
+        
+        // Check if biometric is enabled in AsyncStorage
+        const storedPrefString = await AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY);
+        const enabled = storedPrefString === 'true';
+        console.log("Biometric enabled in AsyncStorage:", enabled);
+        
+        // Update toggle state based on AsyncStorage value
+        setUseFaceId(enabled);
+        
+        // If enabled and biometrics are available, attempt authentication
+        if (enabled && isBiometricAvailable && !isBiometricLocked && bioAuthRetryCount < MAX_BIO_AUTH_RETRIES) {
+          console.log("Auto-triggering biometric auth");
+          
+          // Set a small delay to allow UI to render
+          setTimeout(async () => {
+            if (!biometricAuthInProgress.current) {
+              // Get stored credentials
+              const storedIdentifier = await AsyncStorage.getItem('biometricAuthIdentifier');
+              const storedPassword = await AsyncStorage.getItem('biometricAuthPassword');
+              
+              if (storedIdentifier && storedPassword) {
+                console.log("Found stored credentials, attempting auth");
+                biometricAuthInProgress.current = true;
+                
+                try {
+                  // Directly attempt biometric authentication
+                  const authenticated = await authenticateWithBiometrics();
+                  
+                  if (authenticated) {
+                    console.log("Auto-triggered biometric auth successful");
+                    
+                    // Directly sign in without showing password field
+                    setLoading(true);
+                    try {
+                      const result = await signIn(storedIdentifier, storedPassword, true);
+                      
+                      // Reset biometric failure count on successful sign in
+                      await resetFailureCount();
+                      
+                      // Handle onboarding if needed
+                      const userId = result.userCredential.user.uid;
+                      await fetchUserDetails(userId);
+                      
+                      if (result.needsOnboarding) {
+                        appStateManager.setShowOnboardingOptions(true);
+                        setShowOptionsSheet(true);
+                      }
+                    } catch (error) {
+                      console.error("Error signing in after biometric auth:", error);
+                      Alert.alert(
+                        "Sign In Failed", 
+                        "Your stored credentials could not be used. Please sign in manually."
+                      );
+                    } finally {
+                      setLoading(false);
+                    }
+                  } else {
+                    console.log("Auto-triggered biometric auth failed or was canceled");
+                    // Increment retry counter for failed attempts
+                    setBioAuthRetryCount(prev => prev + 1);
+                  }
+                } catch (error) {
+                  console.error("Error in auto-triggered biometric auth:", error);
+                  setBioAuthRetryCount(prev => prev + 1);
+                } finally {
+                  biometricAuthInProgress.current = false;
+                }
+              } else {
+                console.log("No stored credentials found");
+                // Disable biometric if we don't have stored credentials
+                setUseFaceId(false);
+                await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'false');
+              }
+            }
+          }, 800);
+        }
+      } catch (error) {
+        console.error('Error checking local biometric preference:', error);
+      }
+    };
+
+    // Call the function if biometrics are available
+    if (isBiometricAvailable) {
+      checkLocalBiometricPreference();
+    }
+  }, [isBiometricAvailable, isBiometricLocked, bioAuthRetryCount]);
+
+  // Improve database sync for toggle state by adding separate focus effect
+  useFocusEffect(
+    React.useCallback(() => {
+      const syncBiometricToggle = async () => {
+        try {
+          const currentUser = auth().currentUser;
+          if (currentUser) {
+            console.log("Syncing biometric toggle with database");
+            const enabled = await isBiometricAuthEnabled();
+            console.log("Database says biometric is:", enabled);
+            setUseFaceId(enabled);
+          }
+        } catch (error) {
+          console.error("Error syncing biometric toggle:", error);
+        }
+      };
+      
+      if (isBiometricAvailable) {
+        syncBiometricToggle();
+      }
+      
+      return () => {
+        // Cleanup if needed
+      };
+    }, [isBiometricAvailable])
+  );
 
   // Handle identifier changes with typing detection
   const handleIdentifierChange = useCallback((inputValue: string) => {
@@ -2078,6 +2445,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       
       if (needsOnboarding) {
         console.log('User needs onboarding after phone verification, showing options sheet');
+        // Update appStateManager to track that options sheet should be shown
+        appStateManager.setShowOnboardingOptions(true);
+        
         // Show the options sheet using component state
         setShowOptionsSheet(true);
       } else {
@@ -2313,6 +2683,83 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       if (verificationTimerRef.current) clearInterval(verificationTimerRef.current);
     };
   }, [isAuthInProgress, showVerificationPanel]);
+
+  // Fix the verification expiry timer initialization
+  const startVerificationExpiryTimer = () => {
+    // Clear any existing timer
+    if (verificationTimerRef.current) {
+      clearInterval(verificationTimerRef.current);
+    }
+    
+    // Calculate initial remaining time (should be VERIFICATION_EXPIRY_SECONDS initially)
+    const initialRemaining = Math.max(0, Math.floor((verificationExpiryTime - Date.now()) / 1000));
+    setVerificationRemainingTime(initialRemaining);
+    
+    // Start the timer
+    verificationTimerRef.current = setInterval(() => {
+      const remaining = Math.floor((verificationExpiryTime - Date.now()) / 1000);
+      
+      if (remaining <= 0) {
+        // Verification code has expired
+        if (verificationTimerRef.current) {
+          clearInterval(verificationTimerRef.current);
+          verificationTimerRef.current = null;
+        }
+        
+        setVerificationRemainingTime(0);
+        
+        // Only show expiration alert if verification panel is still shown
+        if (showVerificationPanel) {
+          setPhoneAuthError("Verification code has expired. Please request a new code.");
+          Alert.alert(
+            "Verification Code Expired",
+            "The verification code has expired. Please request a new code.",
+            [{ 
+              text: "OK",
+              onPress: () => {
+                // Reset verification state to allow requesting a new code
+                setShowVerificationPanel(false);
+                setVerificationCode('');
+                setAttemptsLeft(MAX_INVALID_ATTEMPTS);
+              }
+            }]
+          );
+        }
+      } else {
+        setVerificationRemainingTime(remaining);
+      }
+    }, 1000) as unknown as number;
+  };
+
+  // Add tracking for verification failures
+  const trackVerificationFailure = (reason: string) => {
+    // Increment resend attempts counter
+    const updatedResendAttempts = resendAttempts + 1;
+    setResendAttempts(updatedResendAttempts);
+    
+    // Check if we've hit the resend limit
+    if (updatedResendAttempts >= MAX_RESEND_ATTEMPTS) {
+      setResendLimitReached(true);
+      
+      // Reset the limit after 1 hour
+      setTimeout(() => {
+        setResendLimitReached(false);
+        setResendAttempts(0);
+      }, 60 * 60 * 1000); // 1 hour
+    }
+    
+    // Log the failure with timestamp and reason
+    console.log(`Verification failure at ${new Date().toISOString()} - Reason: ${reason}`);
+    
+    // In a production app, we would also send this to analytics/monitoring
+    // trackEvent('verification_failure', { reason, timestamp: Date.now() });
+  };
+
+  // Add sync effect to keep UI in sync with biometric state
+  useEffect(() => {
+    // Sync local toggle state with hook state
+    setUseFaceId(isBiometricEnabled);
+  }, [isBiometricEnabled]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -2630,31 +3077,52 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
               </View>
             )}
             
-            {/* Face ID Button with Toggle - for both email and phone auth */}
+            {/* Face ID button and toggle - updated with separated components */}
             {(authMethod === 'email' || authMethod === 'phone') && (
               <View style={[styles.faceIdContainer, { marginTop: normalize(12), marginBottom: 0 }]}>
                 <TouchableOpacity 
-                  onPress={handleToggleBiometric}
+                  onPress={handleFaceIdIconPress}
                   hitSlop={{ top: 10, bottom: 10, left: 5, right: 5 }}
                   style={styles.faceIdButton}
+                  disabled={isBiometricLocked || !isBiometricAvailable || !useFaceId}
                 >
                   <Icon 
                     name="face-recognition" 
                     size={normalize(26)} 
-                    color={useFaceId ? theme.primary : theme.text.tertiary}
-                    style={{ opacity: 0.85 }}
+                    color={
+                      !isBiometricAvailable ? "#999999" :
+                      isBiometricLocked ? "#999999" :
+                      !useFaceId ? "#999999" :
+                      useFaceId ? theme.primary : theme.text.tertiary
+                    }
+                    style={{ opacity: (!isBiometricAvailable || isBiometricLocked || !useFaceId) ? 0.5 : 0.85 }}
                   />
                 </TouchableOpacity>
+                
+                <Text style={{
+                  flex: 1,
+                  color: theme.text.secondary,
+                  fontSize: normalize(14),
+                  marginLeft: 8,
+                }}>
+                  {!isBiometricAvailable ? "Biometrics Not Available" :
+                   isBiometricLocked ? `${biometricType} Locked` : 
+                   biometricType}
+                </Text>
                 
                 <TouchableOpacity 
                   onPress={handleToggleBiometric}
                   style={styles.faceIdToggle}
+                  disabled={!isBiometricAvailable}
                 >
                   <Icon 
-                    name={useFaceId ? "toggle-switch-outline" : "toggle-switch-off-outline"} 
+                    name={useFaceId ? "toggle-switch" : "toggle-switch-off"}
                     size={normalize(32)} 
-                    color={useFaceId ? theme.primary : theme.text.tertiary}
-                    style={{ opacity: 0.85 }}
+                    color={
+                      !isBiometricAvailable ? "#999999" :
+                      useFaceId ? theme.primary : theme.text.tertiary
+                    }
+                    style={{ opacity: !isBiometricAvailable ? 0.5 : 0.85 }}
                   />
                 </TouchableOpacity>
               </View>

@@ -4,23 +4,35 @@ import { db } from '../config/firebaseconfig';
 // Add global setTimeout type declaration at the top of the file
 declare const setTimeout: (callback: () => void, ms: number) => number;
 
+// Generic helper function to clean an object by removing undefined values.
+// Constrained so that T is an object.
+function cleanData<T extends object>(data: T): Partial<T> {
+  return Object.keys(data).reduce((acc, key) => {
+    // We assert that key is a key of T.
+    if (data[key as keyof T] !== undefined) {
+      acc[key as keyof T] = data[key as keyof T];
+    }
+    return acc;
+  }, {} as Partial<T>);
+}
+
 // Define the full interface for User Profile
 export interface UserProfile {
   userID: string;
   email: string;
   username: string;
-  fullName?: string; // Optional field
-  profilePictureURL?: string; // Optional field
+  fullName?: string;           // Optional field
+  profilePictureURL?: string;  // Optional field
   createdAt: Date;
-  updatedAt?: Date; // Optional field for tracking profile updates
+  updatedAt?: Date;            // Optional field for tracking profile updates
   isVerified: boolean;
-  userRole: string; // e.g., 'user', 'store', 'brand'
-  userGender?: string; // Optional field for gender
-  userDisplayName?: string; // Optional field for display name
-  userPronouns?: string; // Optional field for pronouns
-  userType: string; // e.g., 'premium', 'basic'
-  useBiometricAuth?: boolean; // Track if user wants to use biometric authentication
-  lastLoginAt?: Date; // Track last successful login
+  userRole: string;            // e.g., 'user', 'store', 'brand'
+  userGender?: string;         // Optional field for gender
+  userDisplayName?: string;    // Optional field for display name
+  userPronouns?: string;       // Optional field for pronouns
+  userType: string;            // e.g., 'premium', 'basic'
+  useBiometricAuth?: boolean;  // Track if user wants to use biometric authentication
+  lastLoginAt?: Date;          // Track last successful login
   onboardingCompleted?: boolean; // Track if user has completed onboarding
 }
 
@@ -36,65 +48,74 @@ export interface UserPreferences {
   pushNotifications: boolean;
 }
 
-// Function to create or update a user profile in Firestore
+/**
+ * Creates or updates a user profile in Firestore.
+ *
+ * The function cleans the incoming data by removing undefined values and
+ * ensures that the property "userID" is always included.
+ *
+ * @param userId The user’s unique identifier.
+ * @param profileData A partial UserProfile object containing the user data.
+ */
 export const createUserProfile = async (userId: string, profileData: Partial<UserProfile>): Promise<void> => {
   try {
-    // Ensure undefined fields are removed before writing to Firestore
-    const cleanProfileData = Object.keys(profileData).reduce((acc, key) => {
-      if (profileData[key as keyof UserProfile] !== undefined) {
-        acc[key] = profileData[key as keyof UserProfile];
-      }
-      return acc;
-    }, {} as any);
-    
-    // IMPORTANT: Always include userID field with correct capitalization
-    // This ensures we're matching the field used in security rules
+    // Clean profileData by removing any properties that are undefined.
+    const cleanProfileData = cleanData(profileData);
+
+    // IMPORTANT: Always include userID field with the correct capitalization.
+    // This ensures our Firestore security rules which check for "userID" work as expected.
     cleanProfileData.userID = userId;
 
-    // Add retry logic for Firebase permission errors
+    // Add retry logic for Firebase permission errors.
     let retryCount = 0;
     const maxRetries = 2;
-    
+
     while (retryCount <= maxRetries) {
       try {
-        // Get document by userId (which matches the auth UID)
-        // But the field inside the document uses userID (capital ID)
+        // Create a reference to the user document in the 'users' collection.
         const userDocRef: DocumentReference<DocumentData> = doc(db, 'users', userId);
-        await setDoc(userDocRef, cleanProfileData, { merge: true }); // 'merge: true' ensures we don't overwrite existing data
+        // Use merge: true so that existing fields are not overwritten.
+        await setDoc(userDocRef, cleanProfileData, { merge: true });
         console.log('User profile successfully written!');
-        return; // Success - exit the function
+        return; // Successfully written, exit the function.
       } catch (innerError: any) {
-        if (innerError?.code === 'permission-denied' || 
-            (innerError?.message && innerError.message.includes('Missing or insufficient permissions'))) {
-          // If this is a permissions error
+        if (
+          innerError?.code === 'permission-denied' ||
+          (innerError?.message && innerError.message.includes('Missing or insufficient permissions'))
+        ) {
+          // If this is a permissions error, try again until maxRetries is reached.
           if (retryCount === maxRetries) {
             console.warn(`Failed to update user profile after ${maxRetries} retries due to permissions.`);
-            // Don't throw, just log and continue
             return;
           }
           retryCount++;
-          // Fix setTimeout callback format
+          // Use exponential backoff before retrying.
           await new Promise<void>(resolve => setTimeout(() => resolve(), 1000 * Math.pow(2, retryCount)));
         } else {
-          // For non-permission errors, throw immediately
+          // Throw any other errors immediately.
           throw innerError;
         }
       }
     }
   } catch (error) {
     console.error('Error writing user profile: ', error);
-    // For most errors, we'll just log rather than break authentication flow
+    // Log the error but do not throw further to prevent breaking the auth flow.
   }
 };
 
-// Function to fetch a user profile by userId from Firestore
+/**
+ * Fetches a user profile by userId from Firestore.
+ *
+ * @param userId The user's unique identifier.
+ * @returns The UserProfile object if found, or null.
+ */
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
   try {
     const userDocRef: DocumentReference<DocumentData> = doc(db, 'users', userId);
     const userDoc = await getDoc(userDocRef);
 
     if (userDoc.exists()) {
-      return userDoc.data() as UserProfile; // Cast the document data to the UserProfile interface
+      return userDoc.data() as UserProfile;
     } else {
       console.log('No such user profile!');
       return null;
@@ -105,71 +126,82 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
   }
 };
 
-// Function to update biometric auth preference
+/**
+ * Updates the biometric authentication preference of the user.
+ *
+ * @param userId The user's unique identifier.
+ * @param useBiometric A boolean indicating the preference.
+ */
 export const updateBiometricPreference = async (userId: string, useBiometric: boolean): Promise<void> => {
   try {
     const userDocRef: DocumentReference<DocumentData> = doc(db, 'users', userId);
-    
-    // Create the data object with userID field to match security rules
+    // Data to update (includes "userID" for matching security rules).
     const updateData = {
-      userID: userId, // Always include this for security rules
+      userID: userId,
       useBiometricAuth: useBiometric,
       updatedAt: new Date()
     };
-    
-    // Try to update with retry logic for permissions
+
     let retryCount = 0;
     const maxRetries = 2;
-    
+
     while (retryCount <= maxRetries) {
       try {
         await setDoc(userDocRef, updateData, { merge: true });
         console.log('Biometric preference updated!');
-        return; // Success - exit the function
+        return;
       } catch (innerError: any) {
-        if (innerError?.code === 'permission-denied' || 
-            (innerError?.message && innerError.message.includes('Missing or insufficient permissions'))) {
-          // If this is a permissions error
+        if (
+          innerError?.code === 'permission-denied' ||
+          (innerError?.message && innerError.message.includes('Missing or insufficient permissions'))
+        ) {
           if (retryCount === maxRetries) {
             console.warn(`Failed to update biometric preference after ${maxRetries} retries due to permissions.`);
-            // Don't throw, just log and continue
             return;
           }
           retryCount++;
-          // Wait before retrying (exponential backoff)
           await new Promise<void>(resolve => setTimeout(() => resolve(), 1000 * Math.pow(2, retryCount)));
         } else {
-          // For non-permission errors, throw immediately
           throw innerError;
         }
       }
     }
   } catch (error) {
     console.error('Error updating biometric preference: ', error);
-    // Don't throw the error to prevent breaking auth flow
+    // Do not throw the error so as not to break the authentication flow.
   }
 };
 
-// Function to create or update user preferences in Firestore
+/**
+ * Creates or updates user preferences in Firestore.
+ *
+ * @param userId The user's unique identifier.
+ * @param preferencesData A partial UserPreferences object.
+ */
 export const setUserPreferences = async (userId: string, preferencesData: Partial<UserPreferences>): Promise<void> => {
   try {
     const preferencesDocRef: DocumentReference<DocumentData> = doc(db, 'user_preferences', userId);
-    await setDoc(preferencesDocRef, preferencesData, { merge: true }); // 'merge: true' ensures we don't overwrite existing data
+    await setDoc(preferencesDocRef, preferencesData, { merge: true });
     console.log('User preferences successfully written!');
   } catch (error) {
     console.error('Error writing user preferences: ', error);
-    throw error;
+    throw error; // Throw error so that calling functions can handle it if needed.
   }
 };
 
-// Function to fetch user preferences by userId from Firestore
+/**
+ * Fetches user preferences by userId from Firestore.
+ *
+ * @param userId The user's unique identifier.
+ * @returns The UserPreferences object if found, or null.
+ */
 export const getUserPreferences = async (userId: string): Promise<UserPreferences | null> => {
   try {
     const preferencesDocRef: DocumentReference<DocumentData> = doc(db, 'user_preferences', userId);
     const preferencesDoc = await getDoc(preferencesDocRef);
 
     if (preferencesDoc.exists()) {
-      return preferencesDoc.data() as UserPreferences; // Cast the document data to the UserPreferences interface
+      return preferencesDoc.data() as UserPreferences;
     } else {
       console.log('No such user preferences!');
       return null;
@@ -178,4 +210,4 @@ export const getUserPreferences = async (userId: string): Promise<UserPreference
     console.error('Error fetching user preferences: ', error);
     return null;
   }
-}; 
+};

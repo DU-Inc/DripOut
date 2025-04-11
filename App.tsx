@@ -22,12 +22,14 @@ const App: React.FC = () => {
     const initializeApp = async () => {
       try {
         console.log('App Component: Mount detected, initializing app', Date.now());
-        // Initialize app state manager
+        
+        // Initialize app state manager - AppNavigator will use this state
         await appStateManager.initialize();
+        
         if (!isMounted) return;
         console.log('App Component: appStateManager.initialize() completed', Date.now());
 
-        // Minimum delay for splash screen visibility
+        // Minimum delay for splash screen visibility (for branding impact)
         await new Promise<void>(resolve => setTimeout(resolve, 2000));
         if (!isMounted) return;
         console.log('App Component: Splash Timeout Complete', Date.now());
@@ -74,7 +76,8 @@ const App: React.FC = () => {
       }
     };
 
-    const initPromise = initializeApp();
+    // Start initialization process
+    initializeApp();
 
     return () => {
       isMounted = false;
@@ -91,10 +94,10 @@ const App: React.FC = () => {
     <GestureHandlerRootView style={styles.flexOne}>
       <SafeAreaProvider>
         <ThemeProvider>
-          {/* AppNavigator now handles auth, welcome, and onboarding flows */}
+          {/* AppNavigator handles all navigation flows: auth, onboarding, and main app */}
           <AppNavigator />
 
-          {/* Conditional Splash Screen Overlay */}
+          {/* Splash Screen Overlay - shown while initializing */}
           {isSplashVisible && (
             <Animated.View
               style={[

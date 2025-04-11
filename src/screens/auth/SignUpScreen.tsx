@@ -2205,6 +2205,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
       setShowSuccess(true);
       setCurrentStep('complete'); // Also set currentStep to complete for consistency
       
+      // Update appStateManager to track that options sheet should be shown
+      appStateManager.setShowOnboardingOptions(true);
+      
       // Show options sheet immediately - no delay
       setShowOptionsSheet(true);
       
@@ -2256,6 +2259,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
     
     // Set authenticated state after successful sign-up
     setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
       // End signup success flow and set authenticated state
       appStateManager.setSignupInProgress(false);
       appStateManager.setAuthenticated(true);
@@ -2277,6 +2283,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
     
     // Set authenticated and start onboarding
     setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
       // End signup success flow
       appStateManager.setSignupInProgress(false);
       
@@ -2286,8 +2295,8 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
       // Set onboarding flag to true
       appStateManager.setOnboarding(true);
       
-      // Navigate to onboarding
-      navigation.navigate('Onboarding');
+      // Navigate to onboarding flow
+      navigation.navigate('OnboardingFlow');
     }, 300);
   };
   
@@ -2297,6 +2306,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
     
     // Set authenticated state and navigate to home
     setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
       // End signup success flow
       appStateManager.setSignupInProgress(false);
       
