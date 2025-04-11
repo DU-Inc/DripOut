@@ -9,7 +9,12 @@ import {
   serverTimestamp, 
   DocumentReference,
   DocumentData,
-  QuerySnapshot
+  QuerySnapshot,
+  doc,
+  getDoc,
+  runTransaction,
+  increment,
+  updateDoc
 } from 'firebase/firestore';
 
 /**
@@ -23,7 +28,7 @@ export interface FollowRelationship {
 }
 
 /**
- * Follow a user
+ * Follow a user using a transaction to maintain consistent follower counts
  * @param followerId - ID of the user who wants to follow someone
  * @param followedId - ID of the user to be followed
  * @returns Promise with the document reference of the new follow relationship
@@ -43,17 +48,54 @@ export const followUser = async (
     throw new Error('Already following this user');
   }
 
-  // Create the follow relationship
+  // Create the follow relationship with a transaction to update counts
   try {
-    const followsCollection = collection(db, 'follows');
-    const followDoc = await addDoc(followsCollection, {
-      followerId,
-      followedId,
-      createdAt: serverTimestamp()
+    let followDocRef: DocumentReference<DocumentData>;
+    
+    // Use a transaction to ensure atomicity
+    await runTransaction(db, async (transaction) => {
+      // FIRST: Do all reads (must happen before writes)
+      // 1. Prepare document references
+      const followsCollection = collection(db, 'follows');
+      followDocRef = doc(followsCollection);
+      
+      // 2. Read follower document
+      const followerRef = doc(db, 'users', followerId);
+      const followerSnap = await transaction.get(followerRef);
+      
+      // 3. Read followed user document
+      const followedRef = doc(db, 'users', followedId);
+      const followedSnap = await transaction.get(followedRef);
+      
+      // Get current counts
+      const currentFollowingCount = followerSnap.exists() ? (followerSnap.data().followingCount || 0) : 0;
+      const currentFollowersCount = followedSnap.exists() ? (followedSnap.data().followersCount || 0) : 0;
+      
+      // SECOND: Perform all writes
+      // 1. Create follow relationship
+      transaction.set(followDocRef, {
+        followerId,
+        followedId,
+        createdAt: serverTimestamp()
+      });
+      
+      // 2. Update follower's following count if the document exists
+      if (followerSnap.exists()) {
+        transaction.update(followerRef, {
+          followingCount: currentFollowingCount + 1
+        });
+      }
+      
+      // 3. Update followed user's followers count if the document exists
+      if (followedSnap.exists()) {
+        transaction.update(followedRef, {
+          followersCount: currentFollowersCount + 1
+        });
+      }
     });
 
     console.log(`User ${followerId} is now following ${followedId}`);
-    return followDoc;
+    return followDocRef;
   } catch (error) {
     console.error('Error following user:', error);
     throw error;
@@ -61,7 +103,7 @@ export const followUser = async (
 };
 
 /**
- * Unfollow a user
+ * Unfollow a user using a transaction to maintain consistent follower counts
  * @param followerId - ID of the user who wants to unfollow someone
  * @param followedId - ID of the user to be unfollowed
  * @returns Promise indicating success
@@ -71,7 +113,7 @@ export const unfollowUser = async (
   followedId: string
 ): Promise<void> => {
   try {
-    // Query for all follow relationships matching the criteria
+    // Query for the follow relationship
     const followsCollection = collection(db, 'follows');
     const followQuery = query(
       followsCollection,
@@ -87,9 +129,48 @@ export const unfollowUser = async (
       return;
     }
 
-    // Delete all matching relationships (usually just one)
-    const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
-    await Promise.all(deletePromises);
+    // Use a transaction to update counts and delete the relationship
+    await runTransaction(db, async (transaction) => {
+      // FIRST: Do all reads
+      // Get the document references to delete
+      const followDocRefs = querySnapshot.docs.map(doc => doc.ref);
+      
+      // 1. Read follower's document
+      const followerRef = doc(db, 'users', followerId);
+      const followerSnap = await transaction.get(followerRef);
+      
+      // 2. Read followed user's document
+      const followedRef = doc(db, 'users', followedId);
+      const followedSnap = await transaction.get(followedRef);
+      
+      // Calculate the new counts
+      const currentFollowingCount = followerSnap.exists() ? (followerSnap.data().followingCount || 0) : 0;
+      const currentFollowersCount = followedSnap.exists() ? (followedSnap.data().followersCount || 0) : 0;
+      
+      // Ensure we don't decrement below 0
+      const newFollowingCount = Math.max(0, currentFollowingCount - 1);
+      const newFollowersCount = Math.max(0, currentFollowersCount - 1);
+      
+      // SECOND: Perform all writes
+      // 1. Delete all matching relationships (usually just one)
+      followDocRefs.forEach(docRef => {
+        transaction.delete(docRef);
+      });
+      
+      // 2. Update follower's following count if document exists
+      if (followerSnap.exists()) {
+        transaction.update(followerRef, {
+          followingCount: newFollowingCount
+        });
+      }
+      
+      // 3. Update followed user's followers count if document exists
+      if (followedSnap.exists()) {
+        transaction.update(followedRef, {
+          followersCount: newFollowersCount
+        });
+      }
+    });
 
     console.log(`User ${followerId} has unfollowed ${followedId}`);
   } catch (error) {

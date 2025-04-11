@@ -16,12 +16,14 @@ import {
   Alert,
   FlatList
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { db, auth } from '../Config/firebaseconfig';
 import { doc, getDoc } from 'firebase/firestore';
 import { useTheme } from '../styles/themeprovider';
 import { followUser, unfollowUser, isUserFollowing, getFollowCounts } from '../services/followService';
 import { getPostsByUser, Post } from '../services/postService';
+import { isRealUserId } from '../utils/userUtils';
 
 // Define route params type
 type UserDetailParams = {
@@ -87,7 +89,7 @@ const UserDetailScreen: React.FC = () => {
   // Handle follow/unfollow action
   const handleFollowAction = async () => {
     try {
-      const currentUser = auth.currentUser;
+      const currentUser = auth().currentUser;
       if (!currentUser || !userId) {
         Alert.alert('Error', 'You need to be logged in to follow users');
         return;
@@ -100,6 +102,12 @@ const UserDetailScreen: React.FC = () => {
       
       setIsFollowLoading(true);
       
+      // Check if userId is a real user
+      if (!isRealUserId(userId)) {
+        Alert.alert('Error', 'Cannot follow demo or test users');
+        return;
+      }
+        
       if (isFollowing) {
         // Unfollow user
         await unfollowUser(currentUser.uid, userId);
@@ -126,7 +134,7 @@ const UserDetailScreen: React.FC = () => {
     try {
       if (!userId) return;
       
-      const currentUser = auth.currentUser;
+      const currentUser = auth().currentUser;
       if (!currentUser || currentUser.uid === userId) return;
       
       const following = await isUserFollowing(currentUser.uid, userId);
@@ -190,7 +198,7 @@ const UserDetailScreen: React.FC = () => {
   
   // Handle liking a post (optimistic update)
   const handleLikePost = useCallback(async (post: Post) => {
-    if (isLiking || !auth.currentUser) return;
+    if (isLiking || !auth().currentUser) return;
     
     try {
       setIsLiking(true);
@@ -389,7 +397,7 @@ const UserDetailScreen: React.FC = () => {
             {/* Action Buttons Row */}
             <View style={styles.actionButtonsRow}>
               {(() => {
-                const currentUser = auth.currentUser;
+                const currentUser = auth().currentUser;
                 if (currentUser && userId && currentUser.uid !== userId) {
                   // Viewing someone else's profile
                   return (
@@ -411,14 +419,19 @@ const UserDetailScreen: React.FC = () => {
                         {isFollowLoading ? (
                           <ActivityIndicator size="small" color={isFollowing ? mainColor : 'white'} />
                         ) : (
-                          <Text
-                            style={[
-                              styles.followButtonText,
-                              { color: isFollowing ? (isDarkMode ? mainColor : '#3897f0') : 'white' }
-                            ]}
-                          >
-                            {isFollowing ? 'Following' : 'Follow'}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            {isFollowing && (
+                              <Icon name="checkmark-circle" size={14} color={isDarkMode ? mainColor : '#3897f0'} style={{ marginRight: 4 }} />
+                            )}
+                            <Text
+                              style={[
+                                styles.followButtonText,
+                                { color: isFollowing ? (isDarkMode ? mainColor : '#3897f0') : 'white' }
+                              ]}
+                            >
+                              {isFollowing ? 'Following' : 'Follow'}
+                            </Text>
+                          </View>
                         )}
                       </TouchableOpacity>
                       
@@ -426,21 +439,35 @@ const UserDetailScreen: React.FC = () => {
                         style={[
                           styles.messageButton,
                           {
-                            backgroundColor: 'transparent',
+                            backgroundColor: isDarkMode ? 'rgba(62, 62, 70, 0.3)' : 'rgba(240, 240, 245, 0.8)',
                             borderWidth: 1,
-                            borderColor: isDarkMode ? '#3A3A3A' : '#dbdbdb',
+                            borderColor: isDarkMode ? 'rgba(70, 70, 90, 0.4)' : 'rgba(210, 210, 220, 0.9)',
                             flex: 1
                           }
                         ]}
+                        onPress={() => {
+                          // Check if this is a real user
+                          if (!isRealUserId(userId)) {
+                            alert('Messaging demo accounts is not available.');
+                            return;
+                          }
+                          
+                          // In a real app, you'd navigate to a chat screen or open a chat modal
+                          console.log(`MESSAGE USER from details - userId: ${userId}, username: ${userData.username}`);
+                          alert(`Message feature coming soon! You would be messaging ${userData.username}.`);
+                        }}
                       >
-                        <Text
-                          style={[
-                            styles.messageButtonText,
-                            { color: textColor }
-                          ]}
-                        >
-                          Message
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                          <Icon name="chatbubble-outline" size={14} color={textColor} style={{ marginRight: 5 }} />
+                          <Text
+                            style={[
+                              styles.messageButtonText,
+                              { color: textColor }
+                            ]}
+                          >
+                            Message
+                          </Text>
+                        </View>
                       </TouchableOpacity>
                     </>
                   );
@@ -567,7 +594,7 @@ const UserDetailScreen: React.FC = () => {
         
         {/* User's email - only visible to the user themselves */}
         {(() => {
-          const currentUser = auth.currentUser;
+          const currentUser = auth().currentUser;
           // Only show email if we're viewing our own profile
           if (currentUser && userId && currentUser.uid === userId) {
             return (
@@ -682,7 +709,7 @@ const UserDetailScreen: React.FC = () => {
               <Text style={[styles.emptyFeatureDescription, { color: subTextColor }]}>
                 Curated outfit collections will be available soon. Create and share complete looks.
               </Text>
-              {userData.userID === auth.currentUser?.uid && (
+              {userData.userID === auth().currentUser?.uid && (
                 <TouchableOpacity 
                   style={[styles.createOutfitButton, { backgroundColor: mainColor }]}
                 >
@@ -705,7 +732,7 @@ const UserDetailScreen: React.FC = () => {
               <Text style={[styles.emptyFeatureDescription, { color: subTextColor }]}>
                 Your personal style analysis and preferences will appear here. Discover your unique fashion identity.
               </Text>
-              {userData.userID === auth.currentUser?.uid && (
+              {userData.userID === auth().currentUser?.uid && (
                 <TouchableOpacity 
                   style={[styles.createOutfitButton, { backgroundColor: mainColor }]}
                 >

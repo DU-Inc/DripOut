@@ -27,6 +27,8 @@ import { RootStackParamList } from '../types/NavigationTypes';
 
 import { auth } from '../Config/firebaseconfig';
 import { Timestamp } from 'firebase/firestore';
+import { followUser, unfollowUser } from '../services/followService';
+import { isRealUserId } from '../utils/userUtils';
 
 // Add global setTimeout type declaration
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -80,6 +82,7 @@ interface FashionPost {
   saves: number;
   isSaved: boolean;
   isUpvoted: boolean;
+  isFollowing?: boolean; // Track if the current user is following this post's author
   createdAt?: any;
 }
 
@@ -192,6 +195,7 @@ const SocialScreen: React.FC = () => {
         const saves = Math.floor(Math.random() * 200) + 50;
         const isSaved = Math.random() > 0.5;
         const isUpvoted = Math.random() > 0.6;
+        const isFollowing = Math.random() > 0.6; // Randomly set following status for UI testing
         
         // Generate comments if none exist
         const comments = generateSampleComments(post.id);
@@ -237,7 +241,8 @@ const SocialScreen: React.FC = () => {
           upvotes,
           saves,
           isSaved,
-          isUpvoted
+          isUpvoted,
+          isFollowing
         } as FashionPost;
       }));
       
@@ -282,6 +287,85 @@ const SocialScreen: React.FC = () => {
   const toggleExpandPost = (postId: string) => {
     setExpandedPost(expandedPost === postId ? null : postId);
   };
+  
+  // Handle follow/unfollow action
+  const handleFollowToggle = async (postId: string, userId: string) => {
+    console.log(`${isRealUserId(userId) ? 'REAL' : 'MOCK'} USER FOLLOW TOGGLE - postId: ${postId}, userId: ${userId}`);
+    
+    // Only process for real users
+    if (!isRealUserId(userId)) {
+      alert('Following demo accounts is not available.');
+      return;
+    }
+    
+    // Current user must be logged in
+    const currentUser = auth().currentUser;
+    if (!currentUser) {
+      alert('You need to be logged in to follow users');
+      return;
+    }
+    
+    // Get the current post
+    const post = fashionPosts.find(p => p.id === postId);
+    if (!post) return;
+    
+    try {
+      // Optimistically update UI
+      setFashionPosts(prev => prev.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            isFollowing: !p.isFollowing
+          };
+        }
+        return p;
+      }));
+      
+      // Make the actual API call
+      if (post.isFollowing) {
+        // If currently following, unfollow
+        await unfollowUser(currentUser.uid, userId);
+        console.log(`Successfully unfollowed user ${userId}`);
+      } else {
+        // If not following, follow
+        await followUser(currentUser.uid, userId);
+        console.log(`Successfully followed user ${userId}`);
+      }
+    } catch (error) {
+      console.error('Error toggling follow status:', error);
+      
+      // If error, revert the UI change
+      setFashionPosts(prev => prev.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            isFollowing: post.isFollowing // Revert to original state
+          };
+        }
+        return p;
+      }));
+      
+      // Show error to user
+      alert('Failed to update follow status. Please try again.');
+    }
+  };
+  
+  // Handle message action (placeholder implementation)
+  const handleMessage = (userId: string, username: string) => {
+    console.log(`MESSAGE USER - userId: ${userId}, username: ${username}`);
+    
+    // Only process for real users
+    if (!isRealUserId(userId)) {
+      alert('Messaging demo accounts is not available.');
+      return;
+    }
+    
+    // In a real implementation, you would navigate to a chat screen or open a chat modal
+    // For now, just show a placeholder message
+    alert(`Message feature coming soon! You would be messaging ${username}.`);
+  };
+  
+  // We now use the shared isRealUserId utility function from userUtils.ts
   
   // Toggle comments section expansion - simplified approach
   const toggleComments = (postId: string) => {
@@ -576,9 +660,41 @@ const SocialScreen: React.FC = () => {
                 {item.publishedDate}
               </Text>
             </View>
-            <TouchableOpacity style={styles.moreOptionsButton}>
-              <Icon name="ellipsis-horizontal" size={18} color={subTextColor} />
-            </TouchableOpacity>
+            <View style={styles.userActionButtons}>
+              {/* Only show action buttons if it's not the current user's post */}
+              {(() => {
+                const currentUser = auth().currentUser;
+                const showActions = currentUser && currentUser.uid !== item.userId && isRealUserId(item.userId);
+                
+                if (showActions) {
+                  return (
+                    <>
+                      <TouchableOpacity 
+                        style={[
+                          styles.followButton,
+                          item.isFollowing ? styles.followingButton : styles.followButton,
+                          { backgroundColor: item.isFollowing ? 'transparent' : mainColor }
+                        ]}
+                        onPress={() => handleFollowToggle(item.id, item.userId)}
+                      >
+                        <Text style={[
+                          styles.followButtonText, 
+                          { color: item.isFollowing ? mainColor : '#FFFFFF' }
+                        ]}>
+                          {item.isFollowing ? 'Following' : 'Follow'}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  );
+                }
+                
+                return (
+                  <TouchableOpacity style={styles.moreOptionsButton}>
+                    <Icon name="ellipsis-horizontal" size={18} color={subTextColor} />
+                  </TouchableOpacity>
+                );
+              })()}
+            </View>
           </View>
           
           {/* Post title */}
@@ -1430,6 +1546,37 @@ const styles = StyleSheet.create({
   userTextInfo: {
     flex: 1,
     justifyContent: 'center',
+  },
+  userActionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  followButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followingButton: {
+    borderWidth: 1,
+    borderColor: '#FF4870',
+  },
+  followButtonText: {
+    ...defaultTextStyle,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  messageButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(150, 150, 150, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
   },
   moreOptionsButton: {
     padding: 8,
