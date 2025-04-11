@@ -18,6 +18,10 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Button from './Button';
 import { text } from '../../text';
 
+// Add setTimeout type declaration to fix TypeScript error
+declare const setTimeout: (callback: () => void, timeout: number) => number;
+declare const clearTimeout: (timeoutId: number) => void;
+
 const { width, height } = Dimensions.get('window');
 // Scale factor based on screen width
 const scale = width / 375; // Using iPhone 8 as baseline
@@ -217,9 +221,39 @@ const SuccessOptionsSheet: React.FC<SuccessOptionsSheetProps> = ({
   const handleCompleteOnboarding = () => {
     if (isDismissing) return;
     
-    // Directly call the onboarding handler without dismissing the sheet first
-    // This prevents any timing issues with the navigation
+    // Mark that we're starting the dismissal process
+    setIsDismissing(true);
+    
+    // IMPORTANT: First call the navigation callback BEFORE starting the animation
+    // This way the navigation can happen while the sheet is still visible, preventing flicker
+    console.log("SuccessOptionsSheet: Starting navigation to onboarding BEFORE dismissal animation");
+    
+    // Call the navigation callback immediately (don't wait for animation)
+    // The proper target screen will be determined in the parent component
     onCompleteOnboarding();
+    
+    // Short delay to allow navigation to initialize before starting dismissal animation
+    setTimeout(() => {
+      // Use faster animations for quicker transitions
+      Animated.parallel([
+        Animated.timing(backdropOpacity, {
+          toValue: 0,
+          duration: 150, // Faster fade out
+          useNativeDriver: true,
+          easing: Easing.in(Easing.ease)
+        }),
+        Animated.timing(translateY, {
+          toValue: SHEET_HEIGHT,
+          duration: 200, // Faster slide down
+          useNativeDriver: true,
+          easing: Easing.in(Easing.ease) // Use timing instead of spring for predictable duration
+        })
+      ]).start(() => {
+        // Now that animation is complete, finish the dismissal process
+        onDismiss();
+        setIsDismissing(false);
+      });
+    }, 50); // Small delay to allow navigation to start first
   };
 
   // Handle proceed to home with dismiss animation

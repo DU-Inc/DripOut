@@ -764,7 +764,9 @@ const UserProfileScreen: React.FC = () => {
                           profile.userDisplayName.charAt(0).toUpperCase() : 
                           profile.username ? 
                             profile.username.charAt(0).toUpperCase() : 
-                            profile.email.charAt(0).toUpperCase()}
+                            profile.email ? 
+                              profile.email.charAt(0).toUpperCase() : 
+                              '?'}
                       </Text>
                     </View>
                   )}
@@ -1259,7 +1261,7 @@ const UserProfileScreen: React.FC = () => {
               </TouchableOpacity>
               
               <Text style={[styles.accountInfo, { color: subTextColor }]}>
-                {profile.userType.charAt(0).toUpperCase() + profile.userType.slice(1)} account · Created {profile.createdAt ? new Date(profile.createdAt).toLocaleDateString() : 'recently'}
+                {profile.userType ? `${profile.userType.charAt(0).toUpperCase() + profile.userType.slice(1)} account` : 'Basic account'} · Created {profile.createdAt ? new Date(profile.createdAt).toLocaleDateString() : 'recently'}
               </Text>
             </View>
           </>

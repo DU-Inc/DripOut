@@ -16,6 +16,7 @@ import { AuthStackParamList } from './types';
 import { View, StyleSheet, Dimensions, Platform, Animated } from 'react-native'; // Added Platform and Animated
 import { RouteProp } from '@react-navigation/native'; // Added RouteProp
 import { StackNavigationProp } from '@react-navigation/stack'; // Added StackNavigationProp
+import { OnboardingProvider } from '../context/OnboardingContext';
 
 // For React Native Screens orientation lock
 import { NativeStackNavigationOptions } from 'react-native-screens/native-stack';
@@ -167,7 +168,11 @@ const AuthNavigator: React.FC<AuthNavigatorProps> = ({ initialRouteName = 'Welco
         />
         <Stack.Screen 
           name="Onboarding" 
-          component={OnboardingScreen}
+          component={(props: any) => (
+            <OnboardingProvider>
+              <OnboardingScreen {...props} />
+            </OnboardingProvider>
+          )}
           options={{
             cardStyleInterpolator: pushFullTransitionInterpolator,
             gestureEnabled: false, // Disable gesture to prevent going back with swipe

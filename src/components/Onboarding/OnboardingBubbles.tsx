@@ -77,19 +77,56 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
   
   // Force re-render function (used only when absolutely necessary)
   const [, forceRender] = useState({});
+  const renderTimeoutRef = useRef<number | null>(null);
+  
   const triggerRender = () => {
-    forceRender({});
-    
-    // Also update the bubble list state for rendering
-    if (bubblesRef.current.length > 0) {
-      setBubblesList([...bubblesRef.current]);
+    // Debounce the forceRender call by using requestAnimationFrame
+    if (renderTimeoutRef.current) {
+      cancelAnimationFrame(renderTimeoutRef.current);
     }
+    
+    renderTimeoutRef.current = requestAnimationFrame(() => {
+      forceRender({});
+      
+      // Also update the bubble list state for rendering
+      if (bubblesRef.current.length > 0) {
+        setBubblesList([...bubblesRef.current]);
+      }
+    });
   };
   
   // Effect to synchronize selected options from context
   useEffect(() => {
-    setSelectedOptions(type === 'styles' ? selectedStyles : selectedBrands);
-  }, [selectedStyles, selectedBrands, type]);
+    // Make sure we filter out any duplicates when updating from context
+    const uniqueOptions = type === 'styles' 
+      ? [...new Set(selectedStyles)]
+      : [...new Set(selectedBrands)];
+    
+    console.log(`OnboardingBubbles: Updating selected ${type} from context:`, uniqueOptions);
+    setSelectedOptions(uniqueOptions);
+    
+    // Force re-queuing of unselected items when selected items change
+    if (isBubblesInitializedRef.current && containerSizeRef.current.width > 0) {
+      const allOptions = [...options];
+      
+      // Get options that aren't selected
+      const unselectedOptions = allOptions.filter(opt => !uniqueOptions.includes(opt));
+      
+      // Get options that are already displayed as bubbles
+      const currentBubbleTexts = bubblesRef.current.map(bubble => bubble.text);
+      
+      // Filter out options that are already displayed as bubbles
+      const availableOptions = unselectedOptions.filter(opt => !currentBubbleTexts.includes(opt));
+      
+      console.log(`OnboardingBubbles: Updating queue - total options: ${allOptions.length}, unselected: ${unselectedOptions.length}, already displayed: ${currentBubbleTexts.length}, available for queue: ${availableOptions.length}`);
+      
+      // Update the queue with available options only (not selected, not displayed)
+      queuedOptionsRef.current = availableOptions;
+      
+      // Force a render to show the updated state
+      triggerRender();
+    }
+  }, [selectedStyles, selectedBrands, type, options]);
   
   // Handle container layout to determine dimensions
   const onContainerLayout = (event: any) => {
@@ -566,12 +603,18 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
     // Set initialization flag
     isBubblesInitializedRef.current = true;
     
-    // Create a local copy of options
-    const allOptions = [...options];
+    // Create a local copy of options with duplicates removed
+    const allOptions = [...new Set(options)];
     
     // Separate selected and unselected options
     const currentSelected = type === 'styles' ? selectedStyles : selectedBrands;
+    
+    console.log(`Initializing ${type} bubbles:`);
+    console.log(`- All available options (${allOptions.length}):`, allOptions);
+    console.log(`- Current selected items (${currentSelected.length}):`, currentSelected);
+    
     const unselectedOptions = allOptions.filter(opt => !currentSelected.includes(opt));
+    console.log(`- Unselected options (${unselectedOptions.length}):`, unselectedOptions);
     
     // Clear existing data
     bubblesRef.current = [];
@@ -579,8 +622,7 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
     
     // Create initial visible bubbles - use a simpler direct approach
     const initialVisible = Math.min(MAX_VISIBLE_BUBBLES, unselectedOptions.length);
-    
-    console.log(`Initializing ${initialVisible} bubbles from ${unselectedOptions.length} options`);
+    console.log(`- Showing ${initialVisible} initial bubbles`);
     
     // Create all bubbles at once - simpler and more reliable
     for (let i = 0; i < initialVisible; i++) {
@@ -588,8 +630,9 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
       bubblesRef.current.push(bubble);
     }
     
-    // Set remaining options to queue
-    queuedOptionsRef.current = unselectedOptions.slice(initialVisible);
+    // Set remaining options to queue (ensure uniqueness)
+    queuedOptionsRef.current = [...new Set(unselectedOptions.slice(initialVisible))];
+    console.log(`- Queued ${queuedOptionsRef.current.length} additional options`);
     
     // Start animations
     startBubbleAnimations();
@@ -600,14 +643,6 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
     
     // Force a render to show the bubbles
     triggerRender();
-    
-    // Double-check rendering with a slight delay to ensure bubbles appear
-    setTimeout(() => {
-      if (bubblesRef.current.length > 0) {
-        console.log(`${bubblesRef.current.length} bubbles initialized`);
-        triggerRender();
-      }
-    }, 500);
   };
   
   // Start entrance animations for bubbles
@@ -1046,8 +1081,6 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
     
     // Set a timer for long press - reduced from 600ms to 300ms for faster response
     longPressTimersRef.current[bubble.id] = setTimeout(() => {
-      console.log(`Long press detected on bubble: ${bubble.text}`);
-      
       // Mark this bubble as being held
       setHoldingBubble(bubble.id);
       
@@ -1100,8 +1133,6 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
           })
         ])
       ]).start(() => {
-        console.log(`Dismiss animation complete for bubble: ${bubble.text}`);
-        
         // Clear holding state
         setHoldingBubble(null);
         
@@ -1111,12 +1142,16 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
         // Add a new bubble if there are options in queue
         let newBubble: BubbleItem | null = null;
         
+        // Process queue properly
         if (queuedOptionsRef.current.length > 0) {
           // Get next option from queue
           const newOption = queuedOptionsRef.current[0];
           queuedOptionsRef.current = queuedOptionsRef.current.slice(1);
           
-          console.log(`Adding new bubble from queue after dismissal: ${newOption}`);
+          // Ensure there are no duplicates of this option in the queue
+          queuedOptionsRef.current = queuedOptionsRef.current.filter(opt => opt !== newOption);
+          
+          console.log(`Adding new bubble from queue: ${newOption}`);
           
           // Create new bubble
           newBubble = generateNewBubble(newOption);
@@ -1153,16 +1188,7 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
           
           return filtered;
         });
-        
-        // Force a render to update UI
-        triggerRender();
-        
-        // Haptic feedback removed for now to avoid potential errors
-        console.log('Pop animation completed');
       });
-      
-      // Haptic feedback removed for now to avoid potential errors
-      console.log('Started hold animation');
     }, 300); // Reduced from 600ms to 300ms for faster response
   };
   
@@ -1193,8 +1219,6 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
   const handleBubbleSelect = (bubble: BubbleItem) => {
     // Prevent multiple rapid taps on the same bubble or if holding
     if (bubble.animating || holdingBubble === bubble.id) return;
-    
-    console.log(`Selecting bubble: ${bubble.text}`);
     
     // Mark bubble as animating
     bubble.animating = true;
@@ -1242,18 +1266,20 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
         easing: Easing.in(Easing.cubic)
       })
     ]).start(() => {
-      console.log(`Animation complete for bubble: ${bubble.text}`);
-      
       // Remove this bubble from the ref immediately
       bubblesRef.current = bubblesRef.current.filter(b => b.id !== bubble.id);
       
       // Add a new bubble if there are options in queue
       let newBubble: BubbleItem | null = null;
       
+      // Process queue if items are available
       if (queuedOptionsRef.current.length > 0) {
         // Get next option from queue
         const newOption = queuedOptionsRef.current[0];
         queuedOptionsRef.current = queuedOptionsRef.current.slice(1);
+        
+        // Ensure there are no duplicates of this option in the queue
+        queuedOptionsRef.current = queuedOptionsRef.current.filter(opt => opt !== newOption);
         
         console.log(`Adding new bubble from queue: ${newOption}`);
         
@@ -1292,16 +1318,11 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
         
         return filtered;
       });
-      
-      // Force a render to update UI
-      triggerRender();
     });
   };
   
   // Handle removing a selection chip
   const handleRemoveSelection = (option: string) => {
-    console.log(`Removing selection: ${option}`);
-    
     // Remove from context
     if (type === 'styles') {
       removeStyle(option);
@@ -1309,13 +1330,11 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
       removeBrand(option);
     }
     
-    // Update the selected options state (for chips rendering)
+    // Update local state immediately to provide instant visual feedback
     setSelectedOptions(prevSelected => prevSelected.filter(o => o !== option));
     
     // Add this option back to bubbles or queue
     if (bubblesRef.current.length < MAX_VISIBLE_BUBBLES) {
-      console.log(`Adding removed option back as bubble: ${option}`);
-      
       const newBubble = generateNewBubble(option);
       
       // Add to bubbles ref
@@ -1340,9 +1359,14 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
         })
       ]).start();
     } else {
-      console.log(`Adding removed option to queue: ${option}`);
-      // Otherwise, add to front of queue
-      queuedOptionsRef.current = [option, ...queuedOptionsRef.current];
+      // Check if the option is already in the queue
+      if (!queuedOptionsRef.current.includes(option)) {
+        // Add to front of queue if not already there
+        console.log(`Adding removed option '${option}' to queue`);
+        queuedOptionsRef.current = [option, ...queuedOptionsRef.current];
+      } else {
+        console.log(`Option '${option}' already in queue, not adding again`);
+      }
     }
     
     // Force a render to update UI
@@ -1351,20 +1375,16 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
   
   // Initialize and clean up animations
   useEffect(() => {
-    console.log("Component mounted or options changed");
-    
     // Try to initialize if we have dimensions
     if (containerSizeRef.current.width > 0 && 
         containerSizeRef.current.height > 0 && 
         options.length > 0 && 
         !isBubblesInitializedRef.current) {
-      console.log("Initializing bubbles from useEffect");
       initializeBubbles();
     } else if (!isBubblesInitializedRef.current) {
       // If we don't have dimensions yet, set a backup initialization
       const timer = setTimeout(() => {
         if (!isBubblesInitializedRef.current) {
-          console.log("Backup initialization - setting default dimensions");
           // Set default dimensions if we haven't gotten layout yet
           if (containerSizeRef.current.width === 0) {
             const { width, height } = Dimensions.get('window');
@@ -1375,14 +1395,13 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
             initializeBubbles();
           }
         }
-      }, 1000);
+      }, 500);
       
       return () => clearTimeout(timer);
     }
     
     // Clean up animation loop on unmount
     return () => {
-      console.log("Component unmounting");
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
@@ -1671,9 +1690,10 @@ const OnboardingBubbles: React.FC<BubbleProps> = ({ type, options, onSelectionCh
           overScrollMode="always"
           indicatorStyle={isDarkMode ? "white" : "black"}
         >
-          {selectedOptions.map((option) => (
+          {/* Use index+option as the key to ensure uniqueness even if there are duplicates */}
+          {selectedOptions.map((option, index) => (
             <TouchableOpacity
-              key={option}
+              key={`${index}:${option}`}
               style={[
                 styles.chip,
                 { 

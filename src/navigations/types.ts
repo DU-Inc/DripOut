@@ -22,12 +22,25 @@ export type AuthStackParamList = {
     progress?: {[key: string]: boolean};
     resuming?: boolean;
   } | undefined;
+  OnboardingFlow: undefined;
 };
 
 export type RootStackParamList = {
+  Welcome: undefined; 
   Auth: undefined;
-  Main: undefined;
+  MainTabs: undefined;
+  UserPreferencesScreen: undefined;
+  SettingsScreen: undefined;
+  
+  // Onboarding screens
+  OnboardingFlow: undefined;
+  Onboarding: undefined;
+  OnboardingBrands: undefined;
+  OnboardingSizing: undefined;
+  
+  // Legacy routes for backward compatibility
   Home: undefined;
+  Main: undefined;
 };
 
 export type AuthStackNavigationProp = NativeStackNavigationProp<AuthStackParamList>;

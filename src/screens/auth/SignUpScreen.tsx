@@ -2205,6 +2205,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
       setShowSuccess(true);
       setCurrentStep('complete'); // Also set currentStep to complete for consistency
       
+      // Update appStateManager to track that options sheet should be shown
+      appStateManager.setShowOnboardingOptions(true);
+      
       // Show options sheet immediately - no delay
       setShowOptionsSheet(true);
       
@@ -2256,6 +2259,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
     
     // Set authenticated state after successful sign-up
     setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
       // End signup success flow and set authenticated state
       appStateManager.setSignupInProgress(false);
       appStateManager.setAuthenticated(true);
@@ -2277,6 +2283,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
     
     // Set authenticated and start onboarding
     setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
       // End signup success flow
       appStateManager.setSignupInProgress(false);
       
@@ -2286,71 +2295,35 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
       // Set onboarding flag to true
       appStateManager.setOnboarding(true);
       
-      // Navigate to onboarding
-      navigation.navigate('Onboarding');
+      // Navigate to onboarding flow
+      navigation.navigate('OnboardingFlow');
     }, 300);
   };
   
   // Handle home option
-  const handleProceedToHome = async () => {
+  const handleProceedToHome = () => {
     setShowOptionsSheet(false);
     
-    // Set loading state
-    setLoading(true);
-    
-    try {
-      // Verify Firebase authentication state first
-      const currentUser = auth().currentUser;
-      if (!currentUser) {
-        console.error('No authenticated user found when proceeding to home');
-        Alert.alert('Error', 'Authentication issue. Please try again.');
-        setLoading(false);
-        return;
-      }
-      
-      // Refresh token to ensure Firebase session is valid
-      try {
-        await currentUser.getIdToken(true);
-        console.log('Firebase token refreshed successfully');
-      } catch (tokenError) {
-        console.error('Failed to refresh Firebase token:', tokenError);
-        Alert.alert('Error', 'Authentication session expired. Please sign in again.');
-        setLoading(false);
-        return;
-      }
-      
-      // Update the user's onboarding status in Firestore
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
-        onboardingCompleted: true,
-        updatedAt: new Date()
-      });
-      
-      // Update AsyncStorage
-      await AsyncStorage.setItem('onboardingCompleted', 'true');
+    // Set authenticated state and navigate to home
+    setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
       
       // End signup success flow
       appStateManager.setSignupInProgress(false);
       
-      // Ensure user is properly marked as authenticated in app state
+      // User has successfully signed up - set authenticated state
       appStateManager.setAuthenticated(true);
       
       // Ensure onboarding flag is false
       appStateManager.setOnboarding(false);
       
-      // Turn off loading
-      setLoading(false);
-      
-      // Navigate to main screen
+      // Navigate to Welcome screen which will now show the main content (not auth overlay)
       navigation.reset({
         index: 0,
-        routes: [{ name: 'MainTabs' }] // Changed to MainTabs instead of Welcome
+        routes: [{ name: 'Welcome' }]
       });
-    } catch (error) {
-      console.error('Error updating user status:', error);
-      setLoading(false);
-      Alert.alert('Error', 'Failed to update your profile. Please try again.');
-    }
+    }, 300);
   };
 
   // Personal details are valid when all fields are valid
