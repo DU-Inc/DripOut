@@ -6,7 +6,11 @@ module.exports = {
       path: '.env',
       allowUndefined: true,
     }],
-    'nativewind/babel',
+    ['babel-plugin-styled-components', {
+      ssr: false,
+      displayName: true,
+      pure: true
+    }],
     'react-native-reanimated/plugin',
   ],
 };
