@@ -1,6 +1,6 @@
 // src/screens/SocialScreen.tsx
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   SafeAreaView,
   Animated,
@@ -24,6 +24,9 @@ import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-g
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
+
+import { auth } from '../Config/firebaseconfig';
+import { Timestamp } from 'firebase/firestore';
 
 // Add global setTimeout type declaration
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -152,18 +155,36 @@ const SocialScreen: React.FC = () => {
 
   // Fetch posts from Firebase
   const fetchPosts = async (forceRefresh = false) => {
+    console.log('🔄 fetchPosts called with forceRefresh =', forceRefresh);
     try {
       setIsLoading(true);
       // Get posts from Firestore with caching
+      console.log('📥 Getting posts from Firestore with getCachedFeedPosts()');
       const posts = await getCachedFeedPosts(forceRefresh);
+      console.log(`📦 Received ${posts.length} posts from Firestore`);
+      console.log('📊 Post sample:', posts.length > 0 ? JSON.stringify(posts[0], null, 2) : 'No posts');
       setFirebasePosts(posts);
       
       // Convert to FashionPost format
-      const enhancedPosts = await Promise.all(posts.map(async (post) => {
+      console.log('🔄 Converting posts to FashionPost format');
+      const enhancedPosts = await Promise.all(posts.map(async (post, index) => {
+        console.log(`📝 Processing post #${index}, ID: ${post.id}, userId: ${post.userId}`);
         // Format post dates
-        const publishedDate = post.createdAt ? 
-          formatDistanceToNow(post.createdAt.toDate ? post.createdAt.toDate() : new Date(post.createdAt)) + ' ago' : 
-          '1 day ago';
+        let publishedDate = '1 day ago';
+        try {
+          if (post.createdAt) {
+            // Handle various formats of createdAt
+            const date = post.createdAt.toDate 
+              ? post.createdAt.toDate() 
+              : post.createdAt.seconds 
+                ? new Date(post.createdAt.seconds * 1000)
+                : new Date(post.createdAt);
+            
+            publishedDate = formatDistanceToNow(date) + ' ago';
+          }
+        } catch (dateError) {
+          console.log('Error formatting date:', dateError);
+        }
         
         // Generate random values for UI elements that don't exist in the database yet
         const aesthetic = STYLE_AESTHETICS[Math.floor(Math.random() * STYLE_AESTHETICS.length)];
@@ -232,6 +253,7 @@ const SocialScreen: React.FC = () => {
 
   // Initial data load
   useEffect(() => {
+    console.log('🟢 Initial data load - calling fetchPosts()');
     fetchPosts();
   }, []);
 
@@ -308,7 +330,7 @@ const SocialScreen: React.FC = () => {
 
   // Cycle through gallery images
   const cycleGalleryImage = (postId: string, direction: 'next' | 'prev') => {
-    const post = FASHION_POSTS.find(p => p.id === postId);
+    const post = fashionPosts.find(p => p.id === postId);
     if (!post) return;
     
     const currentIndex = activeGalleryIndex[postId] || 0;
@@ -329,7 +351,7 @@ const SocialScreen: React.FC = () => {
   // Initialize animations and pan responders for posts
   React.useEffect(() => {
     // Create animations for each post
-    FASHION_POSTS.forEach((post, index) => {
+    fashionPosts.forEach((post, index) => {
       if (!postAnimations.current[post.id]) {
         const animatedValue = new Animated.Value(0);
         postAnimations.current[post.id] = animatedValue;
@@ -351,7 +373,7 @@ const SocialScreen: React.FC = () => {
         panResponders.current[post.id] = createPanResponderForPost(post.id);
       }
     });
-  }, []);
+  }, [fashionPosts]);
   
   // Create pan responder for post
   const createPanResponderForPost = (postId: string) => {
@@ -372,7 +394,7 @@ const SocialScreen: React.FC = () => {
   const handleSwipeEnd = (postId: string, gestureState: { dx: number }) => {
     const { dx } = gestureState;
     const currentImageIndex = activeGalleryIndex[postId] || 0;
-    const post = FASHION_POSTS.find(p => p.id === postId);
+    const post = fashionPosts.find(p => p.id === postId);
     
     if (!post) return;
     
@@ -395,6 +417,13 @@ const SocialScreen: React.FC = () => {
 
   // Render fashion inspiration post
   const renderFashionPost = ({ item, index }: { item: FashionPost; index: number }) => {
+    console.log(`⭐ Rendering post #${index} with ID: ${item.id}, userId: ${item.userId}`);
+    console.log(`User data for post #${index}:`, {
+      username: item.username,
+      userId: item.userId,
+      userIdType: typeof item.userId
+    });
+    
     // Use the pre-created animation value
     const animatedValue = postAnimations.current[item.id] || new Animated.Value(1);
     
@@ -442,25 +471,46 @@ const SocialScreen: React.FC = () => {
             <TouchableOpacity 
               activeOpacity={0.8}
               onPress={() => {
-                // Generate a user ID for the hardcoded user
-                const userId = `user_${item.id}`;
+                console.log('PROFILE IMAGE CLICK - userId:', item.userId);
                 
-                // Get username based on post ID
-                const username = item.id === '1' ? 'grace_style' : 
-                  item.id === '2' ? 'fashion_guru' : 
-                  item.id === '3' ? 'trend_watcher' : 
-                  item.id === '4' ? 'clothescritic' : 
-                  item.id === '5' ? 'runway_fan' : 'style_seeker';
+                // Check if this post is from the current user
+                const currentUser = auth().currentUser;
+                // Add debug logs to see what's causing the mismatch
+                console.log('COMPARING - Post userId:', item.userId, 'type:', typeof item.userId);
+                console.log('COMPARING - Current user uid:', currentUser?.uid, 'type:', typeof currentUser?.uid);
+                console.log('COMPARING - Are they equal?', currentUser?.uid === item.userId);
                 
-                // Navigate to user detail screen
-                navigation.navigate('UserDetailScreen', { 
-                  userId, 
-                  username 
-                });
+                // Check for valid userIds (not unknown or mock users)
+                const isRealUserId = item.userId && 
+                  !item.userId.includes('unknown') && 
+                  !item.userId.includes('mock');
+                  
+                if (currentUser && isRealUserId && item.userId === currentUser.uid) {
+                  // If it's the current user, navigate to ProfileTab
+                  console.log('This is the current user, navigating to ProfileTab');
+                  navigation.navigate('ProfileTab');
+                } else {
+                  // Check if this is a mock/unknown user or a real user
+                  const isMockOrUnknown = item.userId && 
+                    (item.userId.includes('unknown') || item.userId.includes('mock'));
+                    
+                  if (isMockOrUnknown) {
+                    console.log('This is a demo/mock user, showing friendly message');
+                    // You could show an alert or toast here instead of navigating
+                    alert('This is a demo profile and not available for viewing.');
+                  } else {
+                    // If it's a real user, navigate to UserDetailScreen
+                    console.log('This is another user, navigating to UserDetailScreen');
+                    navigation.navigate('UserDetailScreen', { 
+                      userId: item.userId, 
+                      username: item.username 
+                    });
+                  }
+                }
               }}
             >
               <Image 
-                source={{ uri: `https://i.pravatar.cc/150?u=${item.id}` }} 
+                source={{ uri: item.userAvatar || `https://i.pravatar.cc/150?u=${item.id}` }} 
                 style={[
                   styles.profileImage, 
                   { 
@@ -473,32 +523,49 @@ const SocialScreen: React.FC = () => {
               <TouchableOpacity 
                 activeOpacity={0.8} 
                 onPress={() => {
-                  // Generate a user ID for the hardcoded user
-                  const userId = `user_${item.id}`;
+                  console.log('USERNAME CLICK - userId:', item.userId);
                   
-                  // Get username based on post ID
-                  const username = item.id === '1' ? 'grace_style' : 
-                    item.id === '2' ? 'fashion_guru' : 
-                    item.id === '3' ? 'trend_watcher' : 
-                    item.id === '4' ? 'clothescritic' : 
-                    item.id === '5' ? 'runway_fan' : 'style_seeker';
+                  // Check if this post is from the current user
+                  const currentUser = auth().currentUser;
+                  // Add debug logs to see what's causing the mismatch
+                  console.log('COMPARING - Post userId:', item.userId, 'type:', typeof item.userId);
+                  console.log('COMPARING - Current user uid:', currentUser?.uid, 'type:', typeof currentUser?.uid);
+                  console.log('COMPARING - Are they equal?', currentUser?.uid === item.userId);
                   
-                  // Navigate to user detail screen
-                  navigation.navigate('UserDetailScreen', { 
-                    userId, 
-                    username 
-                  });
+                  // Check for valid userIds (not unknown or mock users)
+                const isRealUserId = item.userId && 
+                  !item.userId.includes('unknown') && 
+                  !item.userId.includes('mock');
+                  
+                if (currentUser && isRealUserId && item.userId === currentUser.uid) {
+                    // If it's the current user, navigate to ProfileTab
+                    console.log('This is the current user, navigating to ProfileTab');
+                    navigation.navigate('ProfileTab');
+                  } else {
+                    // Check if this is a mock/unknown user or a real user
+                    const isMockOrUnknown = item.userId && 
+                      (item.userId.includes('unknown') || item.userId.includes('mock'));
+                      
+                    if (isMockOrUnknown) {
+                      console.log('This is a demo/mock user, showing friendly message');
+                      // You could show an alert or toast here instead of navigating
+                      alert('This is a demo profile and not available for viewing.');
+                    } else {
+                      // If it's a real user, navigate to UserDetailScreen
+                      console.log('This is another user, navigating to UserDetailScreen');
+                      navigation.navigate('UserDetailScreen', { 
+                        userId: item.userId, 
+                        username: item.username 
+                      });
+                    }
+                  }
                 }}
               >
                 <View style={styles.usernameContainer}>
                   <Text style={[styles.username, { color: textColor }]}>
-                    {item.id === '1' ? 'grace_style' : 
-                      item.id === '2' ? 'fashion_guru' : 
-                      item.id === '3' ? 'trend_watcher' : 
-                      item.id === '4' ? 'clothescritic' : 
-                      item.id === '5' ? 'runway_fan' : 'style_seeker'}
+                    {item.username}
                   </Text>
-                  {(item.id === '1' || item.id === '3') && (
+                  {item.username.includes('verified') && (
                     <View style={styles.verifiedBadge}>
                       <Icon name="checkmark-circle" size={14} color="#0095F6" />
                     </View>
@@ -820,14 +887,36 @@ const SocialScreen: React.FC = () => {
                       <TouchableOpacity
                         activeOpacity={0.8}
                         onPress={() => {
-                          // Generate a user ID for the comment user
-                          const userId = `comment_user_${comment.id}`;
+                          // Check if this is the current user commenting
+                          const currentUser = auth().currentUser;
                           
-                          // Navigate to user detail screen
-                          navigation.navigate('UserDetailScreen', { 
-                            userId, 
-                            username: comment.username 
-                          });
+                          // Add debug logs to see what's being compared
+                          console.log('COMMENT COMPARING - Comment username:', comment.username);
+                          console.log('COMMENT COMPARING - Current user displayName:', currentUser?.displayName);
+                          console.log('COMMENT COMPARING - Current user email prefix:', currentUser?.email?.split('@')[0]);
+                          
+                          if (currentUser && 
+                             (currentUser.displayName === comment.username || 
+                              (currentUser.email && comment.username === currentUser.email.split('@')[0]))) {
+                            // If comment is from current user, navigate to ProfileTab
+                            console.log('This is the current user comment, navigating to ProfileTab');
+                            navigation.navigate('ProfileTab');
+                          } else {
+                            // Comments are typically generated/demo users
+                            // We'll show an alert for these generated comment users
+                            console.log('This is a generated comment user, showing friendly message');
+                            alert('This is a demo commenter profile and not available for viewing.');
+                            
+                            // Keeping this code commented for reference if you want to enable it later
+                            /*
+                            const userId = `comment_user_${comment.id}`;
+                            console.log('This is another user comment, navigating to UserDetailScreen');
+                            navigation.navigate('UserDetailScreen', { 
+                              userId, 
+                              username: comment.username 
+                            });
+                            */
+                          }
                         }}
                       >
                         <Text style={[styles.commentUsername, { color: textColor }]}>

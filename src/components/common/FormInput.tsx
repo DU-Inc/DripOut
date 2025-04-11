@@ -11,7 +11,7 @@ import {
   Easing,
   TouchableOpacity,
 } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 type FormInputProps = TextInputProps & {

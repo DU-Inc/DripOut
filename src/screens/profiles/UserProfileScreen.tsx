@@ -605,6 +605,11 @@ const UserProfileScreen: React.FC = () => {
     navigation.navigate('SettingsScreen' as never);
   };
   
+  // Function to navigate to user detail screen
+  const navigateToUserDetail = (userId: string, username: string) => {
+    navigation.navigate('UserDetailScreen' as never, { userId, username } as never);
+  };
+  
   const viewStyleBoard = (boardId: string) => {
     setSelectedStyleBoard(boardId);
   };
@@ -846,6 +851,16 @@ const UserProfileScreen: React.FC = () => {
                   >
                     <FeatherIcon name="camera" size={18} color={mainColor} />
                   </TouchableOpacity>
+                  
+                  {/* Overlay remains for clickable feel, but doesn't do anything for own profile */}
+                  <TouchableOpacity 
+                    style={styles.profileClickOverlay}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      // Don't navigate when clicking own profile in ProfileScreen - we're already there
+                      console.log("Already on profile screen, no navigation needed");
+                    }}
+                  />
                 </View>
                 
                 <View style={styles.nameContainer}>
@@ -1873,6 +1888,14 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     borderWidth: 3,
     borderColor: '#FFFFFF',
+  },
+  profileClickOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 50,
   },
   defaultProfileImage: {
     width: 100,

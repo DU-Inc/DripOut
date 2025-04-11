@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Alert, TouchableWithoutFeedback, Keyboard, Animated, Easing, Platform, LayoutAnimation, Dimensions, KeyboardAvoidingView } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import { createAuthStyles } from '../../styles/components/auth.styles';
 import { createSignUpStyles as createSignUpStylesOriginal } from '../../styles/components/signup.styles';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';

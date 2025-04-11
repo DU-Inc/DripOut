@@ -20,7 +20,9 @@ import {
   RefreshControl,
   ImageBackground,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { auth } from '../Config/firebaseconfig';
 // Using View with background color instead of LinearGradient
 
 // Enable LayoutAnimation for Android
@@ -296,6 +298,7 @@ interface Story {
 
 const HomeScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
+  const navigation = useNavigation();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState('For You');
@@ -532,16 +535,72 @@ const HomeScreen: React.FC = () => {
         {/* Post Header with Author Info */}
         <View style={styles.postHeader}>
           <View style={styles.postAuthor}>
-            <Image source={{ uri: item.author.avatar }} style={styles.authorAvatar} />
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                // Generate a stable user ID for the author
+                const userId = `author_${item.id}`;
+                
+                // Check if this matches the current user
+                const currentUser = auth().currentUser;
+                const isCurrentUser = currentUser && 
+                  (currentUser.displayName === item.author.username || 
+                   currentUser.email?.split('@')[0] === item.author.username);
+                
+                if (isCurrentUser) {
+                  // If it's the current user, navigate to ProfileTab
+                  console.log('This is the current user, navigating to ProfileTab');
+                  navigation.navigate('ProfileTab');
+                } else {
+                  // If it's another user, navigate to UserDetailScreen
+                  console.log('This is another user, navigating to UserDetailScreen');
+                  navigation.navigate('UserDetailScreen', { 
+                    userId, 
+                    username: item.author.username 
+                  });
+                }
+              }}
+            >
+              <Image source={{ uri: item.author.avatar }} style={styles.authorAvatar} />
+            </TouchableOpacity>
+            
             <View style={styles.authorInfo}>
-              <View style={styles.authorNameRow}>
-                <Text style={[styles.authorUsername, { color: textColor }]}>
-                  {item.author.username}
-                </Text>
-                {item.author.isVerified && (
-                  <Icon name="checkmark-circle" size={14} color={mainColor} style={styles.verifiedBadge} />
-                )}
-              </View>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  // Generate a stable user ID for the author
+                  const userId = `author_${item.id}`;
+                  
+                  // Check if this matches the current user
+                  const currentUser = auth().currentUser;
+                  const isCurrentUser = currentUser && 
+                    (currentUser.displayName === item.author.username || 
+                     currentUser.email?.split('@')[0] === item.author.username);
+                  
+                  if (isCurrentUser) {
+                    // If it's the current user, navigate to ProfileTab
+                    console.log('This is the current user, navigating to ProfileTab');
+                    navigation.navigate('ProfileTab');
+                  } else {
+                    // If it's another user, navigate to UserDetailScreen
+                    console.log('This is another user, navigating to UserDetailScreen');
+                    navigation.navigate('UserDetailScreen', { 
+                      userId, 
+                      username: item.author.username 
+                    });
+                  }
+                }}
+              >
+                <View style={styles.authorNameRow}>
+                  <Text style={[styles.authorUsername, { color: textColor }]}>
+                    {item.author.username}
+                  </Text>
+                  {item.author.isVerified && (
+                    <Icon name="checkmark-circle" size={14} color={mainColor} style={styles.verifiedBadge} />
+                  )}
+                </View>
+              </TouchableOpacity>
+              
               <Text style={[styles.postDate, { color: subTextColor }]}>
                 {item.publishedDate}
               </Text>
@@ -677,12 +736,12 @@ const HomeScreen: React.FC = () => {
 
           {/* Tags */}
           <View style={styles.tagsContainer}>
-            <FlatList
+            <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              data={item.tags}
-              keyExtractor={(_, index) => `tag-${index}`}
-              renderItem={({item: tag, index}) => (
+              contentContainerStyle={styles.tagsScrollContent}
+            >
+              {item.tags.map((tag, index) => (
                 <TouchableOpacity 
                   key={`tag-${index}`}
                   style={[
@@ -697,8 +756,8 @@ const HomeScreen: React.FC = () => {
                     {tag}
                   </Text>
                 </TouchableOpacity>
-              )}
-            />
+              ))}
+            </ScrollView>
           </View>
 
           {/* Featured Pieces - Collapsed by Default */}
@@ -945,26 +1004,24 @@ const HomeScreen: React.FC = () => {
             <>
               {/* Stories Row */}
               <View style={styles.storiesContainer}>
-                <FlatList
-                  data={STORIES}
-                  renderItem={renderStoryItem}
-                  keyExtractor={item => item.id}
+                <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.storiesList}
-                />
+                >
+                  {STORIES.map(item => renderStoryItem({ item }))}
+                </ScrollView>
               </View>
 
               {/* Topic/Filter Pills */}
               <View style={styles.topicsContainer}>
-                <FlatList
-                  data={TRENDING_TOPICS}
-                  renderItem={renderTrendingTopic}
-                  keyExtractor={item => item}
+                <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.topicsList}
-                />
+                >
+                  {TRENDING_TOPICS.map(item => renderTrendingTopic({ item }))}
+                </ScrollView>
               </View>
             </>
           }
@@ -980,6 +1037,10 @@ const HomeScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  tagsScrollContent: {
+    flexDirection: 'row',
+    paddingRight: 8,
   },
   headerContainer: {
     position: 'relative',

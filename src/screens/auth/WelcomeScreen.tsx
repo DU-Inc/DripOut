@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { View, Animated } from 'react-native';
-import { useTheme } from '../../styles/theme/ThemeContext';
+import { useTheme } from '../../styles/themeprovider';
 import SlidingPanels from '../../components/common/SlidingPanels';
 import BottomSheetWelcome from '../../components/common/BottomSheetWelcome';
 import { appStateManager } from '../../utils/appStateManager';

@@ -4,7 +4,7 @@ import {
   Text,
   ActivityIndicator,
 } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import { createButtonStyles } from '../../styles/common/button.styles';
 import { ButtonProps } from '../../types/common';
 

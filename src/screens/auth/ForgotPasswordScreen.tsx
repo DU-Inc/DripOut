@@ -12,7 +12,7 @@ import {
   KeyboardAvoidingView,
   Dimensions
 } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import { createAuthStyles } from '../../styles/components/auth.styles';
 import { createForgotPasswordStyles } from '../../styles/components/forgotPassword.styles';
 import FormInput from '../../components/common/FormInput';
