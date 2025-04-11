@@ -1083,6 +1083,7 @@ const SocialScreen: React.FC = () => {
                 borderColor: 'rgba(124, 107, 255, 0.2)'
               }
             ]}
+            onPress={() => navigation.navigate('SearchScreen')}
           >
             <FeatherIcon name="search" size={22} color={isDarkMode ? '#B8B8CC' : textColor} />
           </TouchableOpacity>

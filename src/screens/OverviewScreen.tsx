@@ -1,6 +1,6 @@
 // src/screens/OverviewScreen.tsx
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   SafeAreaView,
   StatusBar,
@@ -131,6 +131,16 @@ const OverviewScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [activeFeature, setActiveFeature] = useState(0);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  
+  // Animation effect when component mounts
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 800,
+      useNativeDriver: true,
+    }).start();
+  }, []);
 
   // Colors based on theme - using the app's RED theme
   const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
@@ -156,7 +166,10 @@ const OverviewScreen: React.FC = () => {
 
   const renderFeaturedItem = ({ item, index }: { item: any, index: number }) => (
     <TouchableOpacity 
-      style={[styles.featuredCard, { opacity: activeFeature === index ? 1 : 0.8 }]}
+      style={[
+        styles.featuredCard, 
+        { opacity: activeFeature === index ? 1 : 0.8 }
+      ]}
       onPress={() => {
         setActiveFeature(index);
         setTimeout(() => navigateToScreen(item.screen), 300);
@@ -166,16 +179,16 @@ const OverviewScreen: React.FC = () => {
       <ImageBackground 
         source={{ uri: item.image }} 
         style={styles.featuredImage}
-        imageStyle={{ borderRadius: 20 }}
+        imageStyle={{ borderRadius: 24 }}
       >
         {/* Dark overlay */}
         <View style={styles.featuredOverlay}>
           <View style={styles.featuredContent}>
             <Text style={[styles.featuredTitle, { color: '#FFFFFF' }]}>{item.title}</Text>
-            <Text style={[styles.featuredDescription, { color: 'rgba(255,255,255,0.8)' }]}>{item.description}</Text>
+            <Text style={[styles.featuredDescription, { color: 'rgba(255,255,255,0.9)' }]}>{item.description}</Text>
             <View style={[styles.featuredButton, { backgroundColor: mainColor }]}>
               <Text style={styles.featuredButtonText}>Explore</Text>
-              <Icon name="arrow-forward" size={16} color="#FFFFFF" />
+              <Icon name="arrow-forward" size={18} color="#FFFFFF" />
             </View>
           </View>
         </View>
@@ -217,6 +230,7 @@ const OverviewScreen: React.FC = () => {
         )}
         scrollEventThrottle={16}
         contentContainerStyle={styles.scrollContent}
+        style={{ opacity: fadeAnim }}
       >
         {/* Welcome Header */}
         <View style={styles.welcomeSection}>
@@ -246,11 +260,14 @@ const OverviewScreen: React.FC = () => {
           />
           <View style={styles.featuredDots}>
             {FEATURED_CONTENT.map((_, index) => (
-              <View 
+              <Animated.View 
                 key={index} 
                 style={[
                   styles.featuredDot, 
-                  { backgroundColor: activeFeature === index ? mainColor : surfaceColor }
+                  { 
+                    backgroundColor: activeFeature === index ? mainColor : surfaceColor,
+                    transform: [{ scale: activeFeature === index ? 1.2 : 1 }],
+                  }
                 ]} 
               />
             ))}
@@ -271,11 +288,18 @@ const OverviewScreen: React.FC = () => {
           </View>
           
           <View style={[styles.avatarContainer, { backgroundColor: cardBgColor }]}>
-            <ThreeDBox
-              width={0.78}
-              height={0.65}
-              imageUrl={require('../assets/images/3dimage.png')}
-            />
+            <Animated.View style={{
+              transform: [{ scale: fadeAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.9, 1]
+              }) }]
+            }}>
+              <ThreeDBox
+                width={0.84}
+                height={0.7}
+                imageUrl={require('../assets/images/3dimage.png')}
+              />
+            </Animated.View>
             <TouchableOpacity 
               style={[styles.tryOnButton, { backgroundColor: mainColor }]}
               onPress={() => navigateToScreen('3DTab')}
@@ -303,6 +327,8 @@ const OverviewScreen: React.FC = () => {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.trendingList}
+            decelerationRate="fast"
+            snapToInterval={170 + 14}
           >
             {TRENDING_PRODUCTS.map((product) => (
               <TouchableOpacity 
@@ -345,6 +371,8 @@ const OverviewScreen: React.FC = () => {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.styleBoardsGrid}
+            decelerationRate="fast"
+            snapToInterval={width * 0.7 + 16}
           >
             {STYLE_BOARDS.map((board) => (
               <TouchableOpacity 
@@ -381,6 +409,7 @@ const OverviewScreen: React.FC = () => {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.communityPosts}
+            decelerationRate="fast"
           >
             {COMMUNITY_POSTS.map((post) => (
               <TouchableOpacity 
@@ -481,8 +510,9 @@ const OverviewScreen: React.FC = () => {
           { backgroundColor: mainColor }
         ]}
         onPress={() => navigateToScreen('SocialTab')}
+        activeOpacity={0.7}
       >
-        <FeatherIcon name="message-circle" size={24} color="#FFFFFF" />
+        <FeatherIcon name="message-circle" size={26} color="#FFFFFF" />
       </TouchableOpacity>
     </SafeAreaView>
   );
@@ -497,13 +527,13 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 60,
+    height: 64,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     zIndex: 100,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 0,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -511,7 +541,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     ...defaultTextStyle,
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -519,51 +549,60 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   headerButton: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
+    marginLeft: 10,
+    borderRadius: 21,
+    backgroundColor: 'rgba(239, 61, 71, 0.1)',
   },
   scrollContent: {
-    paddingTop: 20,
+    paddingTop: 24,
   },
   welcomeSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
+    paddingHorizontal: 24,
+    marginBottom: 32,
   },
   welcomeTitle: {
     ...defaultTextStyle,
-    fontSize: 34,
+    fontSize: 36,
     fontWeight: '800',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
   welcomeSubtitle: {
     ...defaultTextStyle,
     fontSize: 18,
-    marginTop: 6,
+    marginTop: 8,
+    opacity: 0.85,
   },
   // Featured Section
   featuredSection: {
-    marginBottom: 30,
+    marginBottom: 36,
   },
   sectionTitle: {
     ...defaultTextStyle,
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
-    marginBottom: 16,
-    paddingHorizontal: 20,
+    marginBottom: 18,
+    paddingHorizontal: 24,
+    letterSpacing: 0.4,
   },
   featuredList: {
-    paddingHorizontal: 10,
-    paddingBottom: 10,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
   },
   featuredCard: {
     width: width - 60,
-    height: 220,
+    height: 240,
     marginHorizontal: 10,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
   },
   featuredImage: {
     width: '100%',
@@ -572,92 +611,110 @@ const styles = StyleSheet.create({
   },
   featuredOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
-    padding: 20,
+    padding: 24,
   },
   featuredContent: {
-    maxWidth: '85%',
+    maxWidth: '90%',
   },
   featuredTitle: {
     ...defaultTextStyle,
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
-    marginBottom: 8,
+    marginBottom: 10,
+    letterSpacing: 0.5,
   },
   featuredDescription: {
     ...defaultTextStyle,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '400',
-    marginBottom: 16,
-    lineHeight: 20,
+    marginBottom: 20,
+    lineHeight: 22,
+    opacity: 0.9,
   },
   featuredButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 24,
     alignSelf: 'flex-start',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   featuredButtonText: {
     ...defaultTextStyle,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-    marginRight: 6,
+    marginRight: 8,
   },
   featuredDots: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 12,
+    marginTop: 16,
   },
   featuredDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginHorizontal: 4,
+    marginHorizontal: 5,
   },
   // Avatar Section
   avatarSection: {
-    paddingTop: 24,
-    paddingBottom: 30,
-    marginBottom: 30,
+    paddingTop: 28,
+    paddingBottom: 34,
+    marginBottom: 36,
+    borderRadius: 20,
+    marginHorizontal: 12,
   },
   avatarHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 20,
+    marginBottom: 20,
+    paddingHorizontal: 24,
   },
   viewAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(239, 61, 71, 0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
   viewAllText: {
     ...defaultTextStyle,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginRight: 2,
+    marginRight: 3,
   },
   avatarContainer: {
-    marginHorizontal: 20,
-    borderRadius: 20,
-    padding: 20,
+    marginHorizontal: 24,
+    borderRadius: 24,
+    padding: 22,
     alignItems: 'center',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   tryOnButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
-    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 24,
+    marginTop: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
   },
   tryOnButtonText: {
     ...defaultTextStyle,
@@ -667,67 +724,67 @@ const styles = StyleSheet.create({
   },
   // Trending Section
   trendingSection: {
-    marginBottom: 30,
+    marginBottom: 36,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    marginBottom: 16,
+    paddingHorizontal: 24,
+    marginBottom: 18,
   },
   trendingList: {
-    paddingLeft: 20,
-    paddingRight: 10,
+    paddingLeft: 24,
+    paddingRight: 12,
   },
   productCard: {
-    width: 160,
-    borderRadius: 16,
-    marginRight: 12,
+    width: 170,
+    borderRadius: 20,
+    marginRight: 14,
     overflow: 'hidden',
-    borderWidth: 1,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: 0,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 5,
   },
   productImage: {
     width: '100%',
-    height: 160,
+    height: 180,
     resizeMode: 'cover',
   },
   productDetails: {
-    padding: 12,
+    padding: 14,
   },
   productName: {
     ...defaultTextStyle,
     fontSize: 15,
-    fontWeight: '500',
-    marginBottom: 4,
+    fontWeight: '600',
+    marginBottom: 5,
   },
   productPrice: {
     ...defaultTextStyle,
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
   },
   // Style Boards Section
   styleBoardsSection: {
-    marginBottom: 30,
+    marginBottom: 36,
   },
   styleBoardsGrid: {
-    paddingLeft: 20,
-    paddingRight: 10,
+    paddingLeft: 24,
+    paddingRight: 12,
   },
   styleBoard: {
     width: width * 0.7,
-    height: 180,
-    borderRadius: 16,
+    height: 200,
+    borderRadius: 20,
     overflow: 'hidden',
     marginRight: 16,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 6,
   },
   styleBoardImage: {
     width: '100%',
@@ -739,49 +796,57 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 12,
+    padding: 16,
+    paddingBottom: 18,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
   styleBoardTitle: {
     ...defaultTextStyle,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
   // Community Section
   communitySection: {
-    paddingTop: 24,
-    paddingBottom: 30,
-    marginBottom: 30,
+    paddingTop: 28,
+    paddingBottom: 34,
+    marginBottom: 36,
+    borderRadius: 20,
+    marginHorizontal: 12,
   },
   communityPosts: {
-    paddingLeft: 20,
-    paddingRight: 10,
+    paddingLeft: 24,
+    paddingRight: 12,
   },
   communityPost: {
-    width: width * 0.8, // Set width for horizontal scrolling
-    borderRadius: 16,
+    width: width * 0.8,
+    borderRadius: 20,
     overflow: 'hidden',
-    marginRight: 16, // Add horizontal margin
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    marginRight: 16,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 6,
   },
   postHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
+    padding: 14,
   },
   postUser: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   userAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     marginRight: 10,
+    borderWidth: 2,
+    borderColor: 'rgba(239, 61, 71, 0.5)',
   },
   username: {
     ...defaultTextStyle,
@@ -790,97 +855,110 @@ const styles = StyleSheet.create({
   },
   postImage: {
     width: '100%',
-    height: 300,
+    height: 320,
     resizeMode: 'cover',
   },
   postActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 12,
+    padding: 14,
   },
   actionGroup: {
     flexDirection: 'row',
   },
   actionButton: {
-    marginRight: 16,
+    marginRight: 18,
   },
   postStats: {
-    paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
   },
   postLikes: {
     ...defaultTextStyle,
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 5,
   },
   postComments: {
     ...defaultTextStyle,
     fontSize: 14,
+    opacity: 0.8,
   },
   // Closet Section
   closetSection: {
-    marginBottom: 30,
+    marginBottom: 36,
   },
   closetCard: {
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 20,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    marginHorizontal: 24,
+    borderRadius: 20,
+    padding: 22,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   closetContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 22,
   },
   closetTitle: {
     ...defaultTextStyle,
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 6,
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+    letterSpacing: 0.3,
   },
   closetDescription: {
     ...defaultTextStyle,
-    fontSize: 14,
+    fontSize: 15,
     maxWidth: '90%',
+    lineHeight: 20,
+    opacity: 0.85,
   },
   closetButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
   },
   closetIconsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
   },
   closetIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  // Message Button
+  messageButton: {
+    position: 'absolute',
+    right: 24,
+    bottom: 110,
     width: 60,
     height: 60,
     borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  // Message Button
-  messageButton: {
-    position: 'absolute',
-    right: 20,
-    bottom: 100,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
   },
 });
 

@@ -20,6 +20,7 @@ import OnboardingSizingScreen from "../screens/OnboardingSizingScreen"; // Impor
 import HomeScreen from "../screens/HomeScreen";
 import CreatePostScreen from "../screens/CreatePostScreen"; // Import CreatePostScreen
 import UserDetailScreen from "../screens/UserDetailScreen"; // Import UserDetailScreen
+import SearchScreen from "../screens/SearchScreen"; // Import SearchScreen
 import { RootStackParamList, MainTabParamList } from "../types/NavigationTypes"; // Centralized types for navigation
 import { useTheme } from "../styles/themeprovider";
 import { auth } from "../Config/firebaseconfig";
@@ -498,6 +499,11 @@ const AppNavigator: React.FC = () => {
           <Stack.Screen 
             name="UserDetailScreen" 
             component={UserDetailScreen} 
+            options={{ headerShown: false }} 
+          />
+          <Stack.Screen 
+            name="SearchScreen" 
+            component={SearchScreen} 
             options={{ headerShown: false }} 
           />
           

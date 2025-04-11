@@ -256,29 +256,20 @@ const ProductItem = React.memo(({
       <TouchableOpacity 
         style={styles.productCardContent}
         activeOpacity={0.9}
-        onPress={() => onPress(item.url)}
-        onLongPress={() => onLongPress(item)}
+        onPress={() => onLongPress(item)}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        delayLongPress={200}
       >
         <View style={styles.productImageContainer}>
           {item.images && item.images.length > 0 ? (
             <Image 
               source={{ uri: item.images[0] }} 
               style={styles.productCardImage} 
-              resizeMode="cover"
+              resizeMode="contain"
             />
           ) : (
             <View style={[styles.productCardImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
               <Icon name="image-outline" size={28} color="#bbb" />
-            </View>
-          )}
-          {item.price !== undefined && (
-            <View style={[styles.priceTag, { backgroundColor: mainColor }]}>
-              <Text style={styles.priceTagText}>
-                ${(typeof item.price === 'number' ? item.price.toFixed(0) : '0')}
-              </Text>
             </View>
           )}
         </View>
@@ -287,16 +278,15 @@ const ProductItem = React.memo(({
           <Text style={[styles.productCardName, { color: textColor }]} numberOfLines={2}>
             {item.name}
           </Text>
-          <Text style={[styles.productCardSite, { color: subTextColor }]}>
-            {item.site || 'Unknown Store'}
-          </Text>
-          
-          <View style={styles.productCardActions}>
-            <TouchableOpacity 
-              style={[styles.productCardButton, { backgroundColor: mainColor }]}
-            >
-              <Text style={styles.productCardButtonText}>View</Text>
-            </TouchableOpacity>
+          <View style={styles.productPriceRow}>
+            {item.price !== undefined && (
+              <Text style={[styles.productCardPrice, { color: mainColor }]}>
+                ${(typeof item.price === 'number' ? item.price.toFixed(0) : '0')}
+              </Text>
+            )}
+            <Text style={[styles.productCardSite, { color: subTextColor }]}>
+              {item.site || 'Unknown Store'}
+            </Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -396,6 +386,7 @@ const ProductDetailsModal = React.memo(({
             <Image 
               source={{ uri: item.images[0] }}
               style={styles.modalImage}
+              resizeMode="contain"
             />
           ) : (
             <View style={[styles.modalImage, { backgroundColor: '#f0f0f0' }]}>
@@ -421,9 +412,13 @@ const ProductDetailsModal = React.memo(({
               </Text>
             )}
             
-            {item.description && (
-              <Text style={[styles.modalDescription, { color: textColor }]} numberOfLines={3}>
+            {item.description ? (
+              <Text style={[styles.modalDescription, { color: textColor }]} numberOfLines={4}>
                 {item.description}
+              </Text>
+            ) : (
+              <Text style={[styles.modalDescription, { color: subTextColor, fontStyle: 'italic' }]} numberOfLines={2}>
+                No description available. Check retailer's website for details.
               </Text>
             )}
             
@@ -434,6 +429,8 @@ const ProductDetailsModal = React.memo(({
               <Text style={styles.buyButtonText}>Shop Now</Text>
               <Icon name="arrow-forward" size={18} color="#fff" />
             </TouchableOpacity>
+            
+            <View style={[styles.modalDivider, { backgroundColor: borderColor }]} />
             
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.actionItem}>
@@ -758,9 +755,12 @@ const RecommendationScreen: React.FC = () => {
           </Text>
         </View>
         
-        {/* Product carousel for system messages with products */}
+        {/* Product grid for system messages with products */}
         {hasProducts && (
-          <View style={styles.productsCarousel}>
+          <View style={styles.productsGrid}>
+            <Text style={[styles.productsGridTitle, { color: textColor }]}>
+              {message.products && message.products.length} items found
+            </Text>
             <FlatList
               data={message.products}
               renderItem={({ item, index }) => (
@@ -780,8 +780,10 @@ const RecommendationScreen: React.FC = () => {
               showsHorizontalScrollIndicator={false}
               decelerationRate="fast"
               snapToAlignment="center"
-              snapToInterval={width * 0.65 + 15}
+              snapToInterval={width * 0.75 + 20}
               contentContainerStyle={styles.productsCarouselContent}
+              snapToOffsets={message.products.map((_, i) => i * (width * 0.75 + 20))}
+              initialNumToRender={2}
             />
           </View>
         )}
@@ -816,29 +818,32 @@ const RecommendationScreen: React.FC = () => {
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: borderColor }]}>
-        <View style={styles.headerContent}>
-          <Text style={[styles.headerTitle, { color: textColor }]}>
-            Discover
-          </Text>
-          {chatMessages.length > 0 && (
-            <TouchableOpacity 
-              style={[styles.newChatButton, { backgroundColor: inputBgColor }]}
-              onPress={() => {
-                setChatMessages([]);
-                setSearchMode('input');
-                setQuery('');
-              }}
-            >
-              <Icon name="add-outline" size={20} color={mainColor} />
-              <Text style={[styles.newChatButtonText, { color: mainColor }]}>
-                New Search
-              </Text>
-            </TouchableOpacity>
-          )}
+      {/* Header - Only visible when no chat is active */}
+      {chatMessages.length === 0 ? (
+        <View style={[styles.header, { borderBottomColor: borderColor }]}>
+          <View style={styles.headerContent}>
+            <Text style={[styles.headerTitle, { color: textColor }]}>
+              Discover
+            </Text>
+          </View>
         </View>
-      </View>
+      ) : (
+        <View style={styles.chatHeaderContainer}>
+          <TouchableOpacity 
+            style={[styles.newChatButton, { backgroundColor: inputBgColor }]}
+            onPress={() => {
+              setChatMessages([]);
+              setSearchMode('input');
+              setQuery('');
+            }}
+          >
+            <Icon name="arrow-back" size={20} color={mainColor} />
+            <Text style={[styles.newChatButtonText, { color: mainColor }]}>
+              New Search
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
       
       <KeyboardAvoidingView 
         style={styles.mainContent}
@@ -854,18 +859,7 @@ const RecommendationScreen: React.FC = () => {
         >
           {chatMessages.length > 0 ? (
             <>
-              {/* Welcome message if first chat */}
-              {chatMessages.length <= 2 && (
-                <View style={styles.welcomeContainer}>
-                  <Icon name="search-circle" size={60} color={mainColor} />
-                  <Text style={[styles.welcomeTitle, { color: textColor }]}>
-                    Fashion Finder
-                  </Text>
-                  <Text style={[styles.welcomeText, { color: subTextColor }]}>
-                    Ask me about any clothing or style you're looking for!
-                  </Text>
-                </View>
-              )}
+              {/* Welcome message removed when chat starts */}
               
               {/* Chat messages */}
               {chatMessages.map(renderChatMessage)}
@@ -992,6 +986,12 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
   },
+  chatHeaderContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   newChatButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1002,7 +1002,7 @@ const styles = StyleSheet.create({
   newChatButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    marginLeft: 4,
+    marginLeft: 8,
   },
   mainContent: {
     flex: 1,
@@ -1017,7 +1017,7 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
   chatMessageContainer: {
-    marginBottom: 20,
+    marginBottom: 24,
     maxWidth: '100%',
   },
   userMessageContainer: {
@@ -1026,7 +1026,7 @@ const styles = StyleSheet.create({
   },
   systemMessageContainer: {
     alignItems: 'flex-start',
-    marginRight: 50,
+    marginRight: 10, // Reduced right margin to use more space
   },
   chatBubble: {
     borderRadius: 18,
@@ -1051,68 +1051,69 @@ const styles = StyleSheet.create({
   systemBubbleText: {
     fontWeight: '400',
   },
-  // Products carousel
-  productsCarousel: {
-    marginTop: 12,
-    marginBottom: 8,
+  // Products grid styles
+  productsGrid: {
+    marginTop: 16,
+    marginBottom: 12,
+    width: '100%',
+  },
+  productsGridTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 12,
+    marginLeft: 4,
   },
   productsCarouselContent: {
     paddingRight: 16,
-    paddingBottom: 8,
+    paddingBottom: 12,
   },
   productCard: {
-    width: width * 0.65,
-    height: 220,
-    marginRight: 15,
-    borderRadius: 16,
+    width: width * 0.75,
+    height: 240,
+    marginRight: 20,
+    borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
   },
   productCardContent: {
     flex: 1,
   },
   productImageContainer: {
-    height: 140,
+    height: 180,
     width: '100%',
-    position: 'relative',
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   productCardImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
+    width: '90%',
+    height: '90%',
   },
   productCardDetails: {
     padding: 12,
-    justifyContent: 'space-between',
     flex: 1,
   },
   productCardName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 4,
-    lineHeight: 18,
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  productPriceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  productCardPrice: {
+    fontSize: 16,
+    fontWeight: '700',
   },
   productCardSite: {
-    fontSize: 12,
-    marginBottom: 8,
-  },
-  productCardActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  productCardButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-  },
-  productCardButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
   },
   priceTag: {
     position: 'absolute',
@@ -1289,45 +1290,44 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   modalContent: {
-    width: '85%',
-    maxHeight: '75%',
-    borderRadius: 20,
+    width: '90%',
+    maxHeight: '80%',
+    borderRadius: 24,
     overflow: 'hidden',
-    elevation: 5,
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
   },
   modalHeader: {
-    paddingHorizontal: 15,
-    paddingTop: 15,
+    paddingHorizontal: 16,
+    paddingTop: 16,
     alignItems: 'flex-end',
   },
   closeButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(118, 118, 128, 0.12)',
   },
   modalImage: {
     width: '100%',
-    height: 240,
-    resizeMode: 'cover',
+    height: 280,
   },
   modalDetails: {
     padding: 20,
   },
   modalProductName: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 10,
-    lineHeight: 24,
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 12,
+    lineHeight: 28,
   },
   modalSiteContainer: {
     flexDirection: 'row',
@@ -1340,23 +1340,28 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   modalPrice: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '700',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   modalDescription: {
     fontSize: 15,
-    lineHeight: 20,
-    marginBottom: 16,
-    opacity: 0.8,
+    lineHeight: 22,
+    marginBottom: 20,
+    opacity: 0.85,
   },
   buyButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 20,
-    marginBottom: 24,
+    paddingVertical: 15,
+    borderRadius: 22,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   buyButtonText: {
     color: 'white',
@@ -1364,12 +1369,14 @@ const styles = StyleSheet.create({
     fontSize: 17,
     marginRight: 8,
   },
+  modalDivider: {
+    height: 1,
+    width: '100%',
+    marginBottom: 16,
+  },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(60, 60, 67, 0.1)',
   },
   actionItem: {
     alignItems: 'center',
