@@ -1,6 +1,6 @@
 // src/screens/SocialScreen.tsx
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   SafeAreaView,
   Animated,
@@ -74,6 +74,7 @@ interface FashionPost {
   id: string;
   userId: string;
   username: string;
+  userDisplayName?: string; // Added display name field
   userAvatar?: string;
   title?: string;
   gallery: string[];
@@ -300,10 +301,7 @@ const SocialScreen: React.FC = () => {
         
         // Create gallery array from the single image
         const gallery = [post.imageUrl];
-        // Add more images if we want to simulate multiple images
-        if (Math.random() > 0.5) {
-          gallery.push(`https://picsum.photos/800/1000?random=${Math.floor(Math.random() * 100)}`);
-        }
+        // No longer adding random stock images to galleries
         
         // Create title from caption if none exists
         let title = post.caption.split('.')[0];
@@ -387,40 +385,18 @@ const SocialScreen: React.FC = () => {
         return;
       }
       
-      setShowMessagesModal(true);
-      
-      // Fetch conversations first, then handle the selection
-      fetchConversations().then(() => {
-        // If we have a userId and username, pre-select that conversation
-        if (routeParams.messageUserId && routeParams.messageUsername) {
-          console.log(`Opening conversation with ${routeParams.messageUsername} (${routeParams.messageUserId})`);
-          
-          // Find if there's an existing conversation with this user
-          const existingConversation = conversations.find(
-            conv => conv.otherUserId === routeParams.messageUserId
-          );
-          
-          if (existingConversation) {
-            console.log('Found existing conversation:', existingConversation);
-            setSelectedConversation(existingConversation);
-          } else {
-            console.log('Creating new conversation placeholder');
-            // Create a placeholder for a new conversation
-            const newConversation: ConversationWithDetails = {
-              participants: [currentUser.uid, routeParams.messageUserId],
-              otherUserId: routeParams.messageUserId,
-              otherUserName: routeParams.messageUsername,
-              otherUserAvatar: null,
-              lastMessageTime: 'Now',
-              updatedAt: new Date()
-            };
-            
-            setSelectedConversation(newConversation);
-          }
-        }
-      }).catch(error => {
-        console.error('Error processing message navigation:', error);
-      });
+      // Navigate to MessagingScreen instead of showing modal
+      if (routeParams.messageUserId && routeParams.messageUsername) {
+        console.log(`Navigating to MessagingScreen with ${routeParams.messageUsername} (${routeParams.messageUserId})`);
+        
+        navigation.navigate('MessagingScreen', {
+          otherUserId: routeParams.messageUserId,
+          otherUserName: routeParams.messageUsername
+        });
+      } else {
+        // Navigate to general messaging screen without specific conversation
+        navigation.navigate('MessagingScreen');
+      }
     }
   }, [route?.params]);
 
@@ -605,24 +581,19 @@ const SocialScreen: React.FC = () => {
     );
     
     if (existingConversation) {
-      // Open the existing conversation
-      setSelectedConversation(existingConversation);
-    } else {
-      // Create a placeholder for a new conversation
-      const newConversation: ConversationWithDetails = {
-        participants: [auth().currentUser?.uid || '', userId],
+      // Navigate to the messaging screen with the existing conversation
+      navigation.navigate('MessagingScreen', {
+        conversationId: existingConversation.id,
         otherUserId: userId,
-        otherUserName: username,
-        otherUserAvatar: null, // We'll fetch this later
-        lastMessageTime: 'Now',
-        updatedAt: new Date()
-      };
-      
-      setSelectedConversation(newConversation);
+        otherUserName: username
+      });
+    } else {
+      // Navigate to the messaging screen to start a new conversation
+      navigation.navigate('MessagingScreen', {
+        otherUserId: userId,
+        otherUserName: username
+      });
     }
-    
-    // Show the messages modal
-    setShowMessagesModal(true);
   };
   
   // Handle upvote action
@@ -679,6 +650,9 @@ const SocialScreen: React.FC = () => {
       alert('Failed to update like status. Please try again.');
     }
   };
+  
+  // Alias for handleUpvoteToggle to maintain compatibility with existing code
+  const handleLikeToggle = handleUpvoteToggle;
   
   // Handle save action
   const handleSaveToggle = async (postId: string) => {
@@ -965,13 +939,12 @@ const SocialScreen: React.FC = () => {
   };
 
   // Render fashion inspiration post
-  const renderFashionPost = ({ item, index }: { item: FashionPost; index: number }) => {
-    console.log(`⭐ Rendering post #${index} with ID: ${item.id}, userId: ${item.userId}`);
-    console.log(`User data for post #${index}:`, {
-      username: item.username,
-      userId: item.userId,
-      userIdType: typeof item.userId
-    });
+  // Memoize the renderFashionPost function for better performance
+  const renderFashionPost = useCallback(({ item, index }: { item: FashionPost; index: number }) => {
+    // Remove excessive console logs in production for better performance
+    if (__DEV__) {
+      console.log(`⭐ Rendering post #${index} with ID: ${item.id}`);
+    }
     
     // Use the pre-created animation value
     const animatedValue = postAnimations.current[item.id] || new Animated.Value(1);
@@ -1052,7 +1025,8 @@ const SocialScreen: React.FC = () => {
                     console.log('This is another user, navigating to UserDetailScreen');
                     navigation.navigate('UserDetailScreen', { 
                       userId: item.userId, 
-                      username: item.username 
+                      username: item.username,
+                      userDisplayName: item.userDisplayName
                     });
                   }
                 }
@@ -1104,7 +1078,8 @@ const SocialScreen: React.FC = () => {
                       console.log('This is another user, navigating to UserDetailScreen');
                       navigation.navigate('UserDetailScreen', { 
                         userId: item.userId, 
-                        username: item.username 
+                        username: item.username,
+                        userDisplayName: item.userDisplayName
                       });
                     }
                   }
@@ -1112,7 +1087,7 @@ const SocialScreen: React.FC = () => {
               >
                 <View style={styles.usernameContainer}>
                   <Text style={[styles.username, { color: textColor }]}>
-                    {item.username}
+                    {item.userDisplayName ? item.userDisplayName : `@${item.username}`}
                   </Text>
                   {item.username.includes('verified') && (
                     <View style={styles.verifiedBadge}>
@@ -1792,10 +1767,13 @@ const SocialScreen: React.FC = () => {
         )}
       </Animated.View>
     );
-  };
+  }, [expandedPost, activeGalleryIndex, postAnimations, panXValues, panResponders, 
+    handleLikeToggle, handleSaveToggle, toggleComments, handleAddComment, 
+    textColor, subTextColor, cardBgColor, borderColor, mainColor, isDarkMode, 
+    navigation, isAddingComment, commentsText, expandedComments]);
 
-  // Render a trending topic chip
-  const renderTrendingTopic = ({ item }: { item: string }) => (
+  // Render a trending topic chip - memoized for performance
+  const renderTrendingTopic = useCallback(({ item }: { item: string }) => (
     <TouchableOpacity
       style={[
         styles.topicChip,
@@ -1819,7 +1797,7 @@ const SocialScreen: React.FC = () => {
         {item}
       </Text>
     </TouchableOpacity>
-  );
+  ), [selectedTopic, isDarkMode, mainColor, subTextColor]);
 
   // Messages modal components
   const renderMessagesModal = () => {
@@ -2051,8 +2029,8 @@ const SocialScreen: React.FC = () => {
                 Alert.alert('Sign In Required', 'You need to be signed in to view messages');
                 return;
               }
-              setShowMessagesModal(true);
-              fetchConversations();
+              // Navigate to full-screen messaging instead of using modal
+              navigation.navigate('MessagingScreen');
             }}
           >
             <FeatherIcon 
@@ -2102,6 +2080,17 @@ const SocialScreen: React.FC = () => {
           scrollEventThrottle={16}
           refreshing={refreshing}
           onRefresh={handleRefresh}
+          // Performance optimizations
+          removeClippedSubviews={true}
+          initialNumToRender={5}
+          maxToRenderPerBatch={3}
+          windowSize={9}
+          updateCellsBatchingPeriod={50}
+          getItemLayout={(data, index) => ({
+            length: 520, // Approximate height of each post item
+            offset: 520 * index,
+            index,
+          })}
           ListHeaderComponent={
             <>
               {/* Trending Topics Filter */}
@@ -2116,6 +2105,12 @@ const SocialScreen: React.FC = () => {
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.topicsList}
+                  // Horizontal list performance optimizations
+                  removeClippedSubviews={true}
+                  initialNumToRender={5}
+                  maxToRenderPerBatch={5}
+                  windowSize={5}
+                  disableVirtualization={false}
                 />
               </View>
 

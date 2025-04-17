@@ -750,7 +750,7 @@ export const userTryOn = async (
       // Handle the arraybuffer response based on platform
       if (Platform.OS === 'web') {
         // For web platforms, we can use URL.createObjectURL
-        const blob = new Blob([response.data], { type: 'image/png' });
+        const blob = new Blob([response.data], { type:'image/png'});
         const imageUrl = URL.createObjectURL(blob);
         console.log('✅ Try-on image generated successfully (web platform)');
         if (onProgress) onProgress(1.0);
@@ -875,43 +875,56 @@ export const userTryOn = async (
 };
 
 export const scrapeProductFromUrl = async (
-  productUrl: string,
+  productUrl: string | string[],
   onProgress?: (progress: number) => void
-): Promise<Product> => {
+): Promise<Product | Product[]> => {
   try {
-    console.log('🔍 Starting product scraping for URL:', productUrl);
+    // Normalize input to array of URLs
+    const urls = Array.isArray(productUrl) ? productUrl : [productUrl];
+    
+    console.log('🔍 Starting product scraping for', urls.length, 'URL(s):', urls);
     
     if (onProgress) onProgress(0.2); // Start progress
     
-    // Check if URL is valid
-    try {
-      new URL(productUrl); // Will throw if invalid URL
-    } catch (urlError) {
-      throw new Error('Invalid URL format. Please enter a complete URL including https://');
+    // Validate each URL
+    for (const url of urls) {
+      try {
+        new URL(url); // Will throw if invalid URL
+      } catch (urlError) {
+        throw new Error(`Invalid URL format for "${url}". Please enter complete URLs including https://`);
+      }
     }
     
     if (onProgress) onProgress(0.3); // URL validation complete
     
-    // Create the request payload
+    // Create the request payload with urls array to match API expectations
     const payload = {
-      url: productUrl,
+      urls: urls,  // Send as an array of URLs
+      timeout: 180  // Default timeout in seconds
     };
     
-    console.log('⏳ Sending request to:', `${API_BASE_URL}/scrape_on_demand`);
-    const response = await apiClient.post<{product: Product}>('/scrape_on_demand', payload);
+    console.log('⏳ Sending request to:', `${API_BASE_URL}/scrape_on_demand`, 'with payload:', payload);
+    const response = await apiClient.post<{products: Product[]}>('/scrape_on_demand', payload);
     
-    if (!response.data || !response.data.product) {
-      throw new Error('Invalid response from scraping API');
+    if (!response.data || !response.data.products || response.data.products.length === 0) {
+      throw new Error('Invalid response from scraping API or no products found');
     }
     
     if (onProgress) onProgress(0.9); // Almost complete
     
-    const product = response.data.product;
-    console.log('✅ Product scraped successfully:', product.name || 'Unnamed Product');
-    
-    if (onProgress) onProgress(1.0); // Complete
-    
-    return product;
+    // Return either a single product or an array based on input type
+    if (Array.isArray(productUrl)) {
+      // Return all products
+      console.log('✅ Successfully scraped', response.data.products.length, 'products');
+      if (onProgress) onProgress(1.0); // Complete
+      return response.data.products;
+    } else {
+      // Return just the first product for backwards compatibility
+      const product = response.data.products[0];
+      console.log('✅ Product scraped successfully:', product.name || 'Unnamed Product');
+      if (onProgress) onProgress(1.0); // Complete
+      return product;
+    }
   } catch (error) {
     console.error('❌ Error scraping product:', error);
     
@@ -920,9 +933,30 @@ export const scrapeProductFromUrl = async (
       if (error.response?.status === 404) {
         throw new Error('Product not found. The URL may be invalid or the product is unavailable.');
       } else if (error.response?.status === 422) {
-        throw new Error('Invalid URL or website not supported for scraping.');
+        // Try to extract the detailed error message from the response
+        let errorMessage = 'Invalid URL or website not supported for scraping.';
+        try {
+          if (error.response?.data && typeof error.response.data === 'object') {
+            const responseData = error.response.data as any;
+            
+            if (responseData.detail) {
+              if (typeof responseData.detail === 'string') {
+                errorMessage = responseData.detail;
+              } else if (Array.isArray(responseData.detail)) {
+                // If it's a validation error array, extract the messages
+                errorMessage = responseData.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+              }
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing error response:', parseError);
+        }
+        
+        throw new Error(errorMessage);
       } else if (error.code === 'ECONNABORTED') {
         throw new Error('Request timed out. The server took too long to scrape the product.');
+      } else {
+        throw new Error(`API Error (${error.response?.status || 'unknown'}): ${error.message}`);
       }
     }
     

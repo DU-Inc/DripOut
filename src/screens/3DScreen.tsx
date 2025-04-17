@@ -33,7 +33,8 @@ import {
 } from "../services/recommendationService";
 import { takePhotoWithCamera, selectImageFromLibrary, ImageAsset } from "../services/imagePickerService";
 import { uploadImageAndGetURL } from "../services/storageService";
-import { auth } from "../Config/firebaseconfig";
+import { db, auth } from "../Config/firebaseconfig";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import storage from '@react-native-firebase/storage';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import ThreeDBox from "../components/3DComponents/ThreeDBox"; 
@@ -78,7 +79,7 @@ const ThreeDScreen: React.FC = () => {
   
   // Custom product URL states
   const [showUrlModal, setShowUrlModal] = useState<boolean>(false);
-  const [productUrl, setProductUrl] = useState<string>('');
+  const [productUrls, setProductUrls] = useState<string[]>(['']);
   const [scrapingProduct, setScrapingProduct] = useState<boolean>(false);
   const [scrapeProgress, setScrapeProgress] = useState<number>(0);
   
@@ -162,7 +163,7 @@ const ThreeDScreen: React.FC = () => {
     
     // Reset URL input when modal is closed
     if (!showUrlModal) {
-      setProductUrl('');
+      setProductUrls(['']);
       setScrapingProduct(false);
       setScrapeProgress(0);
     }
@@ -348,7 +349,7 @@ const ThreeDScreen: React.FC = () => {
   };
   
   // Create and save avatar image to Firebase and local cache
-  const handleCreateModel = async () => {
+  const handleCreateModel = async (isUpdate = false) => {
     if (selectedImages.length === 0) {
       Alert.alert('Error', 'Please select at least one image first.');
       return;
@@ -365,7 +366,7 @@ const ThreeDScreen: React.FC = () => {
       }
       
       // Upload image to Firebase Storage
-      console.log('📤 Uploading avatar image to Firebase Storage');
+      console.log(`📤 ${isUpdate ? 'Updating' : 'Creating'} avatar image in Firebase Storage`);
       
       // Since we're only using one image for the avatar, take the first one
       const mainImage = selectedImages[0];
@@ -405,15 +406,27 @@ const ThreeDScreen: React.FC = () => {
       setSelectedImages([]);
       setModelProgress(1.0);
       
-      Alert.alert('Success', 'Your avatar has been created and saved successfully!');
+      Alert.alert('Success', `Your avatar has been ${isUpdate ? 'updated' : 'created'} and saved successfully!`);
     } catch (error) {
-      Alert.alert('Error', 'Failed to create and save your avatar. Please try again.');
-      console.error('Error creating avatar:', error);
+      Alert.alert('Error', `Failed to ${isUpdate ? 'update' : 'create'} and save your avatar. Please try again.`);
+      console.error(`Error ${isUpdate ? 'updating' : 'creating'} avatar:`, error);
     } finally {
       setCreatingModel(false);
     }
   };
   
+  // Handle updating the avatar
+  const handleUpdateAvatar = () => {
+    // Reset selected images
+    setSelectedImages([]);
+    
+    // Show the image options modal
+    setShowImageOptions(true);
+  };
+  
+  // State to track bucket highlighting
+  const [highlightBucket, setHighlightBucket] = useState<boolean>(false);
+
   // Add a product to the try-on bucket
   const handleAddToTryOnBucket = (product: Product) => {
     if (!hasModel || !modelUrl) {
@@ -447,6 +460,12 @@ const ThreeDScreen: React.FC = () => {
     
     // Add to bucket
     setTryOnBucket(prevBucket => [...prevBucket, preparedProduct]);
+    
+    // Highlight the bucket to draw attention to it
+    setHighlightBucket(true);
+    setTimeout(() => {
+      setHighlightBucket(false);
+    }, 1500); // Reset the highlight after 1.5 seconds
     
     // Show message that product was added
     if (Platform.OS === 'android') {
@@ -536,19 +555,67 @@ const ThreeDScreen: React.FC = () => {
     }
   };
   
-  // Save try-on look (for future implementation)
-  const handleSaveLook = () => {
-    // Save to user's saved looks collection
-    Alert.alert('Success', 'This look has been saved to your collection!');
-    setShowTryOnModal(false);
+  // Save try-on outfit to user's collection
+  const handleSaveLook = async () => {
+    // Get the current user
+    const currentUser = auth().currentUser;
+    
+    if (!tryOnImage || !currentUser) {
+      Alert.alert('Error', 'No outfit to save or user not logged in');
+      return;
+    }
+    
+    try {
+      console.log('Starting to save outfit...');
+      // Create an outfit name with date
+      const date = new Date();
+      const outfitName = `Outfit ${date.toLocaleDateString()}`;
+      
+      // Create a document in the saved_outfits collection
+      const outfitRef = collection(db, "saved_outfits");
+      console.log('Creating document with data:', {
+        userId: currentUser.uid,
+        name: outfitName,
+        // Store only a snippet of the image URL for logging
+        imageUrl: tryOnImage ? tryOnImage.substring(0, 50) + '...' : null,
+        products: tryOnBucket.length,
+      });
+      
+      await addDoc(outfitRef, {
+        userId: currentUser.uid,
+        name: outfitName,
+        imageUrl: tryOnImage,
+        products: tryOnBucket,
+        createdAt: serverTimestamp()
+      });
+      
+      console.log('Outfit saved successfully!');
+      Alert.alert('Success', 'This outfit has been saved to your closet!');
+      setShowTryOnModal(false);
+      
+      // Optionally, clear the try-on bucket after saving
+      // setTryOnBucket([]);
+    } catch (error) {
+      console.error('Error saving outfit:', error);
+      // Log more details about the error
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
+      
+      Alert.alert('Error', 'Failed to save the outfit. Please try again.');
+    }
   };
   
-  // Handle scraping a product from a URL
+  // Handle scraping multiple products from URLs
   const handleScrapeProduct = async () => {
-    console.log('handleScrapeProduct called with URL:', productUrl);
+    console.log('handleScrapeProduct called with URLs:', productUrls);
     
-    if (!productUrl.trim()) {
-      Alert.alert('Error', 'Please enter a product URL');
+    // Filter out empty URLs
+    const validUrls = productUrls.filter(url => url.trim() !== '');
+    
+    if (validUrls.length === 0) {
+      Alert.alert('Error', 'Please enter at least one product URL');
       return;
     }
     
@@ -559,36 +626,76 @@ const ThreeDScreen: React.FC = () => {
     }
     
     try {
-      console.log('Starting product scraping');
+      console.log('Starting product scraping for', validUrls.length, 'URLs');
       setScrapingProduct(true);
       setScrapeProgress(0);
       
-      // Scrape product from URL
-      const scrapedProduct = await scrapeProductFromUrl(
-        productUrl.trim(),
-        (progress) => {
-          console.log('Scrape progress:', progress);
-          setScrapeProgress(progress);
-        }
-      );
+      // Array to store scraped products
+      const scrapedProducts: Product[] = [];
       
-      console.log('Product scraped successfully:', scrapedProduct?.name || 'Unknown product');
+      try {
+        // Process all URLs in a single API call
+        console.log(`Scraping ${validUrls.length} URLs in a batch`);
+        
+        // Call the enhanced scrapeProductFromUrl with an array of URLs
+        const scrapedProductsResult = await scrapeProductFromUrl(
+          validUrls,
+          (progress) => {
+            console.log('Scrape progress:', progress);
+            setScrapeProgress(progress);
+          }
+        ) as Product[];
+        
+        if (scrapedProductsResult && scrapedProductsResult.length > 0) {
+          console.log(`Successfully scraped ${scrapedProductsResult.length} products`);
+          scrapedProducts.push(...scrapedProductsResult);
+        }
+      } catch (error) {
+        // Handle errors from the batch scraping operation
+        console.error(`Error scraping URLs:`, error);
+        Alert.alert(
+          'Error with URLs',
+          `Could not process one or more URLs: ${error instanceof Error ? error.message : 'Unknown error'}.`,
+          [{ text: 'OK' }]
+        );
+      }
       
       // Close the modal and reset states
       setShowUrlModal(false);
-      setProductUrl('');
+      setProductUrls(['']);
       setScrapeProgress(0);
       
-      // Wait a moment to ensure the modal is closed before adding product to bucket
-      setTimeout(() => {
-        if (scrapedProduct) {
-          console.log('Adding scraped product to bucket');
-          handleAddToTryOnBucket(scrapedProduct);
-        }
-      }, 300);
+      if (scrapedProducts.length > 0) {
+        // Wait a moment to ensure the modal is closed before adding products to bucket
+        setTimeout(() => {
+          console.log('Adding', scrapedProducts.length, 'scraped products to bucket');
+          
+          // Add each product to the bucket
+          scrapedProducts.forEach(product => {
+            handleAddToTryOnBucket(product);
+          });
+          
+          // Show success message with instructions
+          if (scrapedProducts.length === 1) {
+            Alert.alert(
+              'Product Added', 
+              'Product added to your fitting room. You can now select other products to try on together, or tap "Try On All Items" when ready.',
+              [{ text: 'OK' }]
+            );
+          } else {
+            Alert.alert(
+              'Products Added', 
+              `${scrapedProducts.length} products added to your fitting room. You can now select other products to try on together, or tap "Try On All Items" when ready.`,
+              [{ text: 'OK' }]
+            );
+          }
+        }, 300);
+      } else {
+        Alert.alert('No Products Found', 'Could not find any valid products from the provided URLs.');
+      }
     } catch (error) {
-      console.error('Error scraping product:', error);
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to scrape product. Please try another URL.');
+      console.error('Error in scrape product process:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to scrape products. Please try again with different URLs.');
     } finally {
       setScrapingProduct(false);
     }
@@ -702,6 +809,9 @@ const ThreeDScreen: React.FC = () => {
       ? item.images[0] 
       : item.url || 'https://via.placeholder.com/150';
     
+    // Check if this is a scraped URL product (typically has a full URL)
+    const isScrapedProduct = item.url && (item.url.startsWith('http://') || item.url.startsWith('https://'));
+    
     return (
       <View style={styles.bucketItem}>
         <Image 
@@ -709,6 +819,11 @@ const ThreeDScreen: React.FC = () => {
           style={styles.bucketItemImage}
           resizeMode="cover"
         />
+        {isScrapedProduct && (
+          <View style={[styles.scrapedIndicator, { backgroundColor: accentColor }]}>
+            <Icon name="link" size={10} color="#FFFFFF" />
+          </View>
+        )}
         <TouchableOpacity 
           style={styles.bucketItemRemove}
           onPress={() => handleRemoveFromBucket(item.id || '')}
@@ -769,9 +884,18 @@ const ThreeDScreen: React.FC = () => {
               </Text>
             </View>
           ) : hasModel && modelUrl ? (
-            // User has a model, show it
+            // User has a model, show it with update button
             <>
-              <Text style={[styles.sectionTitle, { color: textColor }]}>Your Avatar</Text>
+              <View style={styles.avatarHeader}>
+                <Text style={[styles.sectionTitle, { color: textColor }]}>Your Avatar</Text>
+                <TouchableOpacity
+                  style={[styles.updateAvatarButton, { backgroundColor: mainColor }]}
+                  onPress={handleUpdateAvatar}
+                >
+                  <Icon name="refresh" size={16} color="#FFFFFF" />
+                  <Text style={styles.updateAvatarButtonText}>Update</Text>
+                </TouchableOpacity>
+              </View>
               <View style={styles.avatarImageContainer}>
                 <Image 
                   source={{ uri: modelUrl }} 
@@ -821,7 +945,7 @@ const ThreeDScreen: React.FC = () => {
                   
                   <TouchableOpacity
                     style={[styles.createButton, { backgroundColor: mainColor }]}
-                    onPress={handleCreateModel}
+                    onPress={() => handleCreateModel(hasModel)}
                     disabled={creatingModel}
                   >
                     {creatingModel ? (
@@ -833,7 +957,7 @@ const ThreeDScreen: React.FC = () => {
                         </Text>
                       </>
                     ) : (
-                      <Text style={styles.buttonText}>Create My Avatar</Text>
+                      <Text style={styles.buttonText}>{hasModel ? 'Update My Avatar' : 'Create My Avatar'}</Text>
                     )}
                   </TouchableOpacity>
                 </>
@@ -904,7 +1028,7 @@ const ThreeDScreen: React.FC = () => {
                 { color: hasModel ? accentColor : subTextColor }
               ]}
             >
-              Try a different product with URL
+              Add products from external websites
             </Text>
           </TouchableOpacity>
           
@@ -984,12 +1108,14 @@ const ThreeDScreen: React.FC = () => {
       
       {/* Fitting Room (Try-On Bucket) UI at bottom of screen */}
       {hasModel && tryOnBucket.length > 0 && (
-        <View 
+        <Animated.View 
           style={[
             styles.bucketContainer, 
             { 
               backgroundColor: cardBgColor,
-              paddingBottom: Math.max(insets.bottom, 16) 
+              paddingBottom: Math.max(insets.bottom, 16),
+              borderColor: highlightBucket ? accentColor : 'transparent',
+              borderWidth: highlightBucket ? 2 : 0,
             }
           ]}
         >
@@ -1025,7 +1151,7 @@ const ThreeDScreen: React.FC = () => {
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       )}
       
       {/* Floating Try-On Button when bucket has items but is collapsed */}
@@ -1064,7 +1190,7 @@ const ThreeDScreen: React.FC = () => {
           <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: textColor }]}>
-                Add Photo
+                {hasModel ? 'Update Avatar' : 'Add Photo'}
               </Text>
               <TouchableOpacity 
                 style={styles.closeButton}
@@ -1226,7 +1352,7 @@ const ThreeDScreen: React.FC = () => {
             <View style={[styles.urlModalContent, { backgroundColor: cardBgColor }]}>
               <View style={styles.modalHeader}>
                 <Text style={[styles.modalTitle, { color: textColor }]}>
-                  {scrapingProduct ? 'Searching Product...' : 'Try On with URL'}
+                  {scrapingProduct ? 'Searching Products...' : 'Try On with URLs'}
                 </Text>
                 <TouchableOpacity
                   style={styles.closeButton}
@@ -1267,57 +1393,102 @@ const ThreeDScreen: React.FC = () => {
               ) : (
                 <View style={styles.urlInputContainer}>
                   <Text style={[styles.urlInputLabel, { color: textColor }]}>
-                    Enter a product URL to try on:
+                    Enter one or more product URLs to try on:
                   </Text>
-                  <TextInput
+                  
+                  {/* Dynamically render TextInput fields for each URL */}
+                  {productUrls.map((url, index) => (
+                    <View key={index} style={styles.urlInputRow}>
+                      <TextInput
+                        style={[
+                          styles.urlInput,
+                          { 
+                            color: textColor,
+                            backgroundColor: surfaceColor,
+                            borderColor: isDarkMode ? '#333' : '#DDD',
+                            flex: 1
+                          }
+                        ]}
+                        placeholder="https://store.com/product/item123"
+                        placeholderTextColor={subTextColor}
+                        value={url}
+                        onChangeText={(text) => {
+                          const newUrls = [...productUrls];
+                          newUrls[index] = text;
+                          setProductUrls(newUrls);
+                        }}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="url"
+                      />
+                      
+                      {/* Remove button for all but the first URL field */}
+                      {index > 0 && (
+                        <TouchableOpacity
+                          style={[styles.removeUrlButton, { backgroundColor: accentColor }]}
+                          onPress={() => {
+                            const newUrls = [...productUrls];
+                            newUrls.splice(index, 1);
+                            setProductUrls(newUrls);
+                          }}
+                        >
+                          <Icon name="close" size={16} color="#FFFFFF" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ))}
+                  
+                  {/* Add another URL button */}
+                  <TouchableOpacity
                     style={[
-                      styles.urlInput,
+                      styles.addUrlButton, 
                       { 
-                        color: textColor,
-                        backgroundColor: surfaceColor,
-                        borderColor: isDarkMode ? '#333' : '#DDD'
+                        borderColor: mainColor,
+                        backgroundColor: isDarkMode ? 'rgba(10, 132, 255, 0.1)' : 'rgba(0, 122, 255, 0.05)'
                       }
                     ]}
-                    placeholder="https://store.com/product/item123"
-                    placeholderTextColor={subTextColor}
-                    value={productUrl}
-                    onChangeText={setProductUrl}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="url"
-                  />
+                    onPress={() => {
+                      setProductUrls([...productUrls, '']);
+                    }}
+                  >
+                    <Icon name="add" size={16} color={mainColor} />
+                    <Text style={[styles.addUrlButtonText, { color: mainColor }]}>
+                      Add Another URL
+                    </Text>
+                  </TouchableOpacity>
+                  
                   <Text style={[styles.urlInputHelper, { color: subTextColor }]}>
-                    Paste a link to any clothing item from a supported store
+                    Paste links to any clothing items from supported stores
                   </Text>
                   
                   <TouchableOpacity
                     style={[
                       styles.scrapeButton,
                       { 
-                        backgroundColor: productUrl.trim() ? accentColor : surfaceColor,
-                        opacity: productUrl.trim() ? 1 : 0.5,
-                        borderWidth: productUrl.trim() ? 0 : 1,
+                        backgroundColor: productUrls.some(url => url.trim() !== '') ? accentColor : surfaceColor,
+                        opacity: productUrls.some(url => url.trim() !== '') ? 1 : 0.5,
+                        borderWidth: productUrls.some(url => url.trim() !== '') ? 0 : 1,
                         borderColor: isDarkMode ? '#444' : '#DDD'
                       }
                     ]}
                     onPress={() => {
-                      console.log('Search button pressed with URL:', productUrl.trim());
+                      console.log('Search button pressed with URLs:', productUrls);
                       handleScrapeProduct();
                     }}
-                    disabled={!productUrl.trim()}
+                    disabled={!productUrls.some(url => url.trim() !== '')}
                   >
                     <Icon 
                       name="search" 
                       size={20} 
-                      color={productUrl.trim() ? "#FFFFFF" : subTextColor} 
+                      color={productUrls.some(url => url.trim() !== '') ? "#FFFFFF" : subTextColor} 
                     />
                     <Text 
                       style={[
                         styles.scrapeButtonText, 
-                        { color: productUrl.trim() ? "#FFFFFF" : textColor }
+                        { color: productUrls.some(url => url.trim() !== '') ? "#FFFFFF" : textColor }
                       ]}
                     >
-                      Find & Try On Product
+                      Find & Try On Products
                     </Text>
                   </TouchableOpacity>
                   
@@ -1350,6 +1521,25 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   // Avatar image styles
+  avatarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  updateAvatarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  updateAvatarButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 14,
+    marginLeft: 4,
+  },
   avatarImageContainer: {
     width: '100%',
     height: 300,
@@ -1422,6 +1612,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 12,
     padding: 2,
+  },
+  scrapedIndicator: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.8)',
   },
   tryOnBucketButton: {
     flexDirection: 'row',
@@ -1965,6 +2167,34 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     marginBottom: 8,
+  },
+  urlInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  removeUrlButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  addUrlButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  addUrlButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
   },
   urlInputHelper: {
     fontSize: 12,
