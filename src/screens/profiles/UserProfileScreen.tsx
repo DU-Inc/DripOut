@@ -25,17 +25,20 @@ import {
 } from 'react-native';
 import { db } from '../../Config/firebaseconfig';
 import { auth } from '../../Config/firebaseconfig';
-import { createUserProfile, UserProfile, getUserPreferences, UserPreferences, setUserPreferences } from '../../services/firestoreService';
+import { createUserProfile, UserProfile, getUserPreferences, UserPreferences, setUserPreferences, propagateProfileUpdates } from '../../services/firestoreService';
 import { getPostsByUser, Post } from '../../services/postService';
 import { followUser, unfollowUser, isUserFollowing, getFollowCounts } from '../../services/followService';
+import { takePhotoWithCamera, selectImageFromLibrary, ImageAsset } from '../../services/imagePickerService';
+import { uploadImageAndGetURL } from '../../services/storageService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootStackParamList } from '../../types/NavigationTypes';
-import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, Timestamp } from 'firebase/firestore';
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, NavigationProp, useFocusEffect } from '@react-navigation/native';
+import { appStateManager } from '../../utils/appStateManager';
 
 // Cache keys and expiry time
 // Using function to create user-specific cache keys
@@ -105,6 +108,10 @@ const USER_OUTFITS = [
 const UserProfileScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  
+  // Profile picture update state
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
@@ -377,6 +384,139 @@ const UserProfileScreen: React.FC = () => {
       console.error('Error fetching follow counts:', error);
     }
   }, []);
+  
+  // Function to handle profile picture update
+  const handleProfilePictureUpdate = () => {
+    if (!profile) return;
+    
+    // Using imported Alert from react-native
+    Alert.alert(
+      'Update Profile Picture',
+      'Choose a method to update your profile picture',
+      [
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            console.log('Take Photo pressed');
+            try {
+              const image = await takePhotoWithCamera();
+              console.log('Camera image result:', image);
+              if (image) {
+                uploadProfilePicture(image);
+              }
+            } catch (error) {
+              console.error('Error taking photo:', error);
+              Alert.alert('Error', 'Failed to take photo. Please try again.');
+            }
+          }
+        },
+        {
+          text: 'Choose from Library',
+          onPress: async () => {
+            console.log('Choose from Library pressed');
+            try {
+              const image = await selectImageFromLibrary();
+              console.log('Library image result:', image);
+              if (image) {
+                uploadProfilePicture(image);
+              }
+            } catch (error) {
+              console.error('Error selecting from library:', error);
+              Alert.alert('Error', 'Failed to select image. Please try again.');
+            }
+          }
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    );
+  };
+  
+  // Function to upload the selected profile picture
+  const uploadProfilePicture = async (image: ImageAsset) => {
+    try {
+      console.log('Starting profile picture upload with image:', image);
+      const currentUser = auth().currentUser;
+      if (!currentUser || !profile) {
+        console.error('No current user or profile data');
+        Alert.alert('Error', 'You must be logged in to update your profile picture.');
+        return;
+      }
+      
+      setIsUploadingImage(true);
+      setUploadProgress(0);
+      console.log('Set upload state, preparing to upload to Firebase Storage');
+      
+      // Upload image to Firebase Storage in profile folder with user ID
+      console.log(`Uploading image with URI: ${image.uri}`);
+      const imageUrl = await uploadImageAndGetURL(
+        image.uri,
+        'profile_pictures',
+        `profile_${currentUser.uid}_${Date.now()}`,
+        (progress) => {
+          console.log(`Upload progress: ${progress * 100}%`);
+          setUploadProgress(progress);
+        }
+      );
+      
+      console.log('Image uploaded successfully, URL:', imageUrl);
+      
+      // Update the user's profile with the new image URL
+      console.log('Updating user document in Firestore');
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, {
+        profilePictureURL: imageUrl,
+        updatedAt: new Date()
+      });
+      
+      // Also update the Firebase Auth user profile
+      console.log('Updating Firebase Auth user profile');
+      try {
+        await currentUser.updateProfile({
+          photoURL: imageUrl
+        });
+        console.log('Firebase Auth profile updated successfully');
+      } catch (authError) {
+        console.error('Error updating Firebase Auth profile:', authError);
+        // Continue with the process even if this fails
+      }
+      
+      // Update profile in Firestore and propagate to other collections
+      console.log('Propagating profile picture update to other collections');
+      await propagateProfileUpdates(currentUser.uid, { profilePictureURL: imageUrl });
+      
+      // Update local state
+      console.log('Updating local state with new profile picture');
+      setProfile({
+        ...profile,
+        profilePictureURL: imageUrl,
+        updatedAt: new Date()
+      });
+      
+      // Update profile cache
+      console.log('Updating profile cache');
+      const profileCacheKey = getUserProfileCacheKey(currentUser.uid);
+      const profileTimestampKey = getUserProfileTimestampKey(currentUser.uid);
+      
+      await AsyncStorage.setItem(profileCacheKey, JSON.stringify({
+        ...profile,
+        profilePictureURL: imageUrl,
+        updatedAt: new Date()
+      }));
+      await AsyncStorage.setItem(profileTimestampKey, Date.now().toString());
+      
+      console.log('Profile picture update completed successfully');
+      Alert.alert('Success', 'Your profile picture has been updated.');
+      setIsUploadingImage(false);
+      
+    } catch (error) {
+      console.error('Error updating profile picture:', error);
+      Alert.alert('Error', 'Failed to update profile picture. Please try again.');
+      setIsUploadingImage(false);
+    }
+  };
 
   // Subscribe to user profile changes in Firestore with caching
   useEffect(() => {
@@ -786,7 +926,7 @@ const UserProfileScreen: React.FC = () => {
           style={styles.settingsButton}
           onPress={navigateToSettings}
         >
-          <FeatherIcon name="settings" size={22} color={mainColor} />
+          <FeatherIcon name="settings" size={24} color={mainColor} />
         </TouchableOpacity>
       </Animated.View>
       
@@ -847,19 +987,21 @@ const UserProfileScreen: React.FC = () => {
                   
                   <TouchableOpacity 
                     style={[styles.profileCameraButton, { backgroundColor: surfaceColor }]}
-                    onPress={() => Alert.alert('Coming Soon', 'Profile picture upload will be available soon!')}
+                    onPress={handleProfilePictureUpdate}
+                    disabled={isUploadingImage}
                   >
-                    <FeatherIcon name="camera" size={18} color={mainColor} />
+                    {isUploadingImage ? (
+                      <ActivityIndicator size="small" color={mainColor} />
+                    ) : (
+                      <FeatherIcon name="camera" size={18} color={mainColor} />
+                    )}
                   </TouchableOpacity>
                   
-                  {/* Overlay remains for clickable feel, but doesn't do anything for own profile */}
+                  {/* Make entire profile image clickable for updating */}
                   <TouchableOpacity 
                     style={styles.profileClickOverlay}
                     activeOpacity={0.8}
-                    onPress={() => {
-                      // Don't navigate when clicking own profile in ProfileScreen - we're already there
-                      console.log("Already on profile screen, no navigation needed");
-                    }}
+                    onPress={handleProfilePictureUpdate}
                   />
                 </View>
                 
@@ -979,10 +1121,21 @@ const UserProfileScreen: React.FC = () => {
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={styles.actionButton}
+                style={[
+                  styles.tab, 
+                  styles.settingsTab
+                ]}
                 onPress={navigateToSettings}
               >
-                <Icon name="settings-outline" size={22} color={subTextColor} />
+                <Icon 
+                  name="settings-outline" 
+                  size={24} 
+                  color={subTextColor} 
+                />
+                <Text style={[
+                  styles.tabText, 
+                  { color: subTextColor }
+                ]}>Settings</Text>
               </TouchableOpacity>
             </View>
             
@@ -1623,6 +1776,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 6,
   },
+  settingsTab: {
+    borderBottomColor: 'transparent', // Ensure no default active border
+  },
   // Posts styles
   postsGrid: {
     paddingHorizontal: 12,
@@ -1837,7 +1993,13 @@ const styles = StyleSheet.create({
   settingsButton: {
     position: 'absolute',
     right: 16,
-    padding: 8,
+    padding: 10,
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent', // Will add hover effect in actual interaction
   },
   scrollContent: {
     paddingBottom: 40,
@@ -1896,6 +2058,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: 50,
+    zIndex: 5, // Higher than base image but lower than camera button
   },
   defaultProfileImage: {
     width: 100,
@@ -1923,6 +2086,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderColor: '#FFFFFF',
+    zIndex: 10, // Ensure the camera button appears above other elements
   },
   nameContainer: {
     alignItems: 'center',

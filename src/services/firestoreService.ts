@@ -1,4 +1,20 @@
-import { doc, setDoc, getDoc, DocumentReference, DocumentData, collection, query, where, orderBy, limit, getDocs, startAt, endAt } from 'firebase/firestore';
+import { 
+  doc, 
+  setDoc, 
+  getDoc, 
+  DocumentReference, 
+  DocumentData, 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  limit, 
+  getDocs, 
+  startAt, 
+  endAt,
+  writeBatch,
+  updateDoc
+} from 'firebase/firestore';
 import { db } from '../Config/firebaseconfig';
 
 // Add global setTimeout type declaration at the top of the file
@@ -34,6 +50,12 @@ export interface UserProfile {
   useBiometricAuth?: boolean;  // Track if user wants to use biometric authentication
   lastLoginAt?: Date;          // Track last successful login
   onboardingCompleted?: boolean; // Track if user has completed onboarding
+  
+  // Additional optional profile fields for settings screen
+  height?: string;             // User's height (optional)
+  weight?: string;             // User's weight (optional)
+  bodyType?: string;           // User's body type (optional)
+  birthday?: string;           // User's birthday (optional)
 }
 
 // Define the interface for User Preferences
@@ -372,5 +394,172 @@ export const getUserProfileByUsername = async (username: string): Promise<UserPr
   } catch (error) {
     console.error('Error fetching user by username: ', error);
     return null;
+  }
+};
+
+/**
+ * Propagates user profile updates to all related collections
+ * This ensures that when a user updates their profile, all instances of their
+ * profile data (username, avatar, etc.) are updated everywhere in the app
+ * 
+ * @param userId - The user's ID
+ * @param updatedFields - Object containing only the fields that were updated
+ * @returns Promise that resolves when all updates are complete
+ */
+export const propagateProfileUpdates = async (
+  userId: string, 
+  updatedFields: Partial<UserProfile>
+): Promise<void> => {
+  console.log('Propagating profile updates for user:', userId);
+  console.log('Fields to propagate:', updatedFields);
+
+  try {
+    const batchSize = 500; // Firestore has a limit of 500 writes per batch
+    const updatePromises: Promise<void>[] = [];
+    
+    // Only proceed with fields that actually need to be propagated to other collections
+    const fieldsToPropagate = {
+      ...(updatedFields.username && { username: updatedFields.username }),
+      ...(updatedFields.profilePictureURL && { userAvatar: updatedFields.profilePictureURL }),
+      ...(updatedFields.userDisplayName && { userDisplayName: updatedFields.userDisplayName }),
+    };
+    
+    // Check if there are any fields that need to be propagated
+    if (Object.keys(fieldsToPropagate).length === 0) {
+      console.log('No fields to propagate - skipping update propagation');
+      return;
+    }
+    
+    // 1. Update user posts
+    if (fieldsToPropagate.username || fieldsToPropagate.userAvatar) {
+      console.log('Updating posts...');
+      const postsQuery = query(
+        collection(db, 'posts'),
+        where('userId', '==', userId)
+      );
+      
+      const postsSnapshot = await getDocs(postsQuery);
+      console.log(`Found ${postsSnapshot.size} posts to update`);
+      
+      // Create batches of post updates to avoid exceeding write limits
+      let processedCount = 0;
+      let batch = writeBatch(db);
+      
+      postsSnapshot.forEach((postDoc, index) => {
+        const updateData: Record<string, any> = {};
+        
+        if (fieldsToPropagate.username) updateData.username = fieldsToPropagate.username;
+        if (fieldsToPropagate.userAvatar) updateData.userAvatar = fieldsToPropagate.userAvatar;
+        
+        batch.update(postDoc.ref, updateData);
+        processedCount++;
+        
+        // Commit when batch reaches limit and start a new batch
+        if (processedCount % batchSize === 0 || index === postsSnapshot.size - 1) {
+          updatePromises.push(batch.commit());
+          batch = writeBatch(db);
+        }
+      });
+    }
+    
+    // 2. Update user comments
+    if (fieldsToPropagate.username || fieldsToPropagate.userAvatar) {
+      console.log('Updating comments...');
+      const commentsQuery = query(
+        collection(db, 'comments'),
+        where('userId', '==', userId)
+      );
+      
+      const commentsSnapshot = await getDocs(commentsQuery);
+      console.log(`Found ${commentsSnapshot.size} comments to update`);
+      
+      let processedCount = 0;
+      let batch = writeBatch(db);
+      
+      commentsSnapshot.forEach((commentDoc, index) => {
+        const updateData: Record<string, any> = {};
+        
+        if (fieldsToPropagate.username) updateData.username = fieldsToPropagate.username;
+        if (fieldsToPropagate.userAvatar) updateData.userAvatar = fieldsToPropagate.userAvatar;
+        
+        batch.update(commentDoc.ref, updateData);
+        processedCount++;
+        
+        if (processedCount % batchSize === 0 || index === commentsSnapshot.size - 1) {
+          updatePromises.push(batch.commit());
+          batch = writeBatch(db);
+        }
+      });
+    }
+    
+    // 3. Update user likes
+    if (fieldsToPropagate.username) {
+      console.log('Updating likes...');
+      const likesQuery = query(
+        collection(db, 'likes'),
+        where('userId', '==', userId)
+      );
+      
+      const likesSnapshot = await getDocs(likesQuery);
+      console.log(`Found ${likesSnapshot.size} likes to update`);
+      
+      let processedCount = 0;
+      let batch = writeBatch(db);
+      
+      likesSnapshot.forEach((likeDoc, index) => {
+        const updateData: Record<string, any> = {};
+        
+        if (fieldsToPropagate.username) updateData.username = fieldsToPropagate.username;
+        
+        batch.update(likeDoc.ref, updateData);
+        processedCount++;
+        
+        if (processedCount % batchSize === 0 || index === likesSnapshot.size - 1) {
+          updatePromises.push(batch.commit());
+          batch = writeBatch(db);
+        }
+      });
+    }
+    
+    // 4. Update conversations (only for display purposes, not functional data)
+    if (fieldsToPropagate.username || fieldsToPropagate.userAvatar) {
+      console.log('Updating message metadata...');
+      const messagesQuery = query(
+        collection(db, 'messages'),
+        where('senderId', '==', userId)
+      );
+      
+      const messagesSnapshot = await getDocs(messagesQuery);
+      console.log(`Found ${messagesSnapshot.size} messages to update`);
+      
+      let processedCount = 0;
+      let batch = writeBatch(db);
+      
+      messagesSnapshot.forEach((messageDoc, index) => {
+        const updateData: Record<string, any> = {};
+        
+        if (fieldsToPropagate.username) updateData.senderName = fieldsToPropagate.username;
+        if (fieldsToPropagate.userAvatar) updateData.senderAvatar = fieldsToPropagate.userAvatar;
+        
+        batch.update(messageDoc.ref, updateData);
+        processedCount++;
+        
+        if (processedCount % batchSize === 0 || index === messagesSnapshot.size - 1) {
+          updatePromises.push(batch.commit());
+          batch = writeBatch(db);
+        }
+      });
+    }
+    
+    // Wait for all update promises to resolve
+    if (updatePromises.length > 0) {
+      await Promise.all(updatePromises);
+      console.log('Successfully propagated profile updates to all collections');
+    } else {
+      console.log('No updates were needed');
+    }
+  } catch (error) {
+    console.error('Error propagating profile updates:', error);
+    throw error;
   }
 };
