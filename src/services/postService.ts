@@ -1,15 +1,16 @@
 import { db, auth } from '../Config/firebaseconfig';
-import { collection, addDoc, getDocs, query, where, orderBy, Timestamp, serverTimestamp, limit } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, orderBy, Timestamp, serverTimestamp, limit, writeBatch, updateDoc, doc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { uploadImageAndGetURL } from './storageService';
 
 /**
  * Interface for outfit item in a post
  */
-interface OutfitItem {
+export interface OutfitItem {
   name: string;
   brand: string;
-  type?: 'shirt' | 'pants' | 'shoes' | 'accessory'; // Optional type field for future use
+  type?: 'shirt' | 'pants' | 'shoes' | 'watch' | 'jewelry' | 'accessory'; // Simplified type options
+  affiliateLink?: string; // Optional affiliate link for purchasing the item
 }
 
 /**
@@ -52,9 +53,13 @@ export const createPost = async (
 ): Promise<Post> => {
   console.log('🔄 PostService: Creating post...');
   try {
-    // Use auth.currentUser instead of auth().currentUser
-    const currentUser = auth.currentUser;
-    console.log('🔄 PostService: Current user:', currentUser?.uid || 'none');
+    // Correctly access the current user 
+    console.log('🔄 PostService: Accessing auth()...');
+    const authInstance = auth();
+    console.log('🔄 PostService: Got auth instance, retrieving currentUser...');
+    const currentUser = authInstance.currentUser;
+    console.log('🔄 PostService: Current user:', currentUser?.uid || 'none', 
+                'Authenticated:', currentUser !== null);
     
     if (!currentUser) {
       console.error('🔄 PostService: No authenticated user!');
@@ -64,9 +69,30 @@ export const createPost = async (
     const userId = currentUser.uid;
 
     // Get user information for the post
-    // Simplified for now, but you would normally fetch this from your user profile
-    const username = currentUser.displayName || 'Anonymous';
-    const userAvatar = currentUser.photoURL || '';
+    // Try to get username from Firestore profile first, then fallback to displayName
+    let username = 'Anonymous';
+    let userAvatar = '';
+    
+    try {
+      // Import getUserProfile to get the most up-to-date user info
+      const { getUserProfile } = require('./firestoreService');
+      const userProfile = await getUserProfile(userId);
+      
+      if (userProfile) {
+        // Prefer Firestore username over displayName for consistency
+        username = userProfile.username || currentUser.displayName || 'Anonymous';
+        userAvatar = userProfile.profilePictureURL || currentUser.photoURL || '';
+      } else {
+        // Fallback to Firebase Auth user info
+        username = currentUser.displayName || 'Anonymous';
+        userAvatar = currentUser.photoURL || '';
+      }
+    } catch (error) {
+      console.error('Error fetching user profile for post, using fallback:', error);
+      username = currentUser.displayName || 'Anonymous';
+      userAvatar = currentUser.photoURL || '';
+    }
+    
     console.log('🔄 PostService: Using username:', username);
 
     // Upload the image to Firebase Storage
@@ -108,6 +134,16 @@ export const createPost = async (
     // Extract specific error details if available
     let errorMessage = 'Failed to create post';
     
+    // Try to check auth state again to provide better error messages
+    try {
+      const reCheckAuth = auth();
+      console.log('🔄 PostService ERROR CHECK: Auth re-check:', 
+                 'Auth instance:', !!reCheckAuth,
+                 'Current user:', reCheckAuth?.currentUser?.uid || 'none');
+    } catch (authCheckError) {
+      console.error('🔄 PostService: Error while re-checking auth:', authCheckError);
+    }
+    
     // Type-safe handling of errors
     if (error instanceof Error) {
       errorMessage = error.message;
@@ -115,16 +151,23 @@ export const createPost = async (
     
     // Check for Firebase Storage errors which might have a code property
     const firebaseError = error as { code?: string; serverResponse?: string };
-    if (firebaseError.code && typeof firebaseError.code === 'string' && 
-        firebaseError.code.startsWith('storage/')) {
-      errorMessage = `Firebase Storage error: ${errorMessage}`;
+    if (firebaseError.code && typeof firebaseError.code === 'string') {
+      if (firebaseError.code.startsWith('storage/')) {
+        errorMessage = `Firebase Storage error: ${errorMessage}`;
+      } else if (firebaseError.code.startsWith('auth/')) {
+        errorMessage = `Authentication error: ${errorMessage}`;
+      }
     }
     
     // Create and throw enhanced error
     const enhancedError = new Error(errorMessage) as Error & { 
       code?: string; 
-      serverResponse?: string 
+      serverResponse?: string,
+      authStatus?: string
     };
+    
+    // Add auth status to error for better debugging
+    enhancedError.authStatus = `Auth check: ${!!auth()}, User: ${auth().currentUser?.uid || 'none'}`;
     
     // Copy additional properties if they exist
     if (firebaseError.code) enhancedError.code = firebaseError.code;
@@ -142,8 +185,8 @@ export const createPost = async (
  */
 export const getPostsByUser = async (userId?: string): Promise<Post[]> => {
   try {
-    // Use auth.currentUser without the function call
-    const currentUser = auth.currentUser;
+    // Properly call auth() to get currentUser
+    const currentUser = auth().currentUser;
     const currentUserId = userId || currentUser?.uid;
     
     if (!currentUserId) {
@@ -295,7 +338,7 @@ export const getCachedFeedPosts = async (
     
     /* Commenting out complex caching logic until core functionality works
     // Get current user ID for cache segregation
-    const currentUser = auth.currentUser;
+    const currentUser = auth().currentUser;
     if (!currentUser) {
       console.log('No authenticated user, fetching posts without cache');
       return getAllPosts();
@@ -348,5 +391,83 @@ export const getCachedFeedPosts = async (
     
     // If all else fails, return an empty array or mock data
     return []; // Or return mock posts if you want to show something
+  }
+};
+
+/**
+ * Updates all existing posts by a user when they update their profile information
+ * This ensures that all posts display the current username and profile picture
+ * 
+ * @param userId - The user ID whose posts need to be updated
+ * @param newUsername - The user's new username (optional)
+ * @param newUserAvatar - The user's new profile picture URL (optional)
+ * @returns Promise that resolves when the update is complete
+ */
+export const updatePostsWithNewProfileData = async (
+  userId: string,
+  newUsername?: string,
+  newUserAvatar?: string
+): Promise<void> => {
+  if (!newUsername && !newUserAvatar) {
+    console.log('No profile updates to propagate to posts');
+    return;
+  }
+  
+  try {
+    console.log(`Updating existing posts for user ${userId} with new profile data`);
+    
+    // Query all posts by this user
+    const postsQuery = query(
+      collection(db, 'posts'),
+      where('userId', '==', userId)
+    );
+    
+    const postsSnapshot = await getDocs(postsQuery);
+    console.log(`Found ${postsSnapshot.size} posts to update with new profile data`);
+    
+    if (postsSnapshot.empty) {
+      console.log('No posts found to update');
+      return;
+    }
+    
+    // Create a batch to update all posts at once
+    const batchSize = 500; // Firestore has a limit of 500 writes per batch
+    let currentBatch = writeBatch(db);
+    let operationCount = 0;
+    let totalUpdated = 0;
+    
+    postsSnapshot.forEach((postDoc) => {
+      const updateData: Record<string, any> = {};
+      
+      if (newUsername) updateData.username = newUsername;
+      if (newUserAvatar) updateData.userAvatar = newUserAvatar;
+      
+      // Update the post document
+      currentBatch.update(postDoc.ref, updateData);
+      operationCount++;
+      totalUpdated++;
+      
+      // If we've reached the batch limit, commit this batch and start a new one
+      if (operationCount >= batchSize) {
+        currentBatch.commit().then(() => {
+          console.log(`Committed batch of ${operationCount} post updates`);
+        });
+        
+        // Reset batch and counter
+        currentBatch = writeBatch(db);
+        operationCount = 0;
+      }
+    });
+    
+    // Commit any remaining operations in the final batch
+    if (operationCount > 0) {
+      await currentBatch.commit();
+      console.log(`Committed final batch of ${operationCount} post updates`);
+    }
+    
+    console.log(`Successfully updated ${totalUpdated} posts with new profile data`);
+  } catch (error) {
+    console.error('Error updating posts with new profile data:', error);
+    throw error;
   }
 };

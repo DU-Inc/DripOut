@@ -430,36 +430,53 @@ export const propagateProfileUpdates = async (
       return;
     }
     
-    // 1. Update user posts
+    // 1. Update user posts using the dedicated postService function
     if (fieldsToPropagate.username || fieldsToPropagate.userAvatar) {
-      console.log('Updating posts...');
-      const postsQuery = query(
-        collection(db, 'posts'),
-        where('userId', '==', userId)
-      );
-      
-      const postsSnapshot = await getDocs(postsQuery);
-      console.log(`Found ${postsSnapshot.size} posts to update`);
-      
-      // Create batches of post updates to avoid exceeding write limits
-      let processedCount = 0;
-      let batch = writeBatch(db);
-      
-      postsSnapshot.forEach((postDoc, index) => {
-        const updateData: Record<string, any> = {};
+      try {
+        // Import the post service function to update all posts by this user
+        const { updatePostsWithNewProfileData } = require('./postService');
         
-        if (fieldsToPropagate.username) updateData.username = fieldsToPropagate.username;
-        if (fieldsToPropagate.userAvatar) updateData.userAvatar = fieldsToPropagate.userAvatar;
+        // Call the dedicated function that handles batching internally
+        await updatePostsWithNewProfileData(
+          userId,
+          fieldsToPropagate.username,
+          fieldsToPropagate.userAvatar
+        );
         
-        batch.update(postDoc.ref, updateData);
-        processedCount++;
+        console.log('Posts updated successfully through dedicated function');
+      } catch (postUpdateError) {
+        console.error('Error updating posts with dedicated function, falling back to manual update:', postUpdateError);
         
-        // Commit when batch reaches limit and start a new batch
-        if (processedCount % batchSize === 0 || index === postsSnapshot.size - 1) {
-          updatePromises.push(batch.commit());
-          batch = writeBatch(db);
-        }
-      });
+        // Fallback to original implementation if the dedicated function fails
+        console.log('Updating posts using fallback method...');
+        const postsQuery = query(
+          collection(db, 'posts'),
+          where('userId', '==', userId)
+        );
+        
+        const postsSnapshot = await getDocs(postsQuery);
+        console.log(`Found ${postsSnapshot.size} posts to update with fallback method`);
+        
+        // Create batches of post updates to avoid exceeding write limits
+        let processedCount = 0;
+        let batch = writeBatch(db);
+        
+        postsSnapshot.forEach((postDoc, index) => {
+          const updateData: Record<string, any> = {};
+          
+          if (fieldsToPropagate.username) updateData.username = fieldsToPropagate.username;
+          if (fieldsToPropagate.userAvatar) updateData.userAvatar = fieldsToPropagate.userAvatar;
+          
+          batch.update(postDoc.ref, updateData);
+          processedCount++;
+          
+          // Commit when batch reaches limit and start a new batch
+          if (processedCount % batchSize === 0 || index === postsSnapshot.size - 1) {
+            updatePromises.push(batch.commit());
+            batch = writeBatch(db);
+          }
+        });
+      }
     }
     
     // 2. Update user comments

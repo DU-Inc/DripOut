@@ -1,7 +1,6 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   SafeAreaView,
-  Animated,
   View,
   Text,
   ScrollView,
@@ -10,346 +9,586 @@ import {
   Dimensions,
   Image,
   TouchableOpacity,
-  SectionList,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  Platform
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
+import FeatherIcon from "react-native-vector-icons/Feather";
 import { useTheme } from "../styles/themeprovider";
+import { db, auth } from "../Config/firebaseconfig";
+import { 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  limit, 
+  getDocs, 
+  doc, 
+  getDoc
+} from "firebase/firestore";
+import { useNavigation } from "@react-navigation/native";
 
-// Mock wardrobe items - items the user owns
-const OWNED_ITEMS = [
-  {
-    id: "o1",
-    name: "Premium Cotton T-Shirt",
-    brand: "Uniqlo",
-    color: "Navy Blue",
-    category: "Tops",
-    uri: "https://images.unsplash.com/photo-1576566588028-4147f3842f27?q=80&w=600&auto=format",
-    purchaseDate: "March 10, 2024",
-    timesWorn: 5
-  },
-  {
-    id: "o2",
-    name: "Slim Fit Jeans",
-    brand: "Levi's",
-    color: "Dark Indigo",
-    category: "Bottoms",
-    uri: "https://images.unsplash.com/photo-1541099649105-f69ad21f3246?q=80&w=600&auto=format",
-    purchaseDate: "February 15, 2024",
-    timesWorn: 8
-  },
-  {
-    id: "o3",
-    name: "Wool Blend Sweater",
-    brand: "J.Crew",
-    color: "Burgundy",
-    category: "Tops",
-    uri: "https://images.unsplash.com/photo-1591047139829-d91aecb6caea?q=80&w=600&auto=format",
-    purchaseDate: "January 5, 2024",
-    timesWorn: 3
-  },
-  {
-    id: "o4",
-    name: "Classic Leather Sneakers",
-    brand: "Adidas",
-    color: "White",
-    category: "Footwear",
-    uri: "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?q=80&w=600&auto=format",
-    purchaseDate: "December 20, 2023",
-    timesWorn: 12
-  },
-  {
-    id: "o5",
-    name: "Structured Blazer",
-    brand: "Zara",
-    color: "Charcoal",
-    category: "Outerwear",
-    uri: "https://images.unsplash.com/photo-1591195853828-11db59a44f6b?q=80&w=600&auto=format",
-    purchaseDate: "November 15, 2023",
-    timesWorn: 2
-  },
-  {
-    id: "o6",
-    name: "Casual Button-Down Shirt",
-    brand: "H&M",
-    color: "Light Blue",
-    category: "Tops",
-    uri: "https://images.unsplash.com/photo-1598032895397-b9472444bf93?q=80&w=600&auto=format",
-    purchaseDate: "October 5, 2023",
-    timesWorn: 6
-  }
-];
-
-// Mock saved/liked items - items the user does not own but likes
-const LIKED_ITEMS = [
-  {
-    id: "l1",
-    name: "Premium Wool Coat",
-    brand: "COS",
-    price: 250,
-    uri: "https://images.unsplash.com/photo-1539533018447-63fcce2678e3?q=80&w=600&auto=format",
-    liked: "April 12, 2024"
-  },
-  {
-    id: "l2",
-    name: "Oversized Sweater",
-    brand: "& Other Stories",
-    price: 89,
-    uri: "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?q=80&w=600&auto=format",
-    liked: "April 10, 2024"
-  },
-  {
-    id: "l3",
-    name: "Chelsea Boots",
-    brand: "Dr. Martens",
-    price: 160,
-    uri: "https://images.unsplash.com/photo-1520639888713-7851133b1ed0?q=80&w=600&auto=format",
-    liked: "April 8, 2024"
-  },
-  {
-    id: "l4",
-    name: "Leather Crossbody Bag",
-    brand: "Madewell",
-    price: 120,
-    uri: "https://images.unsplash.com/photo-1594223274512-ad4200e8b2a1?q=80&w=600&auto=format",
-    liked: "April 5, 2024"
-  },
-  {
-    id: "l5",
-    name: "Straight Leg Trousers",
-    brand: "Arket",
-    price: 95,
-    uri: "https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?q=80&w=600&auto=format",
-    liked: "April 2, 2024"
-  }
-];
-
-// Outfit suggestions based on owned items
-const OUTFIT_SUGGESTIONS = [
-  {
-    id: "outfit1",
-    name: "Casual Weekend",
-    items: [OWNED_ITEMS[0], OWNED_ITEMS[1], OWNED_ITEMS[3]],
-    imageUri: "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?q=80&w=800&auto=format"
-  },
-  {
-    id: "outfit2",
-    name: "Business Casual",
-    items: [OWNED_ITEMS[2], OWNED_ITEMS[1], OWNED_ITEMS[4]],
-    imageUri: "https://images.unsplash.com/photo-1580420876816-ac9e5c1f48b4?q=80&w=800&auto=format"
-  },
-  {
-    id: "outfit3",
-    name: "Smart Evening",
-    items: [OWNED_ITEMS[5], OWNED_ITEMS[1], OWNED_ITEMS[3]],
-    imageUri: "https://images.unsplash.com/photo-1517445312882-bc9910d016b7?q=80&w=800&auto=format"
-  }
-];
-
-// Closet statistics
-const CLOSET_STATS = {
-  totalItems: OWNED_ITEMS.length,
-  categories: {
-    Tops: OWNED_ITEMS.filter(item => item.category === "Tops").length,
-    Bottoms: OWNED_ITEMS.filter(item => item.category === "Bottoms").length,
-    Footwear: OWNED_ITEMS.filter(item => item.category === "Footwear").length,
-    Outerwear: OWNED_ITEMS.filter(item => item.category === "Outerwear").length
-  },
-  mostWorn: OWNED_ITEMS.reduce((prev, current) => (prev.timesWorn > current.timesWorn) ? prev : current),
-  recentlyAdded: OWNED_ITEMS.sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())[0]
-};
-
-// Add interface types for the items
-interface OwnedItem {
+// Define interfaces for our data models
+interface SavedOutfit {
   id: string;
+  userId: string;
+  name: string;
+  imageUrl: string;
+  products: Product[];
+  createdAt: any;
+}
+
+interface FavoritedProduct {
+  id: string;
+  userId: string;
   name: string;
   brand: string;
-  color: string;
+  price: number | string;
+  imageUrl: string;
+  favorited: any;
+  url?: string;
+}
+
+interface OwnedProduct {
+  id: string;
+  userId: string;
+  name: string;
+  brand: string;
   category: string;
-  uri: string;
-  purchaseDate: string;
-  timesWorn: number;
+  imageUrl: string;
+  addedAt: any;
+  color?: string;
+  size?: string;
+  timesWorn?: number;
 }
 
-interface LikedItem {
-  id: string;
-  name: string;
-  brand: string;
-  price: number;
-  uri: string;
-  liked: string;
+interface Product {
+  id?: string;
+  name?: string;
+  brand?: string;
+  price?: number | string;
+  images?: string[];
+  url?: string;
+  color?: string;
 }
 
-interface OutfitItem {
-  id: string;
-  name: string;
-  items: OwnedItem[];
-  imageUri: string;
-}
-
+// Main ClosetScreen component
 const ClosetScreen: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"owned" | "saved">("owned");
-  const [selectedCategory, setSelectedCategory] = useState<string>("All");
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const { isDarkMode } = useTheme();
+  // State for tracking data and UI state
+  const [activeTab, setActiveTab] = useState<"outfits" | "favorites" | "owned">("outfits");
+  const [savedOutfits, setSavedOutfits] = useState<SavedOutfit[]>([]);
+  const [favoriteProducts, setFavoriteProducts] = useState<FavoritedProduct[]>([]);
+  const [ownedProducts, setOwnedProducts] = useState<OwnedProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState("All");
   
-  // iOS-native colors
-  const bgColor = isDarkMode ? '#000000' : '#FFFFFF';
-  const textColor = isDarkMode ? '#FFFFFF' : '#000000';
-  const subTextColor = isDarkMode ? '#8E8E93' : '#6E6E73'; // iOS gray
-  const mainColor = isDarkMode ? '#0A84FF' : '#007AFF'; // iOS blue
-  const secondaryColor = isDarkMode ? '#64D2FF' : '#5AC8FA'; // iOS light blue
-  const accentColor = isDarkMode ? '#FF453A' : '#FF3B30'; // iOS red
-  const cardBgColor = isDarkMode ? '#1C1C1E' : '#FFFFFF'; // iOS card background
-  const surfaceColor = isDarkMode ? '#2C2C2E' : '#F2F2F7'; // iOS system gray
-  const separatorColor = isDarkMode ? '#38383A' : '#E5E5EA'; // iOS separator
+  const { isDarkMode } = useTheme();
+  const navigation = useNavigation();
+  
+  // Colors based on the app's design theme
+  const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
+  const textColor = isDarkMode ? '#FFFFFF' : '#202020';
+  const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
+  const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
+  const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
+  const surfaceColor = isDarkMode ? '#242535' : '#F5F5F5';
+  const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
+  const accentColor = isDarkMode ? '#564DFF' : '#4D41D0'; // Secondary color
 
+  // Categories for filtering owned products
   const categories = ["All", "Tops", "Bottoms", "Outerwear", "Footwear", "Accessories"];
 
-  // Filter items based on selected category
-  const filteredOwnedItems = selectedCategory === "All" 
-    ? OWNED_ITEMS 
-    : OWNED_ITEMS.filter(item => item.category === selectedCategory);
+  // Load data on component mount
+  useEffect(() => {
+    loadClosetData();
+  }, []);
 
-  const renderCategoryChip = (category: string) => (
+  // Fetch all closet data from Firestore
+  const loadClosetData = async () => {
+    setLoading(true);
+    const userId = auth().currentUser?.uid;
+    
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      // Load all data types in parallel
+      await Promise.all([
+        fetchSavedOutfits(userId),
+        fetchFavoriteProducts(userId),
+        fetchOwnedProducts(userId)
+      ]);
+    } catch (error) {
+      console.error("Error loading closet data:", error);
+      Alert.alert("Error", "Failed to load your closet items. Please try again later.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle pull-to-refresh
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadClosetData();
+    setRefreshing(false);
+  };
+
+  // Fetch saved outfits (try-on results)
+  const fetchSavedOutfits = async (userId: string) => {
+    try {
+      // Query the saved_outfits collection for the current user
+      const outfitsQuery = query(
+        collection(db, "saved_outfits"),
+        where("userId", "==", userId),
+        orderBy("createdAt", "desc")
+      );
+      
+      const outfitsSnapshot = await getDocs(outfitsQuery);
+      
+      if (outfitsSnapshot.empty) {
+        console.log("No saved outfits found");
+        setSavedOutfits([]);
+        return;
+      }
+      
+      // Map the documents to our data model
+      const outfits: SavedOutfit[] = outfitsSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userId: data.userId,
+          name: data.name || "Saved Outfit",
+          imageUrl: data.imageUrl,
+          products: data.products || [],
+          createdAt: data.createdAt
+        };
+      });
+      
+      setSavedOutfits(outfits);
+    } catch (error) {
+      console.error("Error fetching saved outfits:", error);
+      setSavedOutfits([]);
+    }
+  };
+
+  // Fetch favorite/liked products
+  const fetchFavoriteProducts = async (userId: string) => {
+    try {
+      // Query the user_favorite_products collection
+      const favoritesQuery = query(
+        collection(db, "user_favorite_products"),
+        where("userId", "==", userId),
+        orderBy("favorited", "desc")
+      );
+      
+      const favoritesSnapshot = await getDocs(favoritesQuery);
+      
+      if (favoritesSnapshot.empty) {
+        console.log("No favorite products found");
+        setFavoriteProducts([]);
+        return;
+      }
+      
+      // Map the documents to our data model
+      const favorites: FavoritedProduct[] = favoritesSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userId: data.userId,
+          name: data.name || "Favorite Product",
+          brand: data.brand || "Unknown Brand",
+          price: data.price || 0,
+          imageUrl: data.imageUrl || data.images?.[0] || "",
+          favorited: data.favorited,
+          url: data.url
+        };
+      });
+      
+      setFavoriteProducts(favorites);
+    } catch (error) {
+      console.error("Error fetching favorite products:", error);
+      setFavoriteProducts([]);
+    }
+  };
+
+  // Fetch products that the user owns
+  const fetchOwnedProducts = async (userId: string) => {
+    try {
+      // Query the user_owned_products collection
+      const ownedQuery = query(
+        collection(db, "user_owned_products"),
+        where("userId", "==", userId),
+        orderBy("addedAt", "desc")
+      );
+      
+      const ownedSnapshot = await getDocs(ownedQuery);
+      
+      if (ownedSnapshot.empty) {
+        console.log("No owned products found");
+        setOwnedProducts([]);
+        return;
+      }
+      
+      // Map the documents to our data model
+      const owned: OwnedProduct[] = ownedSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userId: data.userId,
+          name: data.name || "My Product",
+          brand: data.brand || "Unknown Brand",
+          category: data.category || "Other",
+          imageUrl: data.imageUrl || "",
+          addedAt: data.addedAt,
+          color: data.color,
+          size: data.size,
+          timesWorn: data.timesWorn || 0
+        };
+      });
+      
+      setOwnedProducts(owned);
+    } catch (error) {
+      console.error("Error fetching owned products:", error);
+      setOwnedProducts([]);
+    }
+  };
+
+  // Filter owned products by selected category
+  const filteredOwnedProducts = useCallback(() => {
+    if (selectedCategory === "All") {
+      return ownedProducts;
+    }
+    return ownedProducts.filter(product => product.category === selectedCategory);
+  }, [ownedProducts, selectedCategory]);
+
+  // Render saved outfit item
+  const renderOutfit = useCallback(({ item }: { item: SavedOutfit }) => (
+    <TouchableOpacity
+      style={[
+        styles.outfitCard,
+        { 
+          backgroundColor: cardBgColor,
+          shadowColor: isDarkMode ? "rgba(255, 72, 112, 0.15)" : "rgba(0, 0, 0, 0.1)"
+        }
+      ]}
+      onPress={() => {
+        Alert.alert("Outfit Details", `${item.name} with ${item.products.length} items`);
+      }}
+    >
+      <Image 
+        source={{ uri: item.imageUrl }} 
+        style={styles.outfitImage}
+        resizeMode="cover"
+      />
+      <View style={styles.outfitOverlay}>
+        <Text style={styles.outfitName}>{item.name}</Text>
+        <Text style={styles.outfitItemCount}>{item.products.length} items</Text>
+      </View>
+    </TouchableOpacity>
+  ), [cardBgColor, isDarkMode]);
+
+  // Render favorite product item
+  const renderFavoriteProduct = useCallback(({ item }: { item: FavoritedProduct }) => (
+    <TouchableOpacity
+      style={[
+        styles.productCard,
+        { 
+          backgroundColor: cardBgColor,
+          borderColor: borderColor
+        }
+      ]}
+      onPress={() => {
+        if (item.url) {
+          // Open product URL in browser or in-app webview
+          Alert.alert("Product Details", `View ${item.name} by ${item.brand}`);
+        }
+      }}
+    >
+      <View style={styles.productImageContainer}>
+        <Image 
+          source={{ uri: item.imageUrl }} 
+          style={styles.productImage}
+          resizeMode="cover"
+        />
+        <TouchableOpacity 
+          style={[styles.favoriteButton, { backgroundColor: mainColor }]}
+          onPress={() => {
+            // Handle unfavorite logic
+            Alert.alert(
+              "Remove from Favorites",
+              "Are you sure you want to remove this item from your favorites?",
+              [
+                { text: "Cancel", style: "cancel" },
+                { 
+                  text: "Remove", 
+                  style: "destructive", 
+                  onPress: () => {
+                    // Remove logic would go here
+                    Alert.alert("Not Implemented", "This feature is coming soon!");
+                  }
+                }
+              ]
+            );
+          }}
+        >
+          <Icon name="heart" size={14} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+      <View style={styles.productInfo}>
+        <Text style={[styles.productBrand, { color: mainColor }]} numberOfLines={1}>
+          {item.brand}
+        </Text>
+        <Text style={[styles.productName, { color: textColor }]} numberOfLines={2}>
+          {item.name}
+        </Text>
+        <Text style={[styles.productPrice, { color: subTextColor }]}>
+          ${typeof item.price === 'number' ? item.price.toFixed(2) : item.price}
+        </Text>
+      </View>
+      <TouchableOpacity 
+        style={[styles.shopButton, { backgroundColor: mainColor }]}
+        onPress={() => {
+          if (item.url) {
+            // Open product URL or shop functionality
+            Alert.alert("Visit Store", "This feature will open the product page.");
+          }
+        }}
+      >
+        <Text style={styles.shopButtonText}>Shop</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  ), [cardBgColor, borderColor, textColor, subTextColor, mainColor]);
+
+  // Render owned product item
+  const renderOwnedProduct = useCallback(({ item }: { item: OwnedProduct }) => (
+    <TouchableOpacity
+      style={[
+        styles.productCard,
+        { 
+          backgroundColor: cardBgColor,
+          borderColor: borderColor
+        }
+      ]}
+      onPress={() => {
+        // Show product details
+        Alert.alert("Product Details", `${item.name} by ${item.brand}\nCategory: ${item.category}\nWorn ${item.timesWorn || 0} times`);
+      }}
+    >
+      <View style={styles.productImageContainer}>
+        <Image 
+          source={{ uri: item.imageUrl }} 
+          style={styles.productImage}
+          resizeMode="cover"
+        />
+        <View style={styles.categoryBadge}>
+          <Text style={styles.categoryBadgeText}>{item.category}</Text>
+        </View>
+      </View>
+      <View style={styles.productInfo}>
+        <Text style={[styles.productBrand, { color: mainColor }]} numberOfLines={1}>
+          {item.brand}
+        </Text>
+        <Text style={[styles.productName, { color: textColor }]} numberOfLines={2}>
+          {item.name}
+        </Text>
+        <View style={styles.productMeta}>
+          {item.color && (
+            <View style={styles.colorDot} backgroundColor={item.color} />
+          )}
+          {item.size && (
+            <Text style={[styles.sizeText, { color: subTextColor }]}>
+              Size: {item.size}
+            </Text>
+          )}
+        </View>
+      </View>
+      <View style={styles.wornCounter}>
+        <Text style={[styles.wornText, { color: subTextColor }]}>
+          Worn {item.timesWorn || 0}×
+        </Text>
+      </View>
+    </TouchableOpacity>
+  ), [cardBgColor, borderColor, textColor, subTextColor, mainColor]);
+
+  // Render category filter chip
+  const renderCategoryChip = useCallback((category: string) => (
     <TouchableOpacity
       key={category}
       style={[
         styles.categoryChip,
-        { backgroundColor: selectedCategory === category ? mainColor : surfaceColor },
-        isDarkMode && selectedCategory !== category && { borderWidth: 1, borderColor: '#38383A' }
+        { 
+          backgroundColor: selectedCategory === category ? mainColor : surfaceColor,
+          borderColor: selectedCategory === category ? mainColor : borderColor
+        }
       ]}
       onPress={() => setSelectedCategory(category)}
     >
       <Text 
         style={[
           styles.categoryText,
-          { color: selectedCategory === category ? '#FFFFFF' : subTextColor }
+          { color: selectedCategory === category ? "#FFFFFF" : subTextColor }
         ]}
       >
         {category}
       </Text>
     </TouchableOpacity>
+  ), [selectedCategory, mainColor, surfaceColor, borderColor, subTextColor]);
+
+  // Empty state components for each tab
+  const renderEmptyOutfits = () => (
+    <View style={styles.emptyStateContainer}>
+      <View style={[styles.emptyIconContainer, { backgroundColor: surfaceColor }]}>
+        <FeatherIcon name="shopping-bag" size={32} color={mainColor} />
+      </View>
+      <Text style={[styles.emptyStateTitle, { color: textColor }]}>
+        No Saved Outfits Yet
+      </Text>
+      <Text style={[styles.emptyStateMessage, { color: subTextColor }]}>
+        Try on clothes in the 3D fitting room and save your favorite looks here.
+      </Text>
+      <TouchableOpacity 
+        style={[styles.emptyStateButton, { backgroundColor: mainColor }]}
+        onPress={() => navigation.navigate('3DTab')}
+      >
+        <Text style={styles.emptyStateButtonText}>Go to Fitting Room</Text>
+      </TouchableOpacity>
+    </View>
   );
 
-  // Render an owned wardrobe item
-  const renderOwnedItem = ({ item, index }: { item: OwnedItem; index: number }) => (
-    <TouchableOpacity
-      style={[
-        styles.itemCard,
-        { 
-          backgroundColor: cardBgColor,
-          shadowColor: isDarkMode ? 'rgba(10, 132, 255, 0.3)' : 'rgba(0,0,0,0.1)'
-        }
-      ]}
-    >
-      <View style={styles.imageContainer}>
-        <Image source={{ uri: item.uri }} style={styles.itemImage} />
-        <View style={styles.categoryBadge}>
-          <Text style={styles.categoryBadgeText}>{item.category}</Text>
-        </View>
+  const renderEmptyFavorites = () => (
+    <View style={styles.emptyStateContainer}>
+      <View style={[styles.emptyIconContainer, { backgroundColor: surfaceColor }]}>
+        <FeatherIcon name="heart" size={32} color={mainColor} />
       </View>
-      <View style={styles.itemDetails}>
-        <Text style={[styles.itemName, { color: textColor }]} numberOfLines={1}>
-          {item.name}
-        </Text>
-        <Text style={[styles.itemBrand, { color: mainColor }]}>
-          {item.brand}
-        </Text>
-        <View style={styles.itemMeta}>
-          <Text style={[styles.itemMetaText, { color: subTextColor }]}>
-            Worn {item.timesWorn} times
+      <Text style={[styles.emptyStateTitle, { color: textColor }]}>
+        No Favorite Products Yet
+      </Text>
+      <Text style={[styles.emptyStateMessage, { color: subTextColor }]}>
+        Like products from the feed to save them to your wishlist.
+      </Text>
+      <TouchableOpacity 
+        style={[styles.emptyStateButton, { backgroundColor: mainColor }]}
+        onPress={() => navigation.navigate('SocialScreen')}
+      >
+        <Text style={styles.emptyStateButtonText}>Browse Fashion Feed</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderEmptyOwned = () => (
+    <View style={styles.emptyStateContainer}>
+      <View style={[styles.emptyIconContainer, { backgroundColor: surfaceColor }]}>
+        <FeatherIcon name="package" size={32} color={mainColor} />
+      </View>
+      <Text style={[styles.emptyStateTitle, { color: textColor }]}>
+        No Items in Your Wardrobe
+      </Text>
+      <Text style={[styles.emptyStateMessage, { color: subTextColor }]}>
+        Add items that you own to your digital wardrobe.
+      </Text>
+      <TouchableOpacity 
+        style={[styles.emptyStateButton, { backgroundColor: mainColor }]}
+        onPress={() => {
+          // Handle add item logic
+          Alert.alert("Coming Soon", "The ability to add your own items will be available soon!");
+        }}
+      >
+        <Text style={styles.emptyStateButtonText}>Add an Item</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // Loading state component
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={mainColor} />
+          <Text style={[styles.loadingText, { color: subTextColor }]}>
+            Loading your closet...
           </Text>
         </View>
-      </View>
-      <TouchableOpacity style={styles.itemAction}>
-        <Icon name="ellipsis-horizontal" size={20} color={subTextColor} />
-      </TouchableOpacity>
-    </TouchableOpacity>
-  );
-
-  // Render a liked/saved wardrobe item
-  const renderLikedItem = ({ item, index }: { item: LikedItem; index: number }) => (
-    <TouchableOpacity
-      style={[
-        styles.itemCard,
-        { 
-          backgroundColor: cardBgColor,
-          shadowColor: isDarkMode ? 'rgba(10, 132, 255, 0.3)' : 'rgba(0,0,0,0.1)'
-        }
-      ]}
-    >
-      <View style={styles.imageContainer}>
-        <Image source={{ uri: item.uri }} style={styles.itemImage} />
-        <TouchableOpacity style={styles.likeButton}>
-          <Icon name="heart" size={16} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
-      <View style={styles.itemDetails}>
-        <Text style={[styles.itemName, { color: textColor }]} numberOfLines={1}>
-          {item.name}
-        </Text>
-        <Text style={[styles.itemBrand, { color: mainColor }]}>
-          {item.brand}
-        </Text>
-        <Text style={[styles.itemPrice, { color: subTextColor }]}>
-          ${item.price}
-        </Text>
-      </View>
-      <TouchableOpacity 
-        style={[
-          styles.buyButton,
-          { backgroundColor: mainColor }
-        ]}
-      >
-        <Text style={styles.buyButtonText}>Buy</Text>
-      </TouchableOpacity>
-    </TouchableOpacity>
-  );
-
-  // Render outfit suggestion card
-  const renderOutfit = ({ item, index }: { item: OutfitItem; index: number }) => (
-    <TouchableOpacity
-      style={[
-        styles.outfitCard,
-        { 
-          backgroundColor: cardBgColor,
-          shadowColor: isDarkMode ? 'rgba(10, 132, 255, 0.3)' : 'rgba(0,0,0,0.1)'
-        }
-      ]}
-    >
-      <Image source={{ uri: item.imageUri }} style={styles.outfitImage} />
-      <View style={styles.outfitDetails}>
-        <Text style={[styles.outfitName, { color: textColor }]}>
-          {item.name}
-        </Text>
-        <Text style={[styles.outfitItemCount, { color: subTextColor }]}>
-          {item.items.length} items
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
-      {/* iOS-style header */}
+      {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={[styles.headerTitle, { color: textColor }]}>Closet</Text>
+          <Text style={[styles.headerTitle, { color: textColor }]}>My Closet</Text>
           <Text style={[styles.headerSubtitle, { color: subTextColor }]}>
-            {CLOSET_STATS.totalItems} items in your wardrobe
+            Your virtual fashion collection
           </Text>
         </View>
-
         <TouchableOpacity 
           style={[styles.addButton, { backgroundColor: mainColor }]}
-          onPress={() => {}}
+          onPress={() => {
+            // Navigate to add item flow or show options
+            Alert.alert(
+              "Add to Closet",
+              "Choose what you want to add:",
+              [
+                {
+                  text: "Try On Outfit",
+                  onPress: () => navigation.navigate('3DTab')
+                },
+                {
+                  text: "Add Owned Item",
+                  onPress: () => Alert.alert("Coming Soon", "This feature will be available soon!")
+                },
+                {
+                  text: "Cancel",
+                  style: "cancel"
+                }
+              ]
+            );
+          }}
         >
           <Icon name="add" size={22} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
-      {/* Tab selection */}
-      <View style={[styles.tabContainer, { borderBottomColor: separatorColor }]}>
+      {/* Tab Selector */}
+      <View style={[styles.tabContainer, { borderBottomColor: borderColor }]}>
+        <TouchableOpacity 
+          style={[
+            styles.tab, 
+            activeTab === "outfits" && [styles.activeTab, { borderBottomColor: mainColor }]
+          ]}
+          onPress={() => setActiveTab("outfits")}
+        >
+          <Text 
+            style={[
+              styles.tabText, 
+              { color: activeTab === "outfits" ? mainColor : subTextColor }
+            ]}
+          >
+            Saved Outfits
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[
+            styles.tab, 
+            activeTab === "favorites" && [styles.activeTab, { borderBottomColor: mainColor }]
+          ]}
+          onPress={() => setActiveTab("favorites")}
+        >
+          <Text 
+            style={[
+              styles.tabText, 
+              { color: activeTab === "favorites" ? mainColor : subTextColor }
+            ]}
+          >
+            Favorites
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity 
           style={[
             styles.tab, 
@@ -363,185 +602,102 @@ const ClosetScreen: React.FC = () => {
               { color: activeTab === "owned" ? mainColor : subTextColor }
             ]}
           >
-            My Wardrobe
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[
-            styles.tab, 
-            activeTab === "saved" && [styles.activeTab, { borderBottomColor: mainColor }]
-          ]}
-          onPress={() => setActiveTab("saved")}
-        >
-          <Text 
-            style={[
-              styles.tabText, 
-              { color: activeTab === "saved" ? mainColor : subTextColor }
-            ]}
-          >
-            Saved Items
+            My Items
           </Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
-      >
-        {activeTab === "owned" ? (
-          <>
-            {/* Closet statistics card */}
-            <View style={[
-              styles.statsCard, 
-              { 
-                backgroundColor: cardBgColor,
-                shadowColor: isDarkMode ? 'rgba(10, 132, 255, 0.3)' : 'rgba(0,0,0,0.1)'
-              }
-            ]}>
-              <Text style={[styles.statsTitle, { color: textColor }]}>Closet Insights</Text>
-              
-              <View style={styles.statsGrid}>
-                <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: textColor }]}>
-                    {CLOSET_STATS.categories.Tops}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: subTextColor }]}>Tops</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: textColor }]}>
-                    {CLOSET_STATS.categories.Bottoms}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: subTextColor }]}>Bottoms</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: textColor }]}>
-                    {CLOSET_STATS.categories.Footwear}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: subTextColor }]}>Shoes</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: textColor }]}>
-                    {CLOSET_STATS.categories.Outerwear}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: subTextColor }]}>Outerwear</Text>
-                </View>
-              </View>
-              
-              <View style={[styles.mostWornContainer, { borderTopColor: separatorColor }]}>
-                <View style={styles.mostWornInfo}>
-                  <Text style={[styles.mostWornLabel, { color: subTextColor }]}>
-                    Most worn item:
-                  </Text>
-                  <Text style={[styles.mostWornItem, { color: textColor }]}>
-                    {CLOSET_STATS.mostWorn.name}
-                  </Text>
-                  <Text style={[styles.mostWornCount, { color: mainColor }]}>
-                    {CLOSET_STATS.mostWorn.timesWorn} times
-                  </Text>
-                </View>
-                <Image 
-                  source={{ uri: CLOSET_STATS.mostWorn.uri }} 
-                  style={styles.mostWornImage} 
-                />
-              </View>
-            </View>
+      {/* Tab Content */}
+      {activeTab === "outfits" && (
+        <FlatList
+          data={savedOutfits}
+          renderItem={renderOutfit}
+          keyExtractor={(item) => item.id}
+          numColumns={2}
+          contentContainerStyle={styles.outfitGrid}
+          columnWrapperStyle={styles.outfitRow}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[mainColor]}
+              tintColor={mainColor}
+            />
+          }
+          ListEmptyComponent={renderEmptyOutfits}
+          // Performance optimizations
+          removeClippedSubviews={true}
+          initialNumToRender={8}
+          maxToRenderPerBatch={4}
+          windowSize={5}
+        />
+      )}
 
-            {/* Outfit suggestions */}
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: textColor }]}>
-                Outfit Suggestions
-              </Text>
-              <FlatList
-                data={OUTFIT_SUGGESTIONS}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                renderItem={renderOutfit}
-                keyExtractor={item => item.id}
-                contentContainerStyle={{ paddingHorizontal: 16 }}
+      {activeTab === "favorites" && (
+        <FlatList
+          data={favoriteProducts}
+          renderItem={renderFavoriteProduct}
+          keyExtractor={(item) => item.id}
+          numColumns={2}
+          contentContainerStyle={styles.productGrid}
+          columnWrapperStyle={styles.productRow}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[mainColor]}
+              tintColor={mainColor}
+            />
+          }
+          ListEmptyComponent={renderEmptyFavorites}
+          // Performance optimizations
+          removeClippedSubviews={true}
+          initialNumToRender={8}
+          maxToRenderPerBatch={4}
+          windowSize={5}
+        />
+      )}
+
+      {activeTab === "owned" && (
+        <>
+          {/* Category Filter */}
+          <View style={styles.categoriesContainer}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoriesScroll}
+            >
+              {categories.map(category => renderCategoryChip(category))}
+            </ScrollView>
+          </View>
+          
+          <FlatList
+            data={filteredOwnedProducts()}
+            renderItem={renderOwnedProduct}
+            keyExtractor={(item) => item.id}
+            numColumns={2}
+            contentContainerStyle={styles.productGrid}
+            columnWrapperStyle={styles.productRow}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={[mainColor]}
+                tintColor={mainColor}
               />
-            </View>
-
-            {/* Category filter chips */}
-            <View style={styles.categoriesContainer}>
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16 }}
-              >
-                {categories.map(category => renderCategoryChip(category))}
-              </ScrollView>
-            </View>
-
-            {/* Owned items grid */}
-            <View style={styles.itemsGrid}>
-              {filteredOwnedItems.map((item, index) => (
-                <View key={item.id} style={styles.gridItem}>
-                  {renderOwnedItem({ item, index })}
-                </View>
-              ))}
-            </View>
-          </>
-        ) : (
-          <>
-            {/* Liked/Saved items section */}
-            <View style={styles.savedIntro}>
-              <Icon 
-                name="heart-circle" 
-                size={36} 
-                color={accentColor} 
-                style={styles.savedIcon} 
-              />
-              <View>
-                <Text style={[styles.savedTitle, { color: textColor }]}>
-                  Your Wishlist
-                </Text>
-                <Text style={[styles.savedDescription, { color: subTextColor }]}>
-                  {LIKED_ITEMS.length} items you've saved
-                </Text>
-              </View>
-            </View>
-
-            {/* Recently saved items */}
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: textColor }]}>
-                Recently Saved
-              </Text>
-              
-              <View style={styles.itemsGrid}>
-                {LIKED_ITEMS.map((item, index) => (
-                  <View key={item.id} style={styles.gridItem}>
-                    {renderLikedItem({ item, index })}
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            {/* Similar items suggestion */}
-            <View style={[
-              styles.suggestionsCard, 
-              { 
-                backgroundColor: cardBgColor,
-                shadowColor: isDarkMode ? 'rgba(10, 132, 255, 0.3)' : 'rgba(0,0,0,0.1)'
-              }
-            ]}>
-              <Text style={[styles.suggestionsTitle, { color: textColor }]}>
-                Looking for more?
-              </Text>
-              <Text style={[styles.suggestionsText, { color: subTextColor }]}>
-                Find similar items based on your saved preferences
-              </Text>
-              <TouchableOpacity 
-                style={[styles.suggestionsButton, { backgroundColor: mainColor }]}
-              >
-                <Text style={styles.suggestionsButtonText}>
-                  Discover Similar
-                </Text>
-                <Icon name="chevron-forward" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
-      </ScrollView>
+            }
+            ListEmptyComponent={renderEmptyOwned}
+            // Performance optimizations
+            removeClippedSubviews={true}
+            initialNumToRender={8}
+            maxToRenderPerBatch={4}
+            windowSize={5}
+          />
+        </>
+      )}
     </SafeAreaView>
   );
 };
@@ -549,28 +705,28 @@ const ClosetScreen: React.FC = () => {
 export default ClosetScreen;
 
 const { width } = Dimensions.get('window');
+const ITEM_WIDTH = (width - 40) / 2; // Two columns with spacing
 
 const styles = StyleSheet.create({
-  container: { 
+  container: {
     flex: 1,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '700',
-    letterSpacing: 0.35, // iOS font tracking
+    marginBottom: 4,
+    letterSpacing: -0.5,
   },
   headerSubtitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '400',
-    marginTop: 4,
   },
   addButton: {
     width: 36,
@@ -581,7 +737,6 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: 'row',
-    marginBottom: 16,
     borderBottomWidth: 1,
   },
   tab: {
@@ -593,262 +748,221 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
   },
   tabText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
-  statsCard: {
-    margin: 16,
+  // Outfit grid styles
+  outfitGrid: {
+    padding: 12,
+    paddingBottom: 100,
+  },
+  outfitRow: {
+    justifyContent: 'space-between',
+  },
+  outfitCard: {
+    width: ITEM_WIDTH,
+    height: ITEM_WIDTH * 1.4,
     borderRadius: 16,
-    padding: 16,
-    shadowOffset: { width: 0, height: 2 },
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 2,
+    elevation: 4,
   },
-  statsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 16,
+  outfitImage: {
+    width: '100%',
+    height: '100%',
   },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 16,
+  outfitOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
-  statItem: {
-    width: '25%',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  statLabel: {
-    fontSize: 13,
-    marginTop: 4,
-  },
-  mostWornContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 16,
-    borderTopWidth: 1,
-  },
-  mostWornInfo: {
-    flex: 1,
-  },
-  mostWornLabel: {
-    fontSize: 13,
-  },
-  mostWornItem: {
+  outfitName: {
+    color: 'white',
     fontSize: 16,
     fontWeight: '600',
-    marginTop: 4,
-    marginBottom: 2,
+    marginBottom: 4,
   },
-  mostWornCount: {
+  outfitItemCount: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 13,
+  },
+  // Product grid styles
+  productGrid: {
+    padding: 12,
+    paddingBottom: 100,
+  },
+  productRow: {
+    justifyContent: 'space-between',
+  },
+  productCard: {
+    width: ITEM_WIDTH,
+    height: ITEM_WIDTH * 1.7,
+    borderRadius: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  productImageContainer: {
+    width: '100%',
+    height: ITEM_WIDTH * 1.1,
+    position: 'relative',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#F5F5F5',
+  },
+  categoryBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  categoryBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  favoriteButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  productInfo: {
+    padding: 12,
+    flex: 1,
+  },
+  productBrand: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  productName: {
     fontSize: 14,
     fontWeight: '500',
+    marginBottom: 4,
+    lineHeight: 18,
   },
-  mostWornImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-  },
-  section: {
-    marginVertical: 16,
-  },
-  sectionTitle: {
-    fontSize: 20,
+  productPrice: {
+    fontSize: 13,
     fontWeight: '600',
-    marginBottom: 16,
-    paddingHorizontal: 16,
   },
+  productMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  colorDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  sizeText: {
+    fontSize: 12,
+  },
+  wornCounter: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+  },
+  wornText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  shopButton: {
+    paddingVertical: 6,
+    alignItems: 'center',
+    borderRadius: 12,
+    marginHorizontal: 12,
+    marginBottom: 12,
+  },
+  shopButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  // Category filter styles
   categoriesContainer: {
-    marginVertical: 16,
+    marginVertical: 8,
+  },
+  categoriesScroll: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   categoryChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 16,
     marginRight: 8,
+    borderWidth: 1,
   },
   categoryText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  outfitCard: {
-    width: width * 0.7,
-    height: 200,
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginRight: 12,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  outfitImage: {
-    width: '100%',
-    height: '70%',
-  },
-  outfitDetails: {
-    padding: 12,
-  },
-  outfitName: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  outfitItemCount: {
-    fontSize: 14,
-  },
-  itemsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
-  },
-  gridItem: {
-    width: '50%',
-    padding: 4,
-    marginBottom: 12,
-  },
-  itemCard: {
-    borderRadius: 14,
-    overflow: 'hidden',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  imageContainer: {
-    position: 'relative',
-    height: 160,
-  },
-  itemImage: {
-    width: '100%',
-    height: '100%',
-  },
-  categoryBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  categoryBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  likeButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(255, 59, 48, 0.8)',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  itemDetails: {
-    padding: 12,
-  },
-  itemName: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  itemBrand: {
     fontSize: 13,
     fontWeight: '500',
-    marginBottom: 4,
   },
-  itemMeta: {
-    flexDirection: 'row',
+  // Empty state styles
+  emptyStateContainer: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    minHeight: 400,
   },
-  itemMetaText: {
-    fontSize: 12,
-  },
-  itemPrice: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  itemAction: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.9)',
+  emptyIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 16,
   },
-  buyButton: {
-    margin: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    alignItems: 'center',
-  },
-  buyButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  savedIntro: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  savedIcon: {
-    marginRight: 16,
-  },
-  savedTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  savedDescription: {
-    fontSize: 14,
-  },
-  suggestionsCard: {
-    margin: 16,
-    borderRadius: 16,
-    padding: 20,
-    alignItems: 'center',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
-    marginBottom: 30,
-  },
-  suggestionsTitle: {
+  emptyStateTitle: {
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 8,
     textAlign: 'center',
   },
-  suggestionsText: {
+  emptyStateMessage: {
     fontSize: 14,
+    lineHeight: 20,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 24,
   },
-  suggestionsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
+  emptyStateButton: {
     paddingVertical: 12,
-    borderRadius: 20,
+    paddingHorizontal: 24,
+    borderRadius: 24,
   },
-  suggestionsButtonText: {
-    color: '#FFFFFF',
+  emptyStateButtonText: {
+    color: 'white',
     fontWeight: '600',
-    marginRight: 6,
+    fontSize: 15,
+  },
+  // Loading state
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
   },
 });
