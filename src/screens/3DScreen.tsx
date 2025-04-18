@@ -776,24 +776,11 @@ const ThreeDScreen: React.FC = () => {
             <Text style={[styles.productPrice, { color: accentColor }]}>
               {formatPrice(item.price)}
             </Text>
-            <TouchableOpacity 
-              style={[
-                styles.tryOnIconButton,
-                { 
-                  backgroundColor: hasModel 
-                    ? (isInBucket ? successColor : accentColor) 
-                    : surfaceColor 
-                }
-              ]}
-              onPress={() => handleAddToTryOnBucket(item)}
-              disabled={!hasModel}
-            >
-              <Icon 
-                name={isInBucket ? "checkmark" : "shirt-outline"} 
-                size={14} 
-                color="#FFFFFF" 
-              />
-            </TouchableOpacity>
+            {isInBucket && (
+              <View style={[styles.addedIndicator, { backgroundColor: successColor }]}>
+                <Icon name="checkmark" size={14} color="#FFFFFF" />
+              </View>
+            )}
           </View>
         </View>
       </TouchableOpacity>
@@ -884,24 +871,28 @@ const ThreeDScreen: React.FC = () => {
               </Text>
             </View>
           ) : hasModel && modelUrl ? (
-            // User has a model, show it with update button
+            // User has a model, show it with an elegant overlay for updates
             <>
-              <View style={styles.avatarHeader}>
-                <Text style={[styles.sectionTitle, { color: textColor }]}>Your Avatar</Text>
-                <TouchableOpacity
-                  style={[styles.updateAvatarButton, { backgroundColor: mainColor }]}
-                  onPress={handleUpdateAvatar}
-                >
-                  <Icon name="refresh" size={16} color="#FFFFFF" />
-                  <Text style={styles.updateAvatarButtonText}>Update</Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={[styles.sectionTitle, { color: textColor }]}>Your Avatar</Text>
               <View style={styles.avatarImageContainer}>
-                <Image 
-                  source={{ uri: modelUrl }} 
-                  style={styles.avatarImage}
-                  resizeMode="cover"
-                />
+                <TouchableOpacity
+                  activeOpacity={0.95}
+                  onPress={handleUpdateAvatar}
+                  style={styles.avatarTouchable}
+                >
+                  <Image 
+                    source={{ uri: modelUrl }} 
+                    style={styles.avatarImage}
+                    resizeMode="cover"
+                  />
+                  {/* Professional overlay with camera icon */}
+                  <View style={styles.avatarUpdateOverlay}>
+                    <View style={styles.avatarUpdateIconContainer}>
+                      <Icon name="camera" size={20} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.avatarUpdateText}>Update Photo</Text>
+                  </View>
+                </TouchableOpacity>
               </View>
             </>
           ) : (
@@ -1521,36 +1512,51 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   // Avatar image styles
-  avatarHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  updateAvatarButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  updateAvatarButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
-    marginLeft: 4,
-  },
   avatarImageContainer: {
     width: '100%',
     height: 300,
     borderRadius: 12,
     overflow: 'hidden',
     marginVertical: 16,
+    position: 'relative', // For positioning the overlay
   },
   avatarImage: {
     width: '100%',
     height: '100%',
     borderRadius: 12,
+  },
+  avatarUpdateOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: '35%', // Only cover a portion from the right
+    height: 80, // Fixed height instead of percentage
+    backgroundColor: 'rgba(0, 0, 0, 0.45)', // Semi-transparent overlay
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopLeftRadius: 20,  // Rounded corners for the overlay
+    marginBottom: 16, // Add space from the bottom
+    marginRight: 16, // Add space from the right
+  },
+  avatarUpdateIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  avatarUpdateText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    marginTop: 4,
   },
   // Try-on bucket styles
   bucketContainer: {
@@ -1961,7 +1967,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  tryOnIconButton: {
+  addedIndicator: {
     width: 28,
     height: 28,
     borderRadius: 14,
