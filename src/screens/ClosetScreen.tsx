@@ -12,8 +12,11 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
-  Platform
+  Platform,
+  Modal,
+  PanResponder
 } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import Icon from "react-native-vector-icons/Ionicons";
 import FeatherIcon from "react-native-vector-icons/Feather";
 import { useTheme } from "../styles/themeprovider";
@@ -84,6 +87,34 @@ const ClosetScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("All");
+  // State for outfit components modal
+  const [selectedOutfit, setSelectedOutfit] = useState<SavedOutfit | null>(null);
+  const [outfitModalVisible, setOutfitModalVisible] = useState(false);
+  
+  // Create a PanResponder for the swipe gesture
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only capture vertical gestures
+        return Math.abs(gestureState.dy) > Math.abs(gestureState.dx) && gestureState.dy > 5;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // If they swipe down more than 80 pixels, dismiss the modal
+        if (gestureState.dy > 80) {
+          setOutfitModalVisible(false);
+          setSelectedOutfit(null);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        // If they swipe down more than 50 pixels, dismiss the modal
+        if (gestureState.dy > 50) {
+          setOutfitModalVisible(false);
+          setSelectedOutfit(null);
+        }
+      },
+    })
+  ).current;
   
   const { isDarkMode } = useTheme();
   const navigation = useNavigation();
@@ -164,7 +195,11 @@ const ClosetScreen: React.FC = () => {
           userId: data.userId,
           name: data.name || "Saved Outfit",
           imageUrl: data.imageUrl,
-          products: data.products || [],
+          products: data.products 
+            ? (Array.isArray(data.products) 
+               ? data.products 
+               : (typeof data.products === 'number' ? [] : []))
+            : [],
           createdAt: data.createdAt
         };
       });
@@ -277,7 +312,11 @@ const ClosetScreen: React.FC = () => {
         }
       ]}
       onPress={() => {
-        Alert.alert("Outfit Details", `${item.name} with ${item.products.length} items`);
+        console.log('Selected outfit:', JSON.stringify(item, null, 2));
+        console.log('Product count:', item.products ? item.products.length : 0);
+        console.log('First product sample:', item.products && item.products.length > 0 ? JSON.stringify(item.products[0], null, 2) : 'No products');
+        setSelectedOutfit(item);
+        setOutfitModalVisible(true);
       }}
     >
       <Image 
@@ -517,8 +556,179 @@ const ClosetScreen: React.FC = () => {
     );
   }
 
+  // Render individual product item in the outfit modal
+  const renderOutfitProduct = ({ item }: { item: Product }) => {
+    console.log("Rendering product item:", JSON.stringify(item, null, 2));
+    
+    return (
+      <View style={[styles.outfitProductItem, { backgroundColor: cardBgColor, borderColor }]}>
+        {item.images && item.images.length > 0 ? (
+          <Image
+            source={{ uri: item.images[0] }}
+            style={styles.outfitProductImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={[styles.noImagePlaceholder, { backgroundColor: surfaceColor }]}>
+            <FeatherIcon name="image" size={24} color={subTextColor} />
+          </View>
+        )}
+        <View style={styles.outfitProductInfo}>
+          <Text style={[styles.outfitProductBrand, { color: mainColor }]} numberOfLines={1}>
+            {item.brand || "Unknown Brand"}
+          </Text>
+          <Text style={[styles.outfitProductName, { color: textColor }]} numberOfLines={2}>
+            {item.name || "Unnamed Product"}
+          </Text>
+          {item.price && (
+            <Text style={[styles.outfitProductPrice, { color: subTextColor }]}>
+              ${typeof item.price === 'number' ? item.price.toFixed(2) : item.price}
+            </Text>
+          )}
+          {item.url && (
+            <TouchableOpacity 
+              style={[styles.outfitProductLink, { backgroundColor: mainColor }]}
+              onPress={() => {
+                // Would open the product URL
+                Alert.alert("Visit Store", "This would open the product URL in a browser.");
+              }}
+            >
+              <Text style={styles.outfitProductLinkText}>Visit Store</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
+      {/* Outfit Components Modal */}
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={outfitModalVisible}
+        onRequestClose={() => {
+          setOutfitModalVisible(false);
+          setSelectedOutfit(null);
+        }}
+      >
+        <View style={[styles.modalContainer, {backgroundColor: 'rgba(0,0,0,0.5)'}]}>
+          <View 
+            style={[
+              styles.modalContent, 
+              { 
+                backgroundColor: bgColor,
+                borderColor
+              }
+            ]}
+          >
+            <View 
+              style={styles.dragIndicator} 
+              {...panResponder.panHandlers}
+            >
+              <View style={[styles.dragIndicatorBar, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.2)' }]} />
+            </View>
+            
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: textColor }]}>
+                {selectedOutfit?.name || "Outfit Details"}
+              </Text>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => {
+                  setOutfitModalVisible(false);
+                  setSelectedOutfit(null);
+                }}
+              >
+                <Icon name="close" size={24} color={textColor} />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Outfit image */}
+            {selectedOutfit?.imageUrl && (
+              <Image
+                source={{ uri: selectedOutfit.imageUrl }}
+                style={styles.modalOutfitImage}
+                resizeMode="contain"
+              />
+            )}
+            
+            {/* Products list */}
+            <View style={styles.outfitProductsContainer}>
+              <Text style={[styles.outfitProductsTitle, { color: textColor }]}>
+                Components ({
+                  selectedOutfit?.products 
+                    ? (Array.isArray(selectedOutfit.products) 
+                        ? selectedOutfit.products.length 
+                        : (typeof selectedOutfit.products === 'number' 
+                            ? selectedOutfit.products 
+                            : 0))
+                    : 0
+                })
+              </Text>
+              
+              {(() => {
+                // Add some diagnostic logging
+                console.log("Products display logic:");
+                console.log("- selectedOutfit?.products exists:", !!selectedOutfit?.products);
+                console.log("- Type of products:", selectedOutfit?.products ? typeof selectedOutfit.products : "undefined");
+                console.log("- Is array:", selectedOutfit?.products ? Array.isArray(selectedOutfit.products) : "N/A");
+                console.log("- Array length:", selectedOutfit?.products && Array.isArray(selectedOutfit.products) ? selectedOutfit.products.length : "N/A");
+                
+                if (!selectedOutfit?.products || 
+                    typeof selectedOutfit.products === 'number' || 
+                    !Array.isArray(selectedOutfit.products) || 
+                    selectedOutfit.products.length === 0) {
+                  return (
+                    <View style={styles.noProductsContainer}>
+                      <Text style={[styles.noProductsText, { color: subTextColor }]}>
+                        No detailed product information available for this outfit.
+                      </Text>
+                      <Text style={[styles.noProductsSubText, { color: subTextColor }]}>
+                        This may be because the outfit was saved before product tracking was implemented.
+                      </Text>
+                    </View>
+                  );
+                } else {
+                  console.log("Rendering FlatList with products:", selectedOutfit.products.length);
+                  return (
+                    <FlatList
+                      data={selectedOutfit.products}
+                      renderItem={renderOutfitProduct}
+                      keyExtractor={(item, index) => item.id || `product-${index}`}
+                      ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: borderColor }]} />}
+                      contentContainerStyle={styles.outfitProductsList}
+                      showsVerticalScrollIndicator={true}
+                      initialNumToRender={10}
+                      maxToRenderPerBatch={5}
+                      windowSize={5}
+                      removeClippedSubviews={false}
+                      style={{flexGrow: 1}}
+                    />
+                  );
+                }
+              })()}
+            </View>
+            
+            <TouchableOpacity 
+              style={[styles.tryOnButton, { backgroundColor: mainColor }]}
+              onPress={() => {
+                // Close modal and navigate to 3D screen
+                setOutfitModalVisible(false);
+                navigation.navigate('3DTab');
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                <Icon name="cube-outline" size={18} color="#FFF" style={{marginRight: 8}} />
+                <Text style={styles.tryOnButtonText}>Try On Again</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+      
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -964,5 +1174,185 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 16,
+  },
+  modalContent: {
+    width: '100%',
+    maxHeight: '95%',
+    minHeight: '80%',
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+    flexDirection: 'column',
+    display: 'flex',
+    overflow: 'hidden', // Prevent content from spilling outside
+  },
+  dragIndicator: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragIndicatorBar: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+    paddingBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  modalCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    marginRight: -4,
+  },
+  modalOutfitImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 12,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  outfitProductsContainer: {
+    flex: 1,
+    maxHeight: 380, // Increased height for better visibility
+    minHeight: 300, // Ensure minimum space for the list
+    marginBottom: 12,
+  },
+  outfitProductsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 10,
+    letterSpacing: -0.2,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderRadius: 6,
+  },
+  outfitProductsList: {
+    paddingBottom: 16,
+    paddingTop: 4,
+  },
+  noProductsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    borderRadius: 12,
+    minHeight: 100,
+  },
+  noProductsText: {
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  noProductsSubText: {
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  outfitProductItem: {
+    flexDirection: 'row',
+    padding: 10,
+    borderRadius: 10,
+    marginVertical: 4,
+    borderWidth: 1,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  outfitProductImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 6,
+  },
+  noImagePlaceholder: {
+    width: 70,
+    height: 70,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  outfitProductInfo: {
+    flex: 1,
+    marginLeft: 10,
+    justifyContent: 'center',
+    padding: 2,
+  },
+  outfitProductBrand: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 2,
+    letterSpacing: 0.2,
+  },
+  outfitProductName: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 3,
+    lineHeight: 18,
+  },
+  outfitProductPrice: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  outfitProductLink: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  outfitProductLinkText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  separator: {
+    height: 1,
+    marginVertical: 6,
+    opacity: 0.6,
+  },
+  tryOnButton: {
+    marginTop: 8,
+    paddingVertical: 14,
+    borderRadius: 30,
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+  },
+  tryOnButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
 });
