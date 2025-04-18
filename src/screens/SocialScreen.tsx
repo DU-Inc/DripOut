@@ -21,11 +21,14 @@ import {
   PanResponder,
   Modal,
   Pressable,
+  RefreshControl,
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { SocialStackParamList } from '../types/NavigationTypes';
+import { getUnreadNotificationsCount } from '../services/notificationService';
+import auth from '@react-native-firebase/auth';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -226,7 +229,9 @@ const SocialScreen: React.FC = () => {
   const [expandedPost, setExpandedPost] = useState<string | null>(null);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState<Record<string, number>>({});
   const [expandedComments, setExpandedComments] = useState<string | null>(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const navigation = useNavigation<StackNavigationProp<SocialStackParamList>>();
+  const currentUser = auth().currentUser;
 
   // Use individual animation values for simplicity
   const [commentHeights] = useState<Record<string, number>>({});
@@ -393,9 +398,36 @@ const SocialScreen: React.FC = () => {
     // to retrieve when needed.
   }, []);
   
+  // Fetch unread notifications count
+  useEffect(() => {
+    const fetchUnreadNotificationsCount = async () => {
+      if (!currentUser) return;
+      
+      try {
+        const count = await getUnreadNotificationsCount(currentUser.uid);
+        setUnreadNotifications(count);
+      } catch (error) {
+        console.error('Error fetching unread notifications count:', error);
+      }
+    };
+    
+    fetchUnreadNotificationsCount();
+    
+    // In a real app, you would set up a listener for real-time updates
+    // or use a refresh mechanism
+  }, [currentUser]);
+  
   const handleOpenUserProfile = (username: string) => {
     console.log('Navigating to profile for:', username);
     navigation.navigate('ViewUserProfile', { username });
+  };
+  
+  const handleOpenSuggestedUsers = () => {
+    navigation.navigate('SuggestedUsers');
+  };
+  
+  const handleOpenNotifications = () => {
+    navigation.navigate('Notifications');
   };
 
   const renderFashionPost = ({ item, index }) => {
@@ -851,112 +883,103 @@ const SocialScreen: React.FC = () => {
   );
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
-        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-
-        {/* Header - Enhanced for dark mode with subtle gradient effect */}
-        <View 
-          style={[
-            styles.header, 
-            isDarkMode && { 
-              backgroundColor: 'rgba(22, 23, 31, 0.8)', 
-              borderBottomWidth: 1, 
-              borderBottomColor: 'rgba(124, 107, 255, 0.1)'
-            }
-          ]}
-        >
-          <View>
-            <Text style={[
-              styles.headerTitle, 
-              { color: textColor },
-              isDarkMode && { textShadowColor: 'rgba(124, 107, 255, 0.3)', textShadowOffset: {width: 0, height: 0}, textShadowRadius: 8 }
-            ]}>
-              Fashion Feed
-            </Text>
-            <Text style={[styles.headerSubtitle, { color: subTextColor }]}>Community inspiration</Text>
-          </View>
-          <View style={styles.headerRightContainer}>
+    <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
+      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      
+      {/* Header for Social Screen */}
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
+        <View style={styles.headerContent}>
+          <Text style={[styles.headerTitle, { color: textColor }]}>Social</Text>
+          <View style={styles.headerActions}>
             <TouchableOpacity 
-              style={styles.headerIconButton}
-              onPress={() => navigation.navigate('Messages')}
+              style={styles.headerButton}
+              onPress={handleOpenSuggestedUsers}
             >
-              <FeatherIcon 
-                name="message-circle" 
-                size={22} 
-                color={isDarkMode ? '#B8B8CC' : textColor} 
-              />
+              <Icon name="people-outline" size={24} color={mainColor} />
             </TouchableOpacity>
+
             <TouchableOpacity 
-              style={[
-                styles.searchButton,
-                isDarkMode && { 
-                  backgroundColor: 'rgba(40, 40, 60, 0.4)', 
-                  borderWidth: 1,
-                  borderColor: 'rgba(124, 107, 255, 0.2)'
-                }
-              ]}
+              style={styles.headerButton}
+              onPress={handleOpenNotifications}
             >
-              <FeatherIcon name="search" size={22} color={isDarkMode ? '#B8B8CC' : textColor} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Main Content */}
-        <Animated.FlatList
-          data={FASHION_POSTS}
-          renderItem={renderFashionPost}
-          keyExtractor={item => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.listContent,
-            isDarkMode && { paddingTop: 4 }
-          ]}
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-            { useNativeDriver: false }
-          )}
-          scrollEventThrottle={16}
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          ListHeaderComponent={
-            <>
-              {/* Trending Topics Filter */}
-              <View style={styles.topicsContainer}>
-                <Text style={[styles.topicsHeading, { color: textColor }]}>
-                  Trending Inspiration
-                </Text>
-                <FlatList
-                  data={TRENDING_TOPICS}
-                  renderItem={renderTrendingTopic}
-                  keyExtractor={item => item}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.topicsList}
-                />
-              </View>
-
-              {refreshing && (
-                <View style={styles.refreshIndicator}>
-                  <ActivityIndicator size="small" color={isDarkMode ? '#9F91FF' : mainColor} />
-                  <Text style={[
-                    styles.refreshText, 
-                    { color: isDarkMode ? '#B8B8CC' : subTextColor }
-                  ]}>
-                    Refreshing...
+              <Icon name="notifications-outline" size={24} color={mainColor} />
+              {unreadNotifications > 0 && (
+                <View style={[styles.notificationBadge, { backgroundColor: accentColor }]}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
                   </Text>
                 </View>
               )}
-            </>
-          }
-          ListFooterComponent={
-            <View style={{ height: 90 }} />
-          }
-        />
-
-        {/* No longer need custom bottom navigation bar - using Tab Navigator */}
-      </SafeAreaView>
-    </GestureHandlerRootView>
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        {/* Trending Topics Horizontal ScrollView */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.topicsContainer}
+        >
+          {TRENDING_TOPICS.map((topic, index) => (
+            <TouchableOpacity
+              key={topic}
+              style={[
+                styles.topicChip,
+                { 
+                  backgroundColor: selectedTopic === topic ? mainColor : 'transparent',
+                  borderColor: selectedTopic === topic ? mainColor : borderColor,
+                  marginLeft: index === 0 ? 16 : 8
+                }
+              ]}
+              onPress={() => setSelectedTopic(topic)}
+            >
+              <Text 
+                style={[
+                  styles.topicText, 
+                  { 
+                    color: selectedTopic === topic 
+                      ? isDarkMode ? '#FFFFFF' : '#FFFFFF' 
+                      : isDarkMode ? '#FFFFFF' : textColor
+                  }
+                ]}
+              >
+                {topic}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+      
+      {/* Fashion Posts FlatList */}
+      <FlatList
+        data={FASHION_POSTS}
+        renderItem={renderFashionPost}
+        keyExtractor={item => item.id}
+        contentContainerStyle={styles.feedContent}
+        showsVerticalScrollIndicator={false}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false }
+        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={mainColor}
+            colors={[mainColor]}
+            progressBackgroundColor={isDarkMode ? '#16171F' : '#FFFFFF'}
+          />
+        }
+      />
+      
+      {/* Message button that navigates to the Messages screen */}
+      <TouchableOpacity
+        style={[styles.messageButton, { backgroundColor: mainColor }]}
+        onPress={() => navigation.navigate('Messages')}
+      >
+        <Icon name="chatbubble-ellipses-outline" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
+    </SafeAreaView>
   );
 };
 
@@ -967,72 +990,79 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
   headerTitle: {
-    ...defaultTextStyle,
     fontSize: 24,
     fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  headerSubtitle: {
     ...defaultTextStyle,
-    fontSize: 14,
-    marginTop: 2,
   },
-  headerRightContainer: {
+  headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  headerIconButton: {
-    width: 40,
-    height: 40,
+  headerButton: {
+    padding: 8,
+    marginLeft: 16,
+    position: 'relative',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
   },
-  searchButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(150, 150, 150, 0.1)',
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    paddingHorizontal: 4,
   },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  
-  // Trending topics section
   topicsContainer: {
-    marginBottom: 20,
-  },
-  topicsHeading: {
-    ...defaultTextStyle,
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  topicsList: {
-    paddingVertical: 4,
+    paddingRight: 16,
   },
   topicChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    marginRight: 10,
     borderWidth: 1,
-    borderColor: 'rgba(150, 150, 150, 0.3)',
   },
   topicText: {
-    ...defaultTextStyle,
     fontSize: 14,
     fontWeight: '500',
+    ...defaultTextStyle,
+  },
+  messageButton: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   
   // Fashion inspiration card styling
@@ -1371,16 +1401,9 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   
-  // Refresh indicator
-  refreshIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-  },
-  refreshText: {
-    ...defaultTextStyle,
-    marginLeft: 8,
-    fontSize: 13,
+  // Feed content
+  feedContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
 });

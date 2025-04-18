@@ -10,6 +10,16 @@ export type SocialStackParamList = {
     avatar: string;
     userId?: string;
   };
+  Followers: { 
+    username: string;
+    userId: string;
+  };
+  Following: { 
+    username: string;
+    userId: string;
+  };
+  Notifications: undefined;
+  SuggestedUsers: undefined;
 };
 
 // Define the tabs in the bottom navigator

@@ -10,13 +10,18 @@ import {
   Platform,
   StatusBar,
   SafeAreaView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../../styles/themeprovider';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { RootStackParamList } from '../../types/NavigationTypes';
+import { RootStackParamList, SocialStackParamList } from '../../types/NavigationTypes';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { getUserProfileByUsername, followUser, unfollowUser, isFollowing } from '../../services/firestoreService';
+import auth from '@react-native-firebase/auth';
 
 const { width, height } = Dimensions.get('window');
 
@@ -36,16 +41,21 @@ export interface UserProfileData {
   posts: number;
   verified: boolean;
   avatarUrl: string;
+  userID?: string; // Added userID for follow functionality
 }
 
 type ViewUserProfileRouteProp = RouteProp<RootStackParamList, 'ViewUserProfileScreen'>;
+type SocialNavigationProp = StackNavigationProp<SocialStackParamList>;
 
 const ViewUserProfileScreen: React.FC = () => {
   const route = useRoute<ViewUserProfileRouteProp>();
   const { username } = route.params;
   const [userData, setUserData] = useState<UserProfileData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const navigation = useNavigation();
+  const [followLoading, setFollowLoading] = useState<boolean>(false);
+  const [isUserFollowing, setIsUserFollowing] = useState<boolean>(false);
+  const navigation = useNavigation<SocialNavigationProp>();
+  const currentUser = auth().currentUser;
   
   const { isDarkMode } = useTheme();
   
@@ -59,25 +69,73 @@ const ViewUserProfileScreen: React.FC = () => {
 
   // Fetch user data when the component mounts
   useEffect(() => {
-    // Simulate fetching user data
-    // In a real app, you would fetch this from your API/Firebase
-    const mockUserData: UserProfileData = {
-      username: username,
-      displayName: username.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' '),
-      bio: 'Fashion enthusiast and style curator. Sharing inspiration and trends.',
-      followers: Math.floor(Math.random() * 9000) + 1000,
-      following: Math.floor(Math.random() * 500) + 100,
-      posts: Math.floor(Math.random() * 50) + 5,
-      verified: Math.random() > 0.7,
-      avatarUrl: `https://randomuser.me/api/portraits/${Math.random() > 0.5 ? 'women' : 'men'}/${Math.floor(Math.random() * 99)}.jpg`
+    const fetchUserData = async () => {
+      setLoading(true);
+      
+      try {
+        // Try to fetch the real user data from Firestore
+        const firebaseUser = await getUserProfileByUsername(username);
+        
+        if (firebaseUser) {
+          // Use the actual user data from Firebase
+          const userProfileData: UserProfileData = {
+            username: firebaseUser.username,
+            displayName: firebaseUser.userDisplayName || firebaseUser.username,
+            bio: 'Fashion enthusiast and style curator.',
+            followers: 0, // Will be updated from firestore in future
+            following: 0, // Will be updated from firestore in future
+            posts: Math.floor(Math.random() * 50) + 5, // Mock data for now
+            verified: firebaseUser.isVerified,
+            avatarUrl: firebaseUser.profilePictureURL || `https://randomuser.me/api/portraits/${Math.random() > 0.5 ? 'women' : 'men'}/${Math.floor(Math.random() * 99)}.jpg`,
+            userID: firebaseUser.userID
+          };
+          
+          setUserData(userProfileData);
+          
+          // Check if the current user is following this user
+          if (currentUser && firebaseUser.userID) {
+            const following = await isFollowing(currentUser.uid, firebaseUser.userID);
+            setIsUserFollowing(following);
+          }
+        } else {
+          // Fallback to mock data if user not found
+          const mockUserData: UserProfileData = {
+            username: username,
+            displayName: username.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' '),
+            bio: 'Fashion enthusiast and style curator. Sharing inspiration and trends.',
+            followers: Math.floor(Math.random() * 9000) + 1000,
+            following: Math.floor(Math.random() * 500) + 100,
+            posts: Math.floor(Math.random() * 50) + 5,
+            verified: Math.random() > 0.7,
+            avatarUrl: `https://randomuser.me/api/portraits/${Math.random() > 0.5 ? 'women' : 'men'}/${Math.floor(Math.random() * 99)}.jpg`,
+            userID: 'mock-user-id' // Mock ID for testing
+          };
+          
+          setUserData(mockUserData);
+        }
+      } catch (error) {
+        console.error('Error fetching user data:', error);
+        // Fallback to mock data on error
+        const mockUserData: UserProfileData = {
+          username: username,
+          displayName: username.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' '),
+          bio: 'Fashion enthusiast and style curator. Sharing inspiration and trends.',
+          followers: Math.floor(Math.random() * 9000) + 1000,
+          following: Math.floor(Math.random() * 500) + 100,
+          posts: Math.floor(Math.random() * 50) + 5,
+          verified: Math.random() > 0.7,
+          avatarUrl: `https://randomuser.me/api/portraits/${Math.random() > 0.5 ? 'women' : 'men'}/${Math.floor(Math.random() * 99)}.jpg`,
+          userID: 'mock-user-id' // Mock ID for testing
+        };
+        
+        setUserData(mockUserData);
+      } finally {
+        setLoading(false);
+      }
     };
     
-    // Simulate network delay
-    setTimeout(() => {
-      setUserData(mockUserData);
-      setLoading(false);
-    }, 500);
-  }, [username]);
+    fetchUserData();
+  }, [username, currentUser]);
 
   const formatNumber = (num: number): string => {
     if (num >= 1000000) {
@@ -86,6 +144,63 @@ const ViewUserProfileScreen: React.FC = () => {
       return (num / 1000).toFixed(1) + 'K';
     }
     return num.toString();
+  };
+  
+  const handleFollowUser = async () => {
+    if (!currentUser) {
+      Alert.alert('Sign In Required', 'Please sign in to follow users');
+      return;
+    }
+    
+    if (!userData?.userID) {
+      Alert.alert('Error', 'Cannot follow this user');
+      return;
+    }
+    
+    setFollowLoading(true);
+    
+    try {
+      if (isUserFollowing) {
+        // Unfollow the user
+        await unfollowUser(currentUser.uid, userData.userID);
+        setIsUserFollowing(false);
+        
+        // Update the followers count
+        if (userData) {
+          setUserData({
+            ...userData,
+            followers: Math.max(0, userData.followers - 1)
+          });
+        }
+      } else {
+        // Follow the user
+        await followUser(currentUser.uid, userData.userID);
+        setIsUserFollowing(true);
+        
+        // Update the followers count
+        if (userData) {
+          setUserData({
+            ...userData,
+            followers: userData.followers + 1
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error updating follow status:', error);
+      Alert.alert('Error', 'Failed to update follow status');
+    } finally {
+      setFollowLoading(false);
+    }
+  };
+  
+  const handleMessageUser = () => {
+    if (!userData) return;
+    
+    navigation.navigate('Chat', {
+      username: userData.displayName,
+      avatar: userData.avatarUrl,
+      userId: userData.userID
+    });
   };
 
   if (loading) {
@@ -168,37 +283,78 @@ const ViewUserProfileScreen: React.FC = () => {
           
           <View style={[styles.statDivider, { backgroundColor: borderColor }]} />
           
-          <View style={styles.statItem}>
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={() => {
+              if (userData.userID) {
+                navigation.navigate('Followers', { 
+                  username: userData.displayName,
+                  userId: userData.userID
+                });
+              }
+            }}
+          >
             <Text style={[styles.statValue, { color: textColor }]}>
               {formatNumber(userData.followers)}
             </Text>
             <Text style={[styles.statLabel, { color: subTextColor }]}>
               Followers
             </Text>
-          </View>
+          </TouchableOpacity>
           
           <View style={[styles.statDivider, { backgroundColor: borderColor }]} />
           
-          <View style={styles.statItem}>
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={() => {
+              if (userData.userID) {
+                navigation.navigate('Following', { 
+                  username: userData.displayName,
+                  userId: userData.userID
+                });
+              }
+            }}
+          >
             <Text style={[styles.statValue, { color: textColor }]}>
               {formatNumber(userData.following)}
             </Text>
             <Text style={[styles.statLabel, { color: subTextColor }]}>
               Following
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
         
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
           <TouchableOpacity 
-            style={[styles.followButton, { backgroundColor: mainColor }]}
+            style={[
+              styles.followButton, 
+              { 
+                backgroundColor: isUserFollowing ? 'transparent' : mainColor,
+                borderWidth: isUserFollowing ? 1 : 0,
+                borderColor: mainColor
+              }
+            ]}
+            onPress={handleFollowUser}
+            disabled={followLoading}
           >
-            <Text style={styles.followButtonText}>Follow</Text>
+            {followLoading ? (
+              <ActivityIndicator size="small" color={isUserFollowing ? mainColor : 'white'} />
+            ) : (
+              <Text 
+                style={[
+                  styles.followButtonText, 
+                  { color: isUserFollowing ? mainColor : 'white' }
+                ]}
+              >
+                {isUserFollowing ? 'Following' : 'Follow'}
+              </Text>
+            )}
           </TouchableOpacity>
           
           <TouchableOpacity 
             style={[styles.messageButton, { borderColor: mainColor }]}
+            onPress={handleMessageUser}
           >
             <Text style={[styles.messageButtonText, { color: mainColor }]}>Message</Text>
           </TouchableOpacity>
@@ -251,25 +407,27 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  profileInfo: {},
+  profileInfo: {
+    marginTop: 10,
+  },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
   },
   displayName: {
     ...defaultTextStyle,
     fontSize: 22,
     fontWeight: '700',
+    marginBottom: 4,
   },
   verifiedBadge: {
-    marginLeft: 6,
+    marginLeft: 4,
   },
   username: {
     ...defaultTextStyle,
-    fontSize: 16,
+    fontSize: 14,
     marginBottom: 12,
   },
   bio: {
@@ -283,6 +441,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    marginHorizontal: 20,
   },
   statItem: {
     alignItems: 'center',
@@ -290,21 +449,23 @@ const styles = StyleSheet.create({
   statValue: {
     ...defaultTextStyle,
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: 4,
   },
   statLabel: {
     ...defaultTextStyle,
-    fontSize: 14,
+    fontSize: 12,
   },
   statDivider: {
     width: 1,
-    height: 30,
+    height: '60%',
+    alignSelf: 'center',
   },
   actionButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   followButton: {
     flex: 1,
@@ -316,7 +477,7 @@ const styles = StyleSheet.create({
   },
   followButtonText: {
     ...defaultTextStyle,
-    color: '#FFFFFF',
+    color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -336,12 +497,11 @@ const styles = StyleSheet.create({
   },
   postsSection: {
     padding: 20,
-    paddingBottom: 40,
   },
   sectionTitle: {
     ...defaultTextStyle,
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: 16,
   },
   emptyState: {
@@ -351,8 +511,8 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     ...defaultTextStyle,
-    fontSize: 16,
-    marginTop: 12,
+    fontSize: 14,
+    marginTop: 8,
   },
   loadingText: {
     ...defaultTextStyle,
@@ -361,7 +521,6 @@ const styles = StyleSheet.create({
   errorText: {
     ...defaultTextStyle,
     fontSize: 16,
-    color: 'red',
   },
 });
 

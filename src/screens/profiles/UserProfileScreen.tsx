@@ -23,12 +23,14 @@ import {
 } from 'react-native';
 import { auth, db } from '../../Config/firebaseconfig';
 import { createUserProfile, UserProfile, getUserPreferences, UserPreferences, setUserPreferences } from '../../services/firestoreService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { RootStackParamList } from '../../types/NavigationTypes';
 import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
 
 // Set default text styles for SF Pro font family
 const defaultTextStyle = {
@@ -487,6 +489,29 @@ const UserProfileScreen: React.FC = () => {
               >
                 <Icon name="color-palette-outline" size={22} color={accentColor} />
                 <Text style={[styles.actionText, { color: textColor }]}>Style Preferences</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.actionButton}
+                onPress={async () => {
+                  await AsyncStorage.setItem('onboardingCompleted', 'false');
+                  Alert.alert(
+                    'Onboarding Reset',
+                    'Going to onboarding flow for testing.',
+                    [
+                      { 
+                        text: 'Go Now', 
+                        onPress: () => navigation.reset({
+                          index: 0,
+                          routes: [{ name: 'Onboarding' as never }]
+                        }) 
+                      }
+                    ]
+                  );
+                }}
+              >
+                <Icon name="reload-outline" size={22} color="#FF9500" />
+                <Text style={[styles.actionText, { color: textColor }]}>Test Onboarding</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
