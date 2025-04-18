@@ -61,6 +61,15 @@ interface Tag {
   postCount: number;
 }
 
+// Interface for previous search results
+interface PreviousSearch {
+  query: string;
+  timestamp: number;
+  users: User[];
+  posts: Post[];
+  tags: Tag[];
+}
+
 // Default text styles for SF Pro font family
 const defaultTextStyle = {
   fontFamily: Platform.OS === 'ios' ? 'System' : 'SF Pro Text', // System font on iOS is SF Pro
@@ -143,6 +152,9 @@ const SearchScreen: React.FC = () => {
   
   // User display data with follow counts
   const [userDisplayData, setUserDisplayData] = useState<User[]>([]);
+  
+  // Previous search results stored for display on the main screen
+  const [previousSearches, setPreviousSearches] = useState<PreviousSearch[]>([]);
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -272,6 +284,18 @@ const SearchScreen: React.FC = () => {
     return () => clearTimeout(searchTimeout);
   }, [searchQuery]);
   
+  // Save search results after they're loaded
+  useEffect(() => {
+    // Only save when we have search results and we're not still searching
+    if (searchQuery.trim() !== '' && !isSearching && hasResults) {
+      console.log('Saving search results for:', searchQuery);
+      // Use setTimeout to ensure all state updates have completed
+      setTimeout(() => {
+        savePreviousSearchResults();
+      }, 500);
+    }
+  }, [isSearching, hasResults, searchQuery, userDisplayData, postResults, tagResults]);
+  
   // Load recent searches from AsyncStorage with user-specific key
   const loadRecentSearches = async () => {
     try {
@@ -281,13 +305,75 @@ const SearchScreen: React.FC = () => {
       // Use user-specific key to prevent cross-account contamination
       const userId = currentUser.uid;
       const recentSearchesKey = `recentSearches_${userId}`;
+      const previousSearchesKey = `previousSearchResults_${userId}`;
       
       const savedSearches = await AsyncStorage.getItem(recentSearchesKey);
       if (savedSearches) {
         setRecentSearches(JSON.parse(savedSearches));
       }
+      
+      // Load previous search results with full data
+      const savedPreviousSearches = await AsyncStorage.getItem(previousSearchesKey);
+      if (savedPreviousSearches) {
+        setPreviousSearches(JSON.parse(savedPreviousSearches));
+      }
     } catch (error) {
       console.error('Error loading recent searches:', error);
+    }
+  };
+  
+  // Save previous search results with the complete result data
+  const savePreviousSearchResults = async () => {
+    if (!searchQuery.trim() || !hasResults) {
+      console.log('Not saving search results - Empty query or no results');
+      return;
+    }
+    
+    try {
+      console.log('Starting to save previous search results');
+      const currentUser = auth().currentUser;
+      if (!currentUser) {
+        console.log('No current user found, cannot save results');
+        return;
+      }
+      
+      const userId = currentUser.uid;
+      const previousSearchesKey = `previousSearchResults_${userId}`;
+      
+      // Create a new previous search object
+      const newPreviousSearch: PreviousSearch = {
+        query: searchQuery,
+        timestamp: Date.now(),
+        users: userDisplayData,
+        posts: postResults.map(result => result.item),
+        tags: tagResults.map(result => result.item)
+      };
+      
+      console.log('New previous search object created with:', {
+        query: newPreviousSearch.query,
+        users: newPreviousSearch.users.length,
+        posts: newPreviousSearch.posts.length,
+        tags: newPreviousSearch.tags.length
+      });
+      
+      // Update state with new search at the beginning - don't filter out existing to allow duplicates 
+      // which will make the recents more visible and testable
+      const updatedPreviousSearches = [
+        newPreviousSearch,
+        ...previousSearches
+      ].slice(0, 10); // Keep more results (up to 10) to make testing easier
+      
+      console.log('Setting previous searches state with', updatedPreviousSearches.length, 'items');
+      setPreviousSearches(updatedPreviousSearches);
+      
+      // Save to AsyncStorage immediately
+      await AsyncStorage.setItem(previousSearchesKey, JSON.stringify(updatedPreviousSearches));
+      console.log('Saved previous searches to AsyncStorage');
+      
+      // Also add to recent searches for faster lookups
+      saveSearchQuery(searchQuery);
+    } catch (error) {
+      console.error('Error saving previous search results:', error);
     }
   };
   
@@ -335,7 +421,35 @@ const SearchScreen: React.FC = () => {
   
   // Handle user selection
   const handleUserSelect = (user: User) => {
+    console.log('User selected:', user.username);
     saveSearchQuery(user.username);
+    
+    // For demo purposes, also save it to previousSearches if not coming from a previous search
+    if (!previousSearches.some(ps => ps.query === user.username)) {
+      const mockPreviousSearch: PreviousSearch = {
+        query: user.username,
+        timestamp: Date.now(),
+        users: [user],
+        posts: [],
+        tags: []
+      };
+      
+      const updatedPreviousSearches = [
+        mockPreviousSearch,
+        ...previousSearches
+      ].slice(0, 5);
+      
+      setPreviousSearches(updatedPreviousSearches);
+      
+      // Also save to AsyncStorage
+      const currentUser = auth().currentUser;
+      if (currentUser) {
+        const userId = currentUser.uid;
+        const previousSearchesKey = `previousSearchResults_${userId}`;
+        AsyncStorage.setItem(previousSearchesKey, JSON.stringify(updatedPreviousSearches));
+      }
+    }
+    
     navigation.navigate('UserDetailScreen', { 
       userId: user.id, 
       username: user.username 
@@ -346,13 +460,70 @@ const SearchScreen: React.FC = () => {
   const handlePostSelect = (post: Post) => {
     // In a real app, we'd navigate to the post detail
     // For now, we'll just save the search and show an alert
-    saveSearchQuery(post.caption.substring(0, 20) + '...');
+    const postSearchTerm = post.caption.substring(0, 20) + '...';
+    console.log('Post selected:', postSearchTerm);
+    saveSearchQuery(postSearchTerm);
+    
+    // For demo purposes, also save it to previousSearches
+    if (!previousSearches.some(ps => ps.query === postSearchTerm)) {
+      const mockPreviousSearch: PreviousSearch = {
+        query: postSearchTerm,
+        timestamp: Date.now(),
+        users: [],
+        posts: [post],
+        tags: []
+      };
+      
+      const updatedPreviousSearches = [
+        mockPreviousSearch,
+        ...previousSearches
+      ].slice(0, 5);
+      
+      setPreviousSearches(updatedPreviousSearches);
+      
+      // Also save to AsyncStorage
+      const currentUser = auth().currentUser;
+      if (currentUser) {
+        const userId = currentUser.uid;
+        const previousSearchesKey = `previousSearchResults_${userId}`;
+        AsyncStorage.setItem(previousSearchesKey, JSON.stringify(updatedPreviousSearches));
+      }
+    }
+    
     Alert.alert('Post Selected', `Viewing post by ${post.username}`);
   };
   
   // Handle tag selection
   const handleTagSelect = (tag: Tag) => {
+    console.log('Tag selected:', tag.name);
     saveSearchQuery(tag.name);
+    
+    // For demo purposes, also save it to previousSearches
+    if (!previousSearches.some(ps => ps.query === tag.name)) {
+      const mockPreviousSearch: PreviousSearch = {
+        query: tag.name,
+        timestamp: Date.now(),
+        users: [],
+        posts: [],
+        tags: [tag]
+      };
+      
+      const updatedPreviousSearches = [
+        mockPreviousSearch,
+        ...previousSearches
+      ].slice(0, 5);
+      
+      setPreviousSearches(updatedPreviousSearches);
+      
+      // Also save to AsyncStorage
+      const currentUser = auth().currentUser;
+      if (currentUser) {
+        const userId = currentUser.uid;
+        const previousSearchesKey = `previousSearchResults_${userId}`;
+        AsyncStorage.setItem(previousSearchesKey, JSON.stringify(updatedPreviousSearches));
+      }
+    }
+    
     Alert.alert('Tag Selected', `Viewing posts with tag #${tag.name}`);
   };
   
@@ -373,6 +544,9 @@ const SearchScreen: React.FC = () => {
         .reduce((a, b) => a[1] > b[1] ? a : b)[0];
       
       setActiveTab(maxCategory);
+      
+      // Save the search results for later display
+      savePreviousSearchResults();
     }
   };
   
@@ -510,6 +684,124 @@ const SearchScreen: React.FC = () => {
     );
   };
   
+  // Render previous search section
+  const renderPreviousSearchSection = ({ item }: { item: PreviousSearch }) => {
+    const formattedDate = new Date(item.timestamp).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+    
+    // Helper function to get the most relevant results
+    const getTopResults = () => {
+      // Determine which category has the most items
+      const counts = {
+        users: item.users.length,
+        posts: item.posts.length,
+        tags: item.tags.length
+      };
+      
+      const maxCategory = Object.entries(counts)
+        .reduce((a, b) => a[1] > b[1] ? a : b)[0];
+      
+      // Return the appropriate items
+      switch (maxCategory) {
+        case 'users':
+          return (
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.previousResultsRow}
+            >
+              {item.users.slice(0, 5).map((user, index) => (
+                <TouchableOpacity 
+                  key={`ps-user-${user.id}-${index}`}
+                  style={styles.previousResultItem}
+                  onPress={() => handleUserSelect(user)}
+                >
+                  <Image 
+                    source={{ uri: user.profileImage }} 
+                    style={styles.previousResultImage} 
+                  />
+                  <Text style={[styles.previousResultName, { color: textColor }]} numberOfLines={1}>
+                    {user.username}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          );
+        case 'posts':
+          return (
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.previousResultsRow}
+            >
+              {item.posts.slice(0, 5).map((post, index) => (
+                <TouchableOpacity 
+                  key={`ps-post-${post.id}-${index}`}
+                  style={styles.previousResultItem}
+                  onPress={() => handlePostSelect(post)}
+                >
+                  <Image 
+                    source={{ uri: post.imageUrl }} 
+                    style={styles.previousResultImage} 
+                  />
+                  <Text style={[styles.previousResultName, { color: textColor }]} numberOfLines={1}>
+                    @{post.username}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          );
+        case 'tags':
+          return (
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.previousResultsRow}
+            >
+              {item.tags.slice(0, 8).map((tag, index) => (
+                <TouchableOpacity 
+                  key={`ps-tag-${tag.id}-${index}`}
+                  style={[styles.previousTagItem, { backgroundColor: surfaceColor }]}
+                  onPress={() => handleTagSelect(tag)}
+                >
+                  <Text style={[styles.previousTagText, { color: textColor }]}>
+                    #{tag.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          );
+        default:
+          return null;
+      }
+    };
+    
+    return (
+      <View style={[styles.previousSearchSection, { borderBottomColor: borderColor }]}>
+        <View style={styles.previousSearchHeader}>
+          <View>
+            <Text style={[styles.previousSearchQuery, { color: textColor }]}>
+              "{item.query}"
+            </Text>
+            <Text style={[styles.previousSearchDate, { color: subTextColor }]}>
+              {formattedDate}
+            </Text>
+          </View>
+          <TouchableOpacity 
+            style={[styles.searchAgainButton, { backgroundColor: mainColor }]}
+            onPress={() => setSearchQuery(item.query)}
+          >
+            <Text style={styles.searchAgainText}>Search Again</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {getTopResults()}
+      </View>
+    );
+  };
+  
   // Calculate result counts for tabs
   const resultCounts = {
     accounts: userDisplayData.length,
@@ -522,6 +814,10 @@ const SearchScreen: React.FC = () => {
   
   // Show recents when no search or no results
   const showRecents = searchQuery.trim() === '' || !hasResults;
+  
+  // For debugging
+  console.log('Previous searches count:', previousSearches.length);
+  console.log('Show recents:', showRecents);
   
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
@@ -640,26 +936,45 @@ const SearchScreen: React.FC = () => {
         )}
         
         {/* Recent Searches */}
-        {showRecents && recentSearches.length > 0 && (
-          <View style={styles.recentContainer}>
-            <View style={styles.recentHeader}>
-              <Text style={[styles.recentTitle, { color: textColor }]}>
-                Recent Searches
-              </Text>
-              <TouchableOpacity onPress={clearRecentSearches}>
-                <Text style={[styles.clearRecentText, { color: mainColor }]}>
-                  Clear All
-                </Text>
-              </TouchableOpacity>
-            </View>
+        {showRecents && (
+          <ScrollView style={styles.recentContainer} showsVerticalScrollIndicator={false}>
+            {/* Display recent search terms */}
+            {recentSearches.length > 0 && (
+              <View style={styles.recentSection}>
+                <View style={styles.recentHeader}>
+                  <Text style={[styles.recentTitle, { color: textColor }]}>
+                    Recent Searches
+                  </Text>
+                  <TouchableOpacity onPress={clearRecentSearches}>
+                    <Text style={[styles.clearRecentText, { color: mainColor }]}>
+                      Clear All
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                
+                {recentSearches.slice(0, 5).map((item, index) => (
+                  <View key={`recent-${index}`}>
+                    {renderRecentSearchItem({ item })}
+                  </View>
+                ))}
+              </View>
+            )}
             
-            <FlatList
-              data={recentSearches}
-              renderItem={renderRecentSearchItem}
-              keyExtractor={(item, index) => `recent-${index}`}
-              showsVerticalScrollIndicator={false}
-            />
-          </View>
+            {/* Display previous search results */}
+            {previousSearches.length > 0 && (
+              <View style={styles.previousSearchesContainer}>
+                <Text style={[styles.previousSearchesTitle, { color: textColor }]}>
+                  Previous Results
+                </Text>
+                
+                {previousSearches.map((item, index) => (
+                  <View key={`previous-${index}`}>
+                    {renderPreviousSearchSection({ item })}
+                  </View>
+                ))}
+              </View>
+            )}
+          </ScrollView>
         )}
         
         {/* No Results Message */}
@@ -797,6 +1112,9 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
   },
+  recentSection: {
+    marginBottom: 24,
+  },
   recentHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -831,6 +1149,80 @@ const styles = StyleSheet.create({
   },
   recentSearchRemove: {
     padding: 8,
+  },
+  // Previous search styles
+  previousSearchesContainer: {
+    marginTop: 10,
+  },
+  previousSearchesTitle: {
+    ...defaultTextStyle,
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  previousSearchSection: {
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  previousSearchHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  previousSearchQuery: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  previousSearchDate: {
+    ...defaultTextStyle,
+    fontSize: 13,
+  },
+  searchAgainButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  searchAgainText: {
+    ...defaultTextStyle,
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  previousResultsRow: {
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  previousResultItem: {
+    marginRight: 12,
+    width: 80,
+    alignItems: 'center',
+  },
+  previousResultImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  previousResultName: {
+    ...defaultTextStyle,
+    fontSize: 12,
+    textAlign: 'center',
+    width: '100%',
+  },
+  previousTagItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  previousTagText: {
+    ...defaultTextStyle,
+    fontSize: 13,
+    fontWeight: '500',
   },
   emptyContainer: {
     flex: 1,

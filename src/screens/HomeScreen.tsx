@@ -736,28 +736,29 @@ const HomeScreen: React.FC = () => {
 
           {/* Tags */}
           <View style={styles.tagsContainer}>
-            <ScrollView
+            <FlatList
+              data={item.tags}
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.tagsScrollContent}
-            >
-              {item.tags.map((tag, index) => (
-                <TouchableOpacity 
-                  key={`tag-${index}`}
+              keyExtractor={(tag, index) => `tag-${index}`}
+              renderItem={({ item: tag }) => (
+                <TouchableOpacity
                   style={[
                     styles.tagPill,
-                    { 
-                      backgroundColor: isDarkMode ? 'rgba(255, 72, 112, 0.1)' : 'rgba(239, 61, 71, 0.08)',
-                      borderColor: isDarkMode ? 'rgba(255, 72, 112, 0.2)' : 'rgba(239, 61, 71, 0.15)'
-                    }
+                    {
+                      backgroundColor: isDarkMode
+                        ? 'rgba(255, 72, 112, 0.1)'
+                        : 'rgba(239, 61, 71, 0.08)',
+                      borderColor: isDarkMode
+                        ? 'rgba(255, 72, 112, 0.2)'
+                        : 'rgba(239, 61, 71, 0.15)',
+                    },
                   ]}
                 >
-                  <Text style={[styles.tagText, { color: mainColor }]}>
-                    {tag}
-                  </Text>
+                  <Text style={[styles.tagText, { color: mainColor }]}> {tag} </Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
+              )}
+            />
           </View>
 
           {/* Featured Pieces - Collapsed by Default */}

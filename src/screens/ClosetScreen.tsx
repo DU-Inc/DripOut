@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   SafeAreaView,
   View,
@@ -29,9 +29,11 @@ import {
   limit, 
   getDocs, 
   doc, 
-  getDoc
+  getDoc,
+  deleteDoc
 } from "firebase/firestore";
 import { useNavigation } from "@react-navigation/native";
+import { Linking } from 'react-native';
 
 // Define interfaces for our data models
 interface SavedOutfit {
@@ -52,6 +54,8 @@ interface FavoritedProduct {
   imageUrl: string;
   favorited: any;
   url?: string;
+  productId?: string | null;
+  description?: string;
 }
 
 interface OwnedProduct {
@@ -77,6 +81,236 @@ interface Product {
   color?: string;
 }
 
+// Premium product details modal with modern design and UX principles
+const ProductDetailsModal = React.memo(({ 
+  visible, 
+  item, 
+  onClose, 
+  onOpenProduct,
+  onRemoveFavorite,
+  mainColor, 
+  cardBgColor,
+  textColor, 
+  subTextColor,
+  borderColor
+}: { 
+  visible: boolean, 
+  item: FavoritedProduct | null, 
+  onClose: () => void,
+  onOpenProduct: (url: string) => void,
+  onRemoveFavorite: (product: FavoritedProduct) => void,
+  mainColor: string,
+  cardBgColor: string,
+  textColor: string,
+  subTextColor: string,
+  borderColor: string
+}) => {
+  const navigation = useNavigation();
+  const { width, height } = Dimensions.get('window');
+  const isLargeScreen = width > 380;
+  const { isDarkMode } = useTheme();
+  
+  if (!item) return null;
+  
+  // Formatted price with proper precision
+  const formattedPrice = typeof item.price === 'number' 
+    ? `$${item.price.toFixed(2)}` 
+    : (typeof item.price === 'string' ? `$${item.price}` : 'Price unavailable');
+  
+  // Format date for better readability
+  const formatDate = (dateString: any) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString(undefined, { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    } catch {
+      return 'Unknown date';
+    }
+  };
+  
+  return (
+    <Modal
+      transparent={true}
+      animationType="slide"
+      visible={visible}
+      onRequestClose={onClose}
+      statusBarTranslucent={true}
+    >
+      <SafeAreaView style={[styles.modalSafeArea, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity 
+            style={styles.modalBackdrop} 
+            activeOpacity={1} 
+            onPress={onClose} 
+          />
+          
+          <View 
+            style={[
+              styles.modalContent,
+              { 
+                backgroundColor: cardBgColor,
+                maxHeight: height * 0.9,
+                width: isLargeScreen ? '92%' : '95%',
+              }
+            ]}
+          >
+            {/* Pull indicator for sheet-like feel */}
+            <View style={styles.pullIndicator}>
+              <View style={[styles.pullIndicatorBar, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]} />
+            </View>
+            
+            {/* Header with product name and close button */}
+            <View style={[styles.modalHeader, { borderBottomColor: borderColor }]}>
+              <View style={{ flex: 1, paddingRight: 40 }}>
+                <Text style={[styles.modalProductName, { color: textColor }]} numberOfLines={1}>
+                  {item.name}
+                </Text>
+              </View>
+              <TouchableOpacity 
+                onPress={onClose} 
+                style={styles.closeButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Icon name="close" size={22} color={subTextColor} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView 
+              style={styles.modalScrollContainer}
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={false}
+              bounces={true}
+            >
+              {/* Product image with brand banner */}
+              <View style={styles.productImageWrapper}>
+                <Image 
+                  source={{ uri: item.imageUrl }}
+                  style={styles.modalImage}
+                  resizeMode="cover"
+                />
+                <View style={[styles.brandBanner, { backgroundColor: mainColor }]}>
+                  <Text style={styles.brandBannerText}>{item.brand}</Text>
+                </View>
+              </View>
+              
+              <View style={styles.modalDetails}>
+                {/* Price with subtle background */}
+                <View style={[styles.priceContainer, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }]}>
+                  <Text style={[styles.modalPrice, { color: mainColor }]}>
+                    {formattedPrice}
+                  </Text>
+                </View>
+                
+                {/* Product specs/details */}
+                <View style={[styles.productSpecs, { borderColor: borderColor }]}>
+                  <View style={styles.specRow}>
+                    <View style={styles.specItem}>
+                      <Icon name="bookmark-outline" size={18} color={mainColor} style={styles.specIcon} />
+                      <Text style={[styles.specLabel, { color: subTextColor }]}>Brand</Text>
+                      <Text style={[styles.specValue, { color: textColor }]}>{item.brand}</Text>
+                    </View>
+                    
+                    <View style={styles.specItem}>
+                      <Icon name="time-outline" size={18} color={mainColor} style={styles.specIcon} />
+                      <Text style={[styles.specLabel, { color: subTextColor }]}>Added</Text>
+                      <Text style={[styles.specValue, { color: textColor }]}>{formatDate(item.favorited)}</Text>
+                    </View>
+                  </View>
+                  
+                  {item.url && (
+                    <View style={styles.specRow}>
+                      <View style={styles.specItem}>
+                        <Icon name="link-outline" size={18} color={mainColor} style={styles.specIcon} />
+                        <Text style={[styles.specLabel, { color: subTextColor }]}>Online</Text>
+                        <Text style={[styles.specValue, { color: mainColor }]}>Available</Text>
+                      </View>
+                      
+                      <View style={styles.specItem}>
+                        <Icon name="heart" size={18} color={mainColor} style={styles.specIcon} />
+                        <Text style={[styles.specLabel, { color: subTextColor }]}>Status</Text>
+                        <Text style={[styles.specValue, { color: textColor }]}>Favorited</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+                
+                {/* Product description or placeholder message */}
+                <View style={styles.productDescription}>
+                  <Text style={[styles.descriptionHeading, { color: textColor }]}>
+                    About this item
+                  </Text>
+                  {item.description ? (
+                    <Text style={[styles.descriptionText, { color: textColor }]}>
+                      {item.description}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.descriptionText, { color: subTextColor, fontStyle: 'italic' }]}>
+                      No product description available. This item was saved to your favorites for later viewing or try-on.
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </ScrollView>
+            
+            {/* Action button container (fixed at bottom) */}
+            <View style={[styles.actionButtonContainer, { 
+              borderTopColor: borderColor,
+              backgroundColor: cardBgColor
+            }]}>
+              {/* Main action row */}
+              <View style={styles.actionButtonRow}>
+                {/* Remove button */}
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.removeButton, { borderColor: mainColor }]}
+                  onPress={() => onRemoveFavorite(item)}
+                >
+                  <Icon name="heart-dislike-outline" size={22} color={mainColor} />
+                </TouchableOpacity>
+                
+                {/* Action buttons */}
+                <View style={styles.mainActionButtons}>
+                  {/* 3D Try-on button */}
+                  <TouchableOpacity 
+                    style={[styles.actionButton, styles.tryOnButton, { 
+                      backgroundColor: isDarkMode ? '#333344' : '#f0f0f5',
+                      flex: 1,
+                    }]}
+                    onPress={() => navigation.navigate('3DTab')}
+                  >
+                    <Icon name="cube-outline" size={20} color={subTextColor} style={{ marginRight: 8 }} />
+                    <Text style={[styles.buttonText, { color: textColor }]}>Try On</Text>
+                  </TouchableOpacity>
+                  
+                  {/* Shop/View button */}
+                  {item.url ? (
+                    <TouchableOpacity 
+                      style={[styles.actionButton, styles.shopButton, { 
+                        backgroundColor: mainColor,
+                        flex: 1.5,
+                      }]}
+                      onPress={() => onOpenProduct(item.url || '')}
+                    >
+                      <Text style={styles.shopButtonText}>Shop Online</Text>
+                      <Icon name="open-outline" size={18} color="#fff" style={{ marginLeft: 8 }} />
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={[styles.actionButton, styles.disabledButton, { flex: 1.5 }]}>
+                      <Text style={styles.disabledButtonText}>No Link Available</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+});
+
 // Main ClosetScreen component
 const ClosetScreen: React.FC = () => {
   // State for tracking data and UI state
@@ -90,6 +324,9 @@ const ClosetScreen: React.FC = () => {
   // State for outfit components modal
   const [selectedOutfit, setSelectedOutfit] = useState<SavedOutfit | null>(null);
   const [outfitModalVisible, setOutfitModalVisible] = useState(false);
+  // State for product details modal
+  const [selectedProduct, setSelectedProduct] = useState<FavoritedProduct | null>(null);
+  const [productModalVisible, setProductModalVisible] = useState(false);
   
   // Create a PanResponder for the swipe gesture
   const panResponder = React.useRef(
@@ -136,6 +373,67 @@ const ClosetScreen: React.FC = () => {
   useEffect(() => {
     loadClosetData();
   }, []);
+  
+  // Show product details modal
+  const showProductDetails = (product: FavoritedProduct) => {
+    setSelectedProduct(product);
+    setProductModalVisible(true);
+  };
+  
+  // Close product details modal
+  const closeProductDetails = () => {
+    setProductModalVisible(false);
+    setTimeout(() => {
+      setSelectedProduct(null);
+    }, 300);
+  };
+  
+  // Open product URL in browser
+  const openProductUrl = (url: string) => {
+    if (!url) {
+      Alert.alert("No URL", "This product doesn't have a link to view online.");
+      return;
+    }
+    
+    Linking.openURL(url).catch(err => {
+      console.error('Failed to open URL:', err);
+      Alert.alert('Cannot open product page');
+    });
+  };
+  
+  // Remove item from favorites
+  const removeFavorite = async (product: FavoritedProduct) => {
+    try {
+      // Ask for confirmation
+      Alert.alert(
+        "Remove from Favorites",
+        "Are you sure you want to remove this item from your favorites?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Remove", 
+            style: "destructive", 
+            onPress: async () => {
+              // Close the modal
+              closeProductDetails();
+              
+              // Remove from Firestore
+              await deleteDoc(doc(db, "user_favorite_products", product.id));
+              
+              // Update state
+              setFavoriteProducts(prev => prev.filter(p => p.id !== product.id));
+              
+              // Show success message
+              Alert.alert("Success", "Item removed from favorites.");
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error("Error removing favorite:", error);
+      Alert.alert("Error", "Failed to remove item from favorites.");
+    }
+  };
 
   // Fetch all closet data from Firestore
   const loadClosetData = async () => {
@@ -230,7 +528,7 @@ const ClosetScreen: React.FC = () => {
       }
       
       // Map the documents to our data model
-      const favorites: FavoritedProduct[] = favoritesSnapshot.docs.map(doc => {
+      const allFavorites: FavoritedProduct[] = favoritesSnapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
@@ -240,11 +538,144 @@ const ClosetScreen: React.FC = () => {
           price: data.price || 0,
           imageUrl: data.imageUrl || data.images?.[0] || "",
           favorited: data.favorited,
-          url: data.url
+          url: data.url,
+          productId: data.productId || null,
+          description: data.description || null
         };
       });
       
-      setFavoriteProducts(favorites);
+      // Handle duplicates by checking product name and brand (and productId if available)
+      const uniqueProductsMap = new Map<string, FavoritedProduct>();
+      const duplicateIds: string[] = [];
+      
+      // Process all products to find duplicates and keep only the most recent
+      allFavorites.forEach(product => {
+        // Normalize strings to prevent issues with whitespace, case, and special characters
+        const normalizedName = (product.name || "").trim().toLowerCase();
+        const normalizedBrand = (product.brand || "").trim().toLowerCase();
+        const productId = product.productId || "";
+        
+        // Create a unique key based on normalized name and brand
+        const productKey = `${normalizedName}_${normalizedBrand}_${productId}`;
+        
+        console.log(`Processing product: ${product.name} | Brand: ${product.brand} | Key: ${productKey}`);
+        
+        // If we already have this product, keep the one with the most recent favorited date
+        if (uniqueProductsMap.has(productKey)) {
+          const existing = uniqueProductsMap.get(productKey)!;
+          
+          console.log(`Duplicate found: Existing: ${existing.name}, Current: ${product.name}`);
+          
+          // Compare favorited dates (most recent wins)
+          const existingDate = new Date(existing.favorited);
+          const currentDate = new Date(product.favorited);
+          
+          if (currentDate > existingDate) {
+            // Current product is more recent, replace existing
+            console.log(`Keeping newer: ${product.name} (${currentDate}) over ${existing.name} (${existingDate})`);
+            duplicateIds.push(existing.id);
+            uniqueProductsMap.set(productKey, product);
+          } else {
+            // Existing product is more recent, mark current as duplicate
+            console.log(`Keeping existing: ${existing.name} (${existingDate}) over ${product.name} (${currentDate})`);
+            duplicateIds.push(product.id);
+          }
+        } else {
+          // First time seeing this product, add it to the map
+          console.log(`New product added: ${product.name}`);
+          uniqueProductsMap.set(productKey, product);
+        }
+      });
+      
+      // Convert map values back to array
+      const uniqueFavorites = Array.from(uniqueProductsMap.values());
+      
+      // Extra safety check to ensure no duplicates by product name and brand
+      // This catches any edge cases missed by the previous logic
+      const nameToProductMap = new Map<string, FavoritedProduct>();
+      const finalUniqueFavorites: FavoritedProduct[] = [];
+      
+      uniqueFavorites.forEach(product => {
+        const simplifiedKey = `${(product.name || "").trim().toLowerCase()}_${(product.brand || "").trim().toLowerCase()}`;
+        
+        if (!nameToProductMap.has(simplifiedKey)) {
+          nameToProductMap.set(simplifiedKey, product);
+          finalUniqueFavorites.push(product);
+        } else {
+          // If we still have a duplicate at this point, prefer the most recent one
+          const existing = nameToProductMap.get(simplifiedKey)!;
+          const existingDate = new Date(existing.favorited);
+          const currentDate = new Date(product.favorited);
+          
+          if (currentDate > existingDate) {
+            // Replace in both the map and the array
+            const indexToReplace = finalUniqueFavorites.findIndex(p => p.id === existing.id);
+            if (indexToReplace !== -1) {
+              finalUniqueFavorites[indexToReplace] = product;
+              nameToProductMap.set(simplifiedKey, product);
+              console.log(`Final check replaced: ${existing.name} with newer ${product.name}`);
+            }
+          }
+        }
+      });
+      
+      console.log(`Original favorites: ${allFavorites.length}, After first deduplication: ${uniqueFavorites.length}, Final unique count: ${finalUniqueFavorites.length}`);
+      
+      // Set the unique products to state
+      setFavoriteProducts(finalUniqueFavorites);
+      
+      // If duplicates were found, remove them from Firestore
+      if (duplicateIds.length > 0) {
+        console.log(`Found ${duplicateIds.length} duplicate favorites, cleaning up...`);
+        
+        // Delete each duplicate document
+        const deletePromises = duplicateIds.map(async (docId) => {
+          try {
+            await deleteDoc(doc(db, "user_favorite_products", docId));
+            console.log(`Deleted duplicate favorite with ID: ${docId}`);
+            return { success: true, id: docId };
+          } catch (deleteError) {
+            console.error(`Error deleting duplicate favorite ${docId}:`, deleteError);
+            return { success: false, id: docId, error: deleteError };
+          }
+        });
+        
+        // Wait for all deletions to complete and track results
+        const deleteResults = await Promise.all(deletePromises);
+        const successCount = deleteResults.filter(r => r.success).length;
+        const failCount = deleteResults.filter(r => !r.success).length;
+        
+        console.log(`Duplicate favorites cleanup completed. Successful: ${successCount}, Failed: ${failCount}`);
+        
+        // If any deletions failed, warn about possible duplicates on next fetch
+        if (failCount > 0) {
+          console.warn(`Warning: ${failCount} duplicates could not be deleted. They may appear again on next fetch.`);
+        }
+      }
+      
+      // Additional check to verify memory state is clean
+      if (finalUniqueFavorites.length > 0) {
+        // Check for any remaining duplicates by name 
+        const nameCount = new Map<string, number>();
+        finalUniqueFavorites.forEach(product => {
+          const name = (product.name || "").trim().toLowerCase();
+          nameCount.set(name, (nameCount.get(name) || 0) + 1);
+        });
+        
+        // Log any duplicates found for debugging
+        nameCount.forEach((count, name) => {
+          if (count > 1) {
+            console.warn(`Warning: Found ${count} items with similar name "${name}" after all deduplication`);
+            
+            // List the duplicates
+            const dupes = finalUniqueFavorites.filter(
+              p => (p.name || "").trim().toLowerCase() === name
+            );
+            
+            dupes.forEach(d => console.log(`  - ${d.name} | ${d.brand} | ID: ${d.id} | ProductID: ${d.productId}`));
+          }
+        });
+      }
     } catch (error) {
       console.error("Error fetching favorite products:", error);
       setFavoriteProducts([]);
@@ -341,12 +772,7 @@ const ClosetScreen: React.FC = () => {
           borderColor: borderColor
         }
       ]}
-      onPress={() => {
-        if (item.url) {
-          // Open product URL in browser or in-app webview
-          Alert.alert("Product Details", `View ${item.name} by ${item.brand}`);
-        }
-      }}
+      onPress={() => showProductDetails(item)}
     >
       <View style={styles.productImageContainer}>
         <Image 
@@ -356,24 +782,7 @@ const ClosetScreen: React.FC = () => {
         />
         <TouchableOpacity 
           style={[styles.favoriteButton, { backgroundColor: mainColor }]}
-          onPress={() => {
-            // Handle unfavorite logic
-            Alert.alert(
-              "Remove from Favorites",
-              "Are you sure you want to remove this item from your favorites?",
-              [
-                { text: "Cancel", style: "cancel" },
-                { 
-                  text: "Remove", 
-                  style: "destructive", 
-                  onPress: () => {
-                    // Remove logic would go here
-                    Alert.alert("Not Implemented", "This feature is coming soon!");
-                  }
-                }
-              ]
-            );
-          }}
+          onPress={() => removeFavorite(item)}
         >
           <Icon name="heart" size={14} color="#FFFFFF" />
         </TouchableOpacity>
@@ -389,17 +798,7 @@ const ClosetScreen: React.FC = () => {
           ${typeof item.price === 'number' ? item.price.toFixed(2) : item.price}
         </Text>
       </View>
-      <TouchableOpacity 
-        style={[styles.shopButton, { backgroundColor: mainColor }]}
-        onPress={() => {
-          if (item.url) {
-            // Open product URL or shop functionality
-            Alert.alert("Visit Store", "This feature will open the product page.");
-          }
-        }}
-      >
-        <Text style={styles.shopButtonText}>Shop</Text>
-      </TouchableOpacity>
+      {/* Shop button removed per request */}
     </TouchableOpacity>
   ), [cardBgColor, borderColor, textColor, subTextColor, mainColor]);
 
@@ -603,6 +1002,20 @@ const ClosetScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
+      {/* Product Details Modal */}
+      <ProductDetailsModal 
+        visible={productModalVisible}
+        item={selectedProduct}
+        onClose={closeProductDetails}
+        onOpenProduct={openProductUrl}
+        onRemoveFavorite={removeFavorite}
+        mainColor={mainColor}
+        cardBgColor={cardBgColor}
+        textColor={textColor}
+        subTextColor={subTextColor}
+        borderColor={borderColor}
+      />
+      
       {/* Outfit Components Modal */}
       <Modal
         transparent={true}
@@ -1354,5 +1767,249 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.3,
+  },
+  // Product Modal styles
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  modalScrollContainer: {
+    flex: 1,
+    height: '100%',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+  },
+  modalHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+    alignItems: 'flex-end',
+    zIndex: 10,
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(118, 118, 128, 0.12)',
+  },
+  modalImage: {
+    width: '100%',
+    height: 300,
+  },
+  modalDetails: {
+    padding: 20,
+  },
+  modalProductName: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 12,
+    lineHeight: 30,
+  },
+  modalSiteContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalSiteText: {
+    marginLeft: 6,
+    fontSize: 16,
+    opacity: 0.7,
+  },
+  modalPrice: {
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: 20,
+  },
+  modalDescription: {
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 24,
+    opacity: 0.85,
+  },
+  purchaseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  purchaseButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  favoriteButtonText: {
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  viewClosetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  viewClosetButtonText: {
+    fontWeight: '500',
+    fontSize: 15,
+  },
+  
+  // Premium Modal styles - modern and aesthetic
+  modalSafeArea: {
+    flex: 1, 
+    justifyContent: 'flex-end',
+  },
+  pullIndicator: {
+    width: '100%',
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  pullIndicatorBar: {
+    width: 36,
+    height: 5,
+    borderRadius: 3,
+  },
+  productImageWrapper: {
+    position: 'relative',
+    width: '100%',
+  },
+  brandBanner: {
+    position: 'absolute',
+    top: 16,
+    left: 0,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingRight: 16,
+    borderTopRightRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  brandBannerText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: 12,
+    letterSpacing: 0.3,
+  },
+  priceContainer: {
+    alignSelf: 'flex-start',
+    marginTop: 2,
+    marginBottom: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  // Product specs section
+  productSpecs: {
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+  },
+  specRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  specItem: {
+    flex: 1,
+    marginRight: 10,
+  },
+  specIcon: {
+    marginBottom: 6,
+  },
+  specLabel: {
+    fontSize: 12,
+    marginBottom: 2,
+    letterSpacing: 0.2,
+  },
+  specValue: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  // Description section
+  productDescription: {
+    marginBottom: 20,
+  },
+  descriptionHeading: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 8,
+    letterSpacing: -0.1,
+  },
+  descriptionText: {
+    fontSize: 15,
+    lineHeight: 22,
+    letterSpacing: 0.1,
+  },
+  // Action buttons at bottom
+  actionButtonContainer: {
+    width: '100%',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+  },
+  actionButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mainActionButtons: {
+    flex: 1,
+    flexDirection: 'row',
+    marginLeft: 12,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    height: 50,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 25,
+    marginHorizontal: 4,
+  },
+  removeButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1.5,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 0,
+  },
+  tryOnButton: {
+    marginRight: 8,
+  },
+  shopButton: {
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+  },
+  buttonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  disabledButton: {
+    backgroundColor: '#d1d1d6',
+  },
+  disabledButtonText: {
+    color: '#8e8e93',
+    fontWeight: '500',
+    fontSize: 14,
   },
 });

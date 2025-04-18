@@ -23,8 +23,9 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import { useTheme } from '../styles/theme/ThemeContext';
 import { searchProducts, Product, checkApiHealth } from '../services/recommendationService';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
 import { db, auth } from '../Config/firebaseconfig';
+import { useNavigation } from '@react-navigation/native';
 
 // Get screen dimensions
 const { width, height } = Dimensions.get('window');
@@ -309,19 +310,23 @@ const ProductDetailsModal = React.memo(({
   item, 
   onClose, 
   onOpenProduct,
+  onFavorite,
   mainColor, 
   cardBgColor,
   textColor, 
-  subTextColor 
+  subTextColor,
+  borderColor
 }: { 
   visible: boolean, 
   item: Product | null, 
   onClose: () => void,
   onOpenProduct: (url: string) => void,
+  onFavorite: (product: Product) => void,
   mainColor: string,
   cardBgColor: string,
   textColor: string,
-  subTextColor: string
+  subTextColor: string,
+  borderColor: string
 }) => {
   const modalAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
@@ -382,73 +387,105 @@ const ProductDetailsModal = React.memo(({
             </TouchableOpacity>
           </View>
           
-          {item.images && item.images.length > 0 ? (
-            <Image 
-              source={{ uri: item.images[0] }}
-              style={styles.modalImage}
-              resizeMode="contain"
-            />
-          ) : (
-            <View style={[styles.modalImage, { backgroundColor: '#f0f0f0' }]}>
-              <Icon name="image-outline" size={40} color="#bbb" />
-            </View>
-          )}
-          
-          <View style={styles.modalDetails}>
-            <Text style={[styles.modalProductName, { color: textColor }]}>
-              {item.name}
-            </Text>
-            
-            <View style={styles.modalSiteContainer}>
-              <Icon name="globe-outline" size={16} color={subTextColor} />
-              <Text style={[styles.modalSiteText, { color: subTextColor }]}>
-                {item.site || 'Unknown Store'}
-              </Text>
-            </View>
-            
-            {item.price !== undefined && (
-              <Text style={[styles.modalPrice, { color: mainColor }]}>
-                ${(typeof item.price === 'number' ? item.price.toFixed(2) : '0.00')}
-              </Text>
-            )}
-            
-            {item.description ? (
-              <Text style={[styles.modalDescription, { color: textColor }]} numberOfLines={4}>
-                {item.description}
-              </Text>
+          <ScrollView 
+            style={styles.modalScrollContainer}
+            contentContainerStyle={styles.modalScrollContent}
+            showsVerticalScrollIndicator={true}
+          >
+            {item.images && item.images.length > 0 ? (
+              <Image 
+                source={{ uri: item.images[0] }}
+                style={styles.modalImage}
+                resizeMode="cover"
+              />
             ) : (
-              <Text style={[styles.modalDescription, { color: subTextColor, fontStyle: 'italic' }]} numberOfLines={2}>
-                No description available. Check retailer's website for details.
-              </Text>
+              <View style={[styles.modalImage, { backgroundColor: '#f0f0f0' }]}>
+                <Icon name="image-outline" size={40} color="#bbb" />
+              </View>
             )}
             
-            <TouchableOpacity 
-              style={[styles.buyButton, { backgroundColor: mainColor }]}
-              onPress={() => onOpenProduct(item.url)}
-            >
-              <Text style={styles.buyButtonText}>Shop Now</Text>
-              <Icon name="arrow-forward" size={18} color="#fff" />
-            </TouchableOpacity>
-            
-            <View style={[styles.modalDivider, { backgroundColor: borderColor }]} />
-            
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.actionItem}>
-                <Icon name="heart-outline" size={22} color={mainColor} />
-                <Text style={[styles.actionText, { color: subTextColor }]}>Save</Text>
+            <View style={styles.modalDetails}>
+              <Text style={[styles.modalProductName, { color: textColor }]}>
+                {item.name}
+              </Text>
+              
+              <View style={styles.modalSiteContainer}>
+                <Icon name="globe-outline" size={16} color={subTextColor} />
+                <Text style={[styles.modalSiteText, { color: subTextColor }]}>
+                  {item.site || 'Unknown Store'}
+                </Text>
+              </View>
+              
+              {item.price !== undefined && (
+                <Text style={[styles.modalPrice, { color: mainColor }]}>
+                  ${(typeof item.price === 'number' ? item.price.toFixed(2) : '0.00')}
+                </Text>
+              )}
+              
+              {/* Description section */}
+              {item.description ? (
+                <Text style={[styles.modalDescription, { color: textColor }]}>
+                  {item.description}
+                </Text>
+              ) : (
+                <Text style={[styles.modalDescription, { color: subTextColor, fontStyle: 'italic' }]}>
+                  No description available. Check retailer's website for details.
+                </Text>
+              )}
+              
+              {/* Additional details section */}
+              <View style={styles.additionalDetailsSection}>
+                <Text style={[styles.detailsSectionTitle, { color: textColor }]}>
+                  Product Details
+                </Text>
+                
+                <View style={styles.detailsRow}>
+                  <Text style={[styles.detailLabel, { color: subTextColor }]}>Brand:</Text>
+                  <Text style={[styles.detailValue, { color: textColor }]}>{item.site || 'Unknown'}</Text>
+                </View>
+                
+                {item.price !== undefined && (
+                  <View style={styles.detailsRow}>
+                    <Text style={[styles.detailLabel, { color: subTextColor }]}>Price:</Text>
+                    <Text style={[styles.detailValue, { color: textColor }]}>
+                      ${(typeof item.price === 'number' ? item.price.toFixed(2) : '0.00')}
+                    </Text>
+                  </View>
+                )}
+                
+                <View style={styles.detailsRow}>
+                  <Text style={[styles.detailLabel, { color: subTextColor }]}>Item ID:</Text>
+                  <Text style={[styles.detailValue, { color: textColor }]}>{item.id}</Text>
+                </View>
+              </View>
+              
+              {/* Action buttons */}
+              <TouchableOpacity 
+                style={[styles.purchaseButton, { backgroundColor: mainColor }]}
+                onPress={() => onOpenProduct(item.url)}
+              >
+                <Text style={styles.purchaseButtonText}>Buy Now</Text>
+                <Icon name="bag-check-outline" size={20} color="#fff" style={{ marginLeft: 8 }} />
               </TouchableOpacity>
               
-              <TouchableOpacity style={styles.actionItem}>
-                <Icon name="share-social-outline" size={22} color={mainColor} />
-                <Text style={[styles.actionText, { color: subTextColor }]}>Share</Text>
+              <TouchableOpacity 
+                style={[styles.favoriteButton, { borderColor: mainColor }]}
+                onPress={() => onFavorite(item)}
+              >
+                <Icon name="heart" size={20} color={mainColor} style={{ marginRight: 8 }} />
+                <Text style={[styles.favoriteButtonText, { color: mainColor }]}>Add to Favorites</Text>
               </TouchableOpacity>
               
-              <TouchableOpacity style={styles.actionItem}>
-                <Icon name="add-circle-outline" size={22} color={mainColor} />
-                <Text style={[styles.actionText, { color: subTextColor }]}>Closet</Text>
+              {/* View in Closet button */}
+              <TouchableOpacity 
+                style={[styles.viewClosetButton, { borderColor: subTextColor }]}
+                onPress={() => navigation.navigate('ClosetTab')}
+              >
+                <Icon name="shirt-outline" size={20} color={subTextColor} style={{ marginRight: 8 }} />
+                <Text style={[styles.viewClosetButtonText, { color: subTextColor }]}>View in Closet</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
         </Animated.View>
       </View>
     )
@@ -512,6 +549,7 @@ const TRENDY_SEARCHES = [
 
 const RecommendationScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
+  const navigation = useNavigation();
   
   // Search and API state
   const [query, setQuery] = useState('');
@@ -719,6 +757,48 @@ const RecommendationScreen: React.FC = () => {
     setTimeout(() => {
       setSelectedProduct(null);
     }, 300);
+  };
+  
+  // Handle favoriting a product
+  const handleFavoriteProduct = async (product: Product) => {
+    try {
+      const userId = auth().currentUser?.uid;
+      if (!userId) {
+        Alert.alert("Sign In Required", "Please sign in to favorite items");
+        return;
+      }
+      
+      console.log("Favoriting product:", JSON.stringify(product, null, 2));
+      
+      // Create a data object for saving to Firestore with guaranteed values
+      const favoriteData = {
+        userId: userId,
+        productId: product.id || `product-${Date.now()}`, // Generate an ID if none exists
+        name: product.name || "Unnamed Product",
+        brand: product.site || 'Unknown Brand',
+        price: typeof product.price === 'number' ? product.price : 0,
+        imageUrl: product.images && product.images.length > 0 ? product.images[0] : '',
+        url: product.url || '',
+        favorited: new Date().toISOString(),
+        description: product.description || '',
+      };
+      
+      console.log("Saving favorite data:", JSON.stringify(favoriteData, null, 2));
+      
+      // Add to Firebase collection
+      const collectionRef = collection(db, 'user_favorite_products');
+      await addDoc(collectionRef, favoriteData);
+      
+      Alert.alert(
+        "Added to Favorites", 
+        "This item has been added to your favorites. You can view it in your closet.",
+        [{ text: "View in Closet", onPress: () => navigation.navigate('ClosetTab') },
+         { text: "OK", style: "cancel" }]
+      );
+    } catch (error) {
+      console.error('Error saving favorite:', error);
+      Alert.alert("Error", "Could not save to favorites. Please try again.");
+    }
   };
 
   // Render a chat message
@@ -959,10 +1039,12 @@ const RecommendationScreen: React.FC = () => {
         item={selectedProduct}
         onClose={closeProductPreview}
         onOpenProduct={openProductUrl}
+        onFavorite={handleFavoriteProduct}
         mainColor={mainColor}
         cardBgColor={cardBgColor}
         textColor={textColor}
         subTextColor={subTextColor}
+        borderColor={borderColor}
       />
     </SafeAreaView>
   );
@@ -1294,8 +1376,9 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: '90%',
-    maxHeight: '80%',
-    borderRadius: 24,
+    height: '85%', // Fixed height instead of maxHeight
+    minHeight: 600, // Ensure minimum height on smaller screens
+    borderRadius: 20,
     overflow: 'hidden',
     elevation: 8,
     shadowColor: '#000',
@@ -1303,10 +1386,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 16,
   },
+  modalScrollContainer: {
+    flex: 1,
+    height: '100%',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+  },
   modalHeader: {
     paddingHorizontal: 16,
     paddingTop: 16,
+    paddingBottom: 8,
     alignItems: 'flex-end',
+    zIndex: 10,
   },
   closeButton: {
     width: 32,
@@ -1318,16 +1410,16 @@ const styles = StyleSheet.create({
   },
   modalImage: {
     width: '100%',
-    height: 280,
+    height: 200, // Increased height
   },
   modalDetails: {
-    padding: 20,
+    padding: 20, // Increased padding
   },
   modalProductName: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
     marginBottom: 12,
-    lineHeight: 28,
+    lineHeight: 30,
   },
   modalSiteContainer: {
     flexDirection: 'row',
@@ -1336,47 +1428,102 @@ const styles = StyleSheet.create({
   },
   modalSiteText: {
     marginLeft: 6,
-    fontSize: 15,
+    fontSize: 16,
     opacity: 0.7,
   },
   modalPrice: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '700',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   modalDescription: {
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: 20,
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 24,
     opacity: 0.85,
   },
-  buyButton: {
+  purchaseButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 15,
-    borderRadius: 22,
-    marginBottom: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  buyButtonText: {
+  purchaseButtonText: {
     color: 'white',
     fontWeight: '600',
-    fontSize: 17,
-    marginRight: 8,
+    fontSize: 15,
+  },
+  favoriteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    backgroundColor: 'transparent',
+  },
+  favoriteButtonText: {
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  viewClosetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  viewClosetButtonText: {
+    fontWeight: '500',
+    fontSize: 15,
   },
   modalDivider: {
     height: 1,
     width: '100%',
-    marginBottom: 16,
+    marginVertical: 16,
+  },
+  // Additional details section
+  additionalDetailsSection: {
+    marginTop: 16,
+    marginBottom: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+  },
+  detailsSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  detailsRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    paddingVertical: 4,
+  },
+  detailLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    width: 70,
+  },
+  detailValue: {
+    fontSize: 14,
+    flex: 1,
   },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    paddingTop: 8,
   },
   actionItem: {
     alignItems: 'center',
