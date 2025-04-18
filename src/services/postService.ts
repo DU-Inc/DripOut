@@ -30,6 +30,7 @@ export interface Post {
   id: string;
   userId: string;
   username: string;
+  userDisplayName?: string; // Added display name field
   userAvatar?: string;
   imageUrl: string;
   caption: string;
@@ -71,6 +72,7 @@ export const createPost = async (
     // Get user information for the post
     // Try to get username from Firestore profile first, then fallback to displayName
     let username = 'Anonymous';
+    let userDisplayName = '';
     let userAvatar = '';
     
     try {
@@ -81,19 +83,22 @@ export const createPost = async (
       if (userProfile) {
         // Prefer Firestore username over displayName for consistency
         username = userProfile.username || currentUser.displayName || 'Anonymous';
+        userDisplayName = userProfile.userDisplayName || userProfile.username || currentUser.displayName || 'Anonymous';
         userAvatar = userProfile.profilePictureURL || currentUser.photoURL || '';
       } else {
         // Fallback to Firebase Auth user info
         username = currentUser.displayName || 'Anonymous';
+        userDisplayName = currentUser.displayName || 'Anonymous';
         userAvatar = currentUser.photoURL || '';
       }
     } catch (error) {
       console.error('Error fetching user profile for post, using fallback:', error);
       username = currentUser.displayName || 'Anonymous';
+      userDisplayName = currentUser.displayName || 'Anonymous';
       userAvatar = currentUser.photoURL || '';
     }
     
-    console.log('🔄 PostService: Using username:', username);
+    console.log('🔄 PostService: Using username:', username, 'and display name:', userDisplayName);
 
     // Upload the image to Firebase Storage
     const imageUrl = await uploadImageAndGetURL(
@@ -108,6 +113,7 @@ export const createPost = async (
     const newPost = {
       userId,
       username,
+      userDisplayName,
       userAvatar,
       imageUrl,
       caption: postData.caption,
@@ -396,19 +402,21 @@ export const getCachedFeedPosts = async (
 
 /**
  * Updates all existing posts by a user when they update their profile information
- * This ensures that all posts display the current username and profile picture
+ * This ensures that all posts display the current username, display name, and profile picture
  * 
  * @param userId - The user ID whose posts need to be updated
  * @param newUsername - The user's new username (optional)
  * @param newUserAvatar - The user's new profile picture URL (optional)
+ * @param newUserDisplayName - The user's new display name (optional)
  * @returns Promise that resolves when the update is complete
  */
 export const updatePostsWithNewProfileData = async (
   userId: string,
   newUsername?: string,
-  newUserAvatar?: string
+  newUserAvatar?: string,
+  newUserDisplayName?: string
 ): Promise<void> => {
-  if (!newUsername && !newUserAvatar) {
+  if (!newUsername && !newUserAvatar && !newUserDisplayName) {
     console.log('No profile updates to propagate to posts');
     return;
   }
@@ -441,6 +449,7 @@ export const updatePostsWithNewProfileData = async (
       
       if (newUsername) updateData.username = newUsername;
       if (newUserAvatar) updateData.userAvatar = newUserAvatar;
+      if (newUserDisplayName) updateData.userDisplayName = newUserDisplayName;
       
       // Update the post document
       currentBatch.update(postDoc.ref, updateData);

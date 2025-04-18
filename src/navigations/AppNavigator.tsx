@@ -22,6 +22,7 @@ import HomeScreen from "../screens/HomeScreen";
 import CreatePostScreen from "../screens/CreatePostScreen";
 import UserDetailScreen from "../screens/UserDetailScreen";
 import SearchScreen from "../screens/SearchScreen";
+import MessagingScreen from "../screens/MessagingScreen";
 import WelcomeScreen from "../screens/auth/WelcomeScreen";
 import SignInScreen from "../screens/auth/SignInScreen";
 import SignUpScreen from "../screens/auth/SignUpScreen";
@@ -929,6 +930,15 @@ const AppNavigator: React.FC = () => {
             name="SearchScreen" 
             component={SearchScreen} 
             options={{ headerShown: false }} 
+          />
+          <Stack.Screen 
+            name="MessagingScreen" 
+            component={MessagingScreen} 
+            options={{ 
+              headerShown: false,
+              presentation: 'card',
+              animation: 'slide_from_right' 
+            }} 
           />
           <Stack.Screen
             name="Auth"

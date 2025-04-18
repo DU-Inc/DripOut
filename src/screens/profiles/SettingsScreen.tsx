@@ -1,6 +1,6 @@
 // src/screens/profiles/SettingsScreen.tsx
 
-import React, { useEffect, useState, ReactNode } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -12,20 +12,29 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  Platform
+  Platform,
+  Modal,
+  KeyboardAvoidingView,
+  FlatList,
+  Pressable,
+  Dimensions
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import { db } from '../../Config/firebaseconfig';
 import { doc, onSnapshot, updateDoc, Timestamp } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
-import { UserProfile } from '../../services/firestoreService';
+import { auth } from '../../Config/firebaseconfig';
+import { 
+  UserProfile, 
+  setUserPreferences, 
+  getUserPreferences, 
+  UserPreferences,
+  propagateProfileUpdates
+} from '../../services/firestoreService';
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import { resetOnboardingStatus } from '../../utils/resetOnboarding';
-
-// Get the auth instance with proper typing
-const auth = getAuth();
 
 // Set default text styles for SF Pro font family
 const defaultTextStyle = {
@@ -37,46 +46,134 @@ const SettingsScreen: React.FC = () => {
   const navigation = useNavigation();
   const { isDarkMode, toggleTheme } = useTheme();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
+  const [selectedSection, setSelectedSection] = useState<string | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
 
-  // Theme colors
-  const bgColor = isDarkMode ? '#000000' : '#FFFFFF';
-  const cardBgColor = isDarkMode ? '#1C1C1E' : '#FFFFFF'; // iOS card background
-  const textColor = isDarkMode ? '#FFFFFF' : '#000000';
-  const subTextColor = isDarkMode ? '#8E8E93' : '#6E6E73'; // iOS gray
-  const borderColor = isDarkMode ? '#38383A' : '#E5E5EA'; // iOS separator
-  const mainColor = isDarkMode ? '#0A84FF' : '#007AFF'; // iOS blue
-  const secondaryColor = isDarkMode ? '#64D2FF' : '#5AC8FA'; // iOS light blue
-  const accentColor = isDarkMode ? '#FF9F0A' : '#FF9500'; // iOS orange
-  const surfaceColor = isDarkMode ? '#2C2C2E' : '#F2F2F7'; // iOS system gray
-  const secondarySurfaceColor = isDarkMode ? '#3A3A3C' : '#E5E5EA'; // iOS secondary background
-  const dangerColor = isDarkMode ? '#FF453A' : '#FF3B30'; // iOS red
+  // Theme colors - using app's red theme to match the rest of the app
+  const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
+  const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
+  const textColor = isDarkMode ? '#FFFFFF' : '#202020';
+  const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
+  const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
+  const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
+  const secondaryColor = isDarkMode ? '#FF6D8E' : '#FF5B66'; // Red accent
+  const accentColor = isDarkMode ? '#FF9F0A' : '#FF9500'; // Orange for contrast
+  const surfaceColor = isDarkMode ? '#222232' : '#F5F5F5';
+  const secondarySurfaceColor = isDarkMode ? '#2A2A38' : '#F0F0F5';
+  const dangerColor = isDarkMode ? '#FF453A' : '#FF3B30';
+  const modalBgColor = isDarkMode ? 'rgba(10, 10, 15, 0.95)' : 'rgba(0, 0, 0, 0.5)';
 
+  // Profile fields (optional)
+  const [height, setHeight] = useState<string>('');
+  const [weight, setWeight] = useState<string>('');
+  const [bodyType, setBodyType] = useState<string>('');
+  const [birthday, setBirthday] = useState<string>('');
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const { width } = Dimensions.get('window');
+
+  // States for clothing sizes modal
+  const [topSize, setTopSize] = useState(preferences?.topsSize || '');
+  const [bottomSize, setBottomSize] = useState(preferences?.bottomsSize || '');
+  const [shoeSize, setShoeSize] = useState(preferences?.shoeSize || '');
+  
+  // Define standardized options
+  const genderOptions = ['Male', 'Female', 'Non-binary', 'Prefer not to say', 'Other'];
+  const bodyTypeOptions = ['Slim', 'Athletic', 'Average', 'Curvy', 'Plus Size', 'Petite', 'Tall'];
+  
+  // Height options in cm
+  const heightOptions = Array.from({ length: 81 }, (_, i) => ({
+    cm: 140 + i,
+    display: `${140 + i} cm (${Math.floor((140 + i) / 30.48)}' ${Math.round(((140 + i) / 2.54) % 12)}")`
+  }));
+  
+  // Weight options in kg
+  const weightOptions = Array.from({ length: 101 }, (_, i) => ({
+    kg: 40 + i,
+    display: `${40 + i} kg (${Math.round((40 + i) * 2.20462)} lbs)`
+  }));
+
+  // Load user profile and preferences
   useEffect(() => {
-    const userId = auth.currentUser?.uid;
+    const userId = auth().currentUser?.uid;
     if (userId) {
       // Listen for profile updates
       const profileUnsubscribe = onSnapshot(doc(db, 'users', userId), (docSnapshot) => {
         if (docSnapshot.exists()) {
-          const data = docSnapshot.data() as UserProfile;
-          
-          // Convert Firestore Timestamp to Date
-          if (data.createdAt && data.createdAt instanceof Timestamp) {
-            data.createdAt = data.createdAt.toDate();
+          try {
+            // Get the raw data from Firestore
+            const rawData = docSnapshot.data();
+            
+            // Convert Firestore Timestamp to Date
+            const data: UserProfile = {
+              ...rawData,
+              createdAt: rawData.createdAt instanceof Timestamp ? rawData.createdAt.toDate() : rawData.createdAt,
+              updatedAt: rawData.updatedAt instanceof Timestamp ? rawData.updatedAt.toDate() : rawData.updatedAt,
+              // Ensure the new fields are properly typed
+              height: rawData.height || undefined,
+              weight: rawData.weight || undefined,
+              bodyType: rawData.bodyType || undefined,
+              birthday: rawData.birthday || undefined,
+            } as UserProfile;
+            
+            console.log('Loaded profile data:', data);
+            
+            setProfile(data);
+            setEditedProfile(data);
+            
+            // Initialize optional fields
+            setHeight(data.height || '');
+            setWeight(data.weight || '');
+            setBodyType(data.bodyType || '');
+            setBirthday(data.birthday || '');
+            
+            // If birthday is in date format, parse it
+            if (data.birthday) {
+              try {
+                const parts = data.birthday.split('/');
+                if (parts.length === 3) {
+                  const date = new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+                  if (!isNaN(date.getTime())) {
+                    setSelectedDate(date);
+                  } else {
+                    setSelectedDate(null);
+                  }
+                } else {
+                  setSelectedDate(null);
+                }
+              } catch (e) {
+                console.error('Error parsing birthday date:', e);
+                setSelectedDate(null);
+              }
+            } else {
+              setSelectedDate(null);
+            }
+            
+            setLoading(false);
+          } catch (error) {
+            console.error('Error processing profile data:', error);
+            setLoading(false);
           }
-          if (data.updatedAt && data.updatedAt instanceof Timestamp) {
-            data.updatedAt = data.updatedAt.toDate();
-          }
-
-          setProfile(data);
-          setEditedProfile(data);
         } else {
           setProfile(null);
           setEditedProfile(null);
+          setLoading(false);
         }
-        setLoading(false);
+      });
+
+      // Load user preferences
+      getUserPreferences(userId).then(prefs => {
+        if (prefs) {
+          setPreferences(prefs);
+          // Initialize clothing size states
+          setTopSize(prefs.topsSize || '');
+          setBottomSize(prefs.bottomsSize || '');
+          setShoeSize(prefs.shoeSize || '');
+        }
       });
 
       return () => {
@@ -89,30 +186,129 @@ const SettingsScreen: React.FC = () => {
     if (editMode) {
       // Exiting edit mode, discard changes
       setEditedProfile(profile);
+      
+      // Reset optional fields
+      if (profile) {
+        setHeight(profile.height || '');
+        setWeight(profile.weight || '');
+        setBodyType(profile.bodyType || '');
+        setBirthday(profile.birthday || '');
+        
+        // Reset selected date if birthday exists
+        if (profile.birthday) {
+          try {
+            const parts = profile.birthday.split('/');
+            if (parts.length === 3) {
+              const date = new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+              if (!isNaN(date.getTime())) {
+                setSelectedDate(date);
+              } else {
+                setSelectedDate(null);
+              }
+            } else {
+              setSelectedDate(null);
+            }
+          } catch (e) {
+            setSelectedDate(null);
+          }
+        } else {
+          setSelectedDate(null);
+        }
+      }
     }
     setEditMode(!editMode);
   };
 
   const handleInputChange = (key: keyof UserProfile, value: string) => {
-    if (editedProfile) {
-      setEditedProfile({ ...editedProfile, [key]: value });
+    if (!editedProfile) return;
+    
+    // Create a copy of the current state
+    const updatedProfile = { ...editedProfile };
+    
+    // Update the specified field
+    updatedProfile[key] = value;
+    
+    // If the username is updated, always set the display name to match
+    if (key === 'username') {
+      // Format the username properly (lowercase, no spaces, alphanumeric + underscores)
+      const formattedUsername = value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+      updatedProfile.username = formattedUsername;
+      
+      // Always set the display name to the username
+      updatedProfile.userDisplayName = formattedUsername;
     }
+    
+    setEditedProfile(updatedProfile);
   };
 
   const handleSaveProfile = async () => {
-    if (!editedProfile || !auth.currentUser) return;
+    if (!editedProfile || !auth().currentUser) return;
     
     try {
-      const userId = auth.currentUser.uid;
+      const userId = auth().currentUser.uid;
       const userRef = doc(db, 'users', userId);
       
-      // Add updatedAt timestamp
-      const updatedProfile = {
+      // Create clean update data, removing any undefined values
+      const updateData: Record<string, any> = {
         ...editedProfile,
         updatedAt: new Date()
       };
       
-      await updateDoc(userRef, updatedProfile);
+      // Add custom fields that may not be in editedProfile
+      if (height) updateData.height = height;
+      if (weight) updateData.weight = weight;
+      if (bodyType) updateData.bodyType = bodyType;
+      if (birthday) updateData.birthday = birthday;
+      
+      // Remove any undefined or null values to avoid Firestore errors
+      Object.keys(updateData).forEach(key => {
+        if (updateData[key] === undefined || updateData[key] === null) {
+          delete updateData[key];
+        }
+      });
+      
+      console.log('Saving profile with data:', updateData);
+      await updateDoc(userRef, updateData);
+      
+      // Determine which fields need to be propagated to other collections
+      const fieldsToPropagate: Partial<UserProfile> = {};
+      
+      // Check if username was updated
+      if (editedProfile.username !== profile?.username) {
+        fieldsToPropagate.username = editedProfile.username;
+      }
+      
+      // Check if profile picture was updated
+      if (editedProfile.profilePictureURL !== profile?.profilePictureURL) {
+        fieldsToPropagate.profilePictureURL = editedProfile.profilePictureURL;
+      }
+      
+      // Check if display name was updated
+      if (editedProfile.userDisplayName !== profile?.userDisplayName) {
+        fieldsToPropagate.userDisplayName = editedProfile.userDisplayName;
+      }
+      
+      // Only call propagateProfileUpdates if there are fields to propagate
+      if (Object.keys(fieldsToPropagate).length > 0) {
+        console.log('Propagating profile updates to all collections...');
+        try {
+          await propagateProfileUpdates(userId, fieldsToPropagate);
+          console.log('Profile updates successfully propagated');
+        } catch (propagateError) {
+          console.error('Error propagating profile updates:', propagateError);
+          // Don't block the user from continuing even if propagation fails
+        }
+      }
+      
+      // Update local profile state to reflect changes
+      setProfile({
+        ...editedProfile,
+        height,
+        weight,
+        bodyType,
+        birthday,
+        updatedAt: new Date()
+      });
       
       Alert.alert(
         'Profile Updated', 
@@ -123,6 +319,58 @@ const SettingsScreen: React.FC = () => {
       console.error('Error updating profile:', error);
       Alert.alert('Error', 'There was a problem updating your profile. Please try again.');
     }
+  };
+
+  const handleOpenModal = (section: string) => {
+    console.log(`Opening modal for section: ${section}`);
+    setSelectedSection(section);
+    setModalVisible(true);
+    
+    // On Android, we might need a slight delay to ensure state is updated
+    if (Platform.OS === 'android') {
+      setTimeout(() => {
+        console.log(`Modal should be visible now for section: ${section}`);
+      }, 100);
+    }
+  };
+
+  const handleCloseModal = () => {
+    // First hide the modal
+    setModalVisible(false);
+    
+    // Then reset the selected section after a short delay
+    // This prevents the "null section" warning during modal close animation
+    setTimeout(() => {
+      setSelectedSection(null);
+    }, 300);
+  };
+  
+  // Date picker functions
+  const onDateChange = (event: any, date?: Date) => {
+    setDatePickerVisible(Platform.OS === 'ios');
+    if (date && event.type !== 'dismissed') {
+      setSelectedDate(date);
+      // Format date as MM/DD/YYYY
+      const month = date.getMonth() + 1;
+      const day = date.getDate();
+      const year = date.getFullYear();
+      setBirthday(`${month}/${day}/${year}`);
+    }
+  };
+  
+  const showDatePicker = () => {
+    setDatePickerVisible(true);
+  };
+  
+  // Handle selection for height, weight, and body type
+  const handleHeightSelection = (item: { cm: number, display: string }) => {
+    setHeight(item.display);
+    handleCloseModal();
+  };
+  
+  const handleWeightSelection = (item: { kg: number, display: string }) => {
+    setWeight(item.display);
+    handleCloseModal();
   };
 
   const handleDeleteAccount = () => {
@@ -153,6 +401,39 @@ const SettingsScreen: React.FC = () => {
         }
       ]
     );
+  };
+
+  const savePreferences = async (sizeInfo: {
+    topsSize?: string;
+    bottomsSize?: string;
+    shoeSize?: string;
+  }) => {
+    if (!auth().currentUser) return;
+    
+    try {
+      const userId = auth().currentUser.uid;
+      
+      // Create or update user preferences
+      const updatedPreferences = {
+        ...(preferences || {
+          preferredStyles: [],
+          preferredBrands: [],
+          colorPreferences: [],
+          emailNotifications: true,
+          pushNotifications: true,
+        }),
+        ...sizeInfo
+      };
+      
+      await setUserPreferences(userId, updatedPreferences);
+      setPreferences(updatedPreferences);
+      
+      Alert.alert('Preferences Updated', 'Your size information has been saved successfully.');
+      handleCloseModal();
+    } catch (error) {
+      console.error('Error updating preferences:', error);
+      Alert.alert('Error', 'Failed to save your preferences. Please try again.');
+    }
   };
 
   const renderSettingItem = (
@@ -194,6 +475,401 @@ const SettingsScreen: React.FC = () => {
         </View>
       </TouchableOpacity>
     );
+  };
+
+  // Render size preferences modal content
+  const renderSizePreferencesModal = () => {
+    return (
+      <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: textColor }]}>Size Preferences</Text>
+          <TouchableOpacity onPress={handleCloseModal}>
+            <Icon name="close-outline" size={24} color={textColor} />
+          </TouchableOpacity>
+        </View>
+        
+        <View style={[styles.modalBody, { paddingBottom: 20 }]}>
+          <Text style={[styles.modalSectionTitle, { color: textColor }]}>
+            Enter your clothing sizes for better recommendations
+          </Text>
+          
+          <View style={styles.modalForm}>
+            <View style={styles.formGroup}>
+              <Text style={[styles.formLabel, { color: subTextColor }]}>Tops Size</Text>
+              <TextInput 
+                style={[styles.formInput, { backgroundColor: surfaceColor, color: textColor, borderColor }]}
+                value={topSize}
+                onChangeText={setTopSize}
+                placeholder="e.g., S, M, L, XL"
+                placeholderTextColor={subTextColor}
+              />
+            </View>
+            
+            <View style={styles.formGroup}>
+              <Text style={[styles.formLabel, { color: subTextColor }]}>Bottoms Size</Text>
+              <TextInput 
+                style={[styles.formInput, { backgroundColor: surfaceColor, color: textColor, borderColor }]}
+                value={bottomSize}
+                onChangeText={setBottomSize}
+                placeholder="e.g., 30, 32, 8, 10"
+                placeholderTextColor={subTextColor}
+              />
+            </View>
+            
+            <View style={styles.formGroup}>
+              <Text style={[styles.formLabel, { color: subTextColor }]}>Shoe Size</Text>
+              <TextInput 
+                style={[styles.formInput, { backgroundColor: surfaceColor, color: textColor, borderColor }]}
+                value={shoeSize}
+                onChangeText={setShoeSize}
+                placeholder="e.g., US 9, EU 42"
+                placeholderTextColor={subTextColor}
+              />
+            </View>
+            
+            <TouchableOpacity 
+              style={[styles.saveModalButton, { backgroundColor: mainColor }]}
+              onPress={() => savePreferences({ topsSize: topSize, bottomsSize: bottomSize, shoeSize })}
+            >
+              <Text style={styles.saveModalButtonText}>Save Sizes</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  // Render gender selection modal
+  const renderGenderModal = () => {
+    return (
+      <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: textColor }]}>Gender</Text>
+          <TouchableOpacity onPress={handleCloseModal}>
+            <Icon name="close-outline" size={24} color={textColor} />
+          </TouchableOpacity>
+        </View>
+        
+        <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 20 }}>
+          <Text style={[styles.modalSectionTitle, { color: textColor }]}>
+            Select your gender (optional)
+          </Text>
+          
+          {genderOptions.map((option, index) => (
+            <TouchableOpacity 
+              key={index}
+              style={[
+                styles.optionItem, 
+                { borderBottomColor: borderColor },
+                editedProfile?.userGender === option && styles.selectedOption
+              ]}
+              onPress={() => {
+                handleInputChange('userGender', option);
+                handleCloseModal();
+              }}
+            >
+              <Text style={[
+                styles.optionText, 
+                { color: textColor },
+                editedProfile?.userGender === option && { color: mainColor, fontWeight: '600' }
+              ]}>
+                {option}
+              </Text>
+              {editedProfile?.userGender === option && (
+                <Icon name="checkmark" size={20} color={mainColor} />
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // Render body type selection modal
+  const renderBodyTypeModal = () => {
+    return (
+      <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: textColor }]}>Body Type</Text>
+          <TouchableOpacity onPress={handleCloseModal}>
+            <Icon name="close-outline" size={24} color={textColor} />
+          </TouchableOpacity>
+        </View>
+        
+        <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 20 }}>
+          <Text style={[styles.modalSectionTitle, { color: textColor }]}>
+            Select your body type (optional)
+          </Text>
+          
+          {bodyTypeOptions.map((option, index) => (
+            <TouchableOpacity 
+              key={index}
+              style={[
+                styles.optionItem, 
+                { borderBottomColor: borderColor },
+                bodyType === option && styles.selectedOption
+              ]}
+              onPress={() => {
+                setBodyType(option);
+                handleCloseModal();
+              }}
+            >
+              <Text style={[
+                styles.optionText, 
+                { color: textColor },
+                bodyType === option && { color: mainColor, fontWeight: '600' }
+              ]}>
+                {option}
+              </Text>
+              {bodyType === option && (
+                <Icon name="checkmark" size={20} color={mainColor} />
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
+
+  // Render measurements selection options
+  const renderMeasurementsModal = () => {
+    return (
+      <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: textColor }]}>Measurements</Text>
+          <TouchableOpacity onPress={handleCloseModal}>
+            <Icon name="close-outline" size={24} color={textColor} />
+          </TouchableOpacity>
+        </View>
+        
+        <View style={[styles.modalBody, { paddingBottom: 20 }]}>
+          <Text style={[styles.modalSectionTitle, { color: textColor }]}>
+            Select your measurements
+          </Text>
+          
+          <View style={styles.measOptionsList}>
+            <TouchableOpacity 
+              style={[styles.measurementOption, { backgroundColor: surfaceColor }]}
+              onPress={() => {
+                handleCloseModal();
+                setTimeout(() => handleOpenModal('height'), 300);
+              }}
+            >
+              <View style={styles.measurementOptionContent}>
+                <Text style={[styles.measurementOptionTitle, { color: textColor }]}>Height</Text>
+                <Text style={[styles.measurementOptionValue, { color: subTextColor }]}>
+                  {height || 'Not set'}
+                </Text>
+              </View>
+              <Icon name="chevron-forward" size={20} color={subTextColor} />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.measurementOption, { backgroundColor: surfaceColor, marginTop: 16 }]}
+              onPress={() => {
+                handleCloseModal();
+                setTimeout(() => handleOpenModal('weight'), 300);
+              }}
+            >
+              <View style={styles.measurementOptionContent}>
+                <Text style={[styles.measurementOptionTitle, { color: textColor }]}>Weight</Text>
+                <Text style={[styles.measurementOptionValue, { color: subTextColor }]}>
+                  {weight || 'Not set'}
+                </Text>
+              </View>
+              <Icon name="chevron-forward" size={20} color={subTextColor} />
+            </TouchableOpacity>
+          </View>
+          
+          <Text style={[styles.inputHelp, { color: subTextColor, marginTop: 16, textAlign: 'center' }]}>
+            Tap an option to select your measurements. These help us provide better size recommendations.
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  // Render birthday input modal
+  const renderBirthdayModal = () => {
+    return (
+      <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: textColor }]}>Birthday</Text>
+          <TouchableOpacity onPress={handleCloseModal}>
+            <Icon name="close-outline" size={24} color={textColor} />
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.modalBody}>
+          <Text style={[styles.modalSectionTitle, { color: textColor }]}>
+            Choose your birthday (optional)
+          </Text>
+          
+          <View style={styles.modalForm}>
+            <View style={styles.datePickerContainer}>
+              {Platform.OS === 'ios' ? (
+                <View style={styles.dateSelection}>
+                  <DateTimePicker
+                    value={selectedDate || new Date()}
+                    mode="date"
+                    display="spinner"
+                    onChange={onDateChange}
+                    maximumDate={new Date()}
+                    minimumDate={new Date(1920, 0, 1)}
+                    textColor={textColor}
+                    style={{ width: '100%' }}
+                  />
+                </View>
+              ) : (
+                <>
+                  <Pressable
+                    style={[styles.dateButton, { backgroundColor: surfaceColor, borderColor }]}
+                    onPress={showDatePicker}
+                  >
+                    <Text style={{ color: birthday ? textColor : subTextColor }}>
+                      {birthday || 'Select your birthday'}
+                    </Text>
+                    <Icon name="calendar-outline" size={20} color={mainColor} />
+                  </Pressable>
+                  
+                  {datePickerVisible && (
+                    <DateTimePicker
+                      value={selectedDate || new Date()}
+                      mode="date"
+                      display="default"
+                      onChange={onDateChange}
+                      maximumDate={new Date()}
+                      minimumDate={new Date(1920, 0, 1)}
+                    />
+                  )}
+                </>
+              )}
+              
+              <Text style={[styles.inputHelp, { color: subTextColor, marginTop: 16 }]}>
+                Your birthday will be used for personalized recommendations and birthday offers
+              </Text>
+            </View>
+            
+            <TouchableOpacity 
+              style={[styles.saveModalButton, { backgroundColor: mainColor }]}
+              onPress={handleCloseModal}
+            >
+              <Text style={styles.saveModalButtonText}>Save Birthday</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  // Render height selection modal
+  const renderHeightSelectionModal = () => {
+    return (
+      <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: textColor }]}>Select Height</Text>
+          <TouchableOpacity onPress={handleCloseModal}>
+            <Icon name="close-outline" size={24} color={textColor} />
+          </TouchableOpacity>
+        </View>
+        
+        <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 20 }}>
+          {heightOptions.map((item) => (
+            <TouchableOpacity 
+              key={item.cm.toString()}
+              style={[
+                styles.optionItem, 
+                { borderBottomColor: borderColor },
+                height === item.display && styles.selectedOption
+              ]}
+              onPress={() => handleHeightSelection(item)}
+            >
+              <Text style={[
+                styles.optionText, 
+                { color: textColor },
+                height === item.display && { color: mainColor, fontWeight: '600' }
+              ]}>
+                {item.display}
+              </Text>
+              {height === item.display && (
+                <Icon name="checkmark" size={20} color={mainColor} />
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // Render weight selection modal
+  const renderWeightSelectionModal = () => {
+    return (
+      <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: textColor }]}>Select Weight</Text>
+          <TouchableOpacity onPress={handleCloseModal}>
+            <Icon name="close-outline" size={24} color={textColor} />
+          </TouchableOpacity>
+        </View>
+        
+        <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 20 }}>
+          {weightOptions.map((item) => (
+            <TouchableOpacity 
+              key={item.kg.toString()}
+              style={[
+                styles.optionItem, 
+                { borderBottomColor: borderColor },
+                weight === item.display && styles.selectedOption
+              ]}
+              onPress={() => handleWeightSelection(item)}
+            >
+              <Text style={[
+                styles.optionText, 
+                { color: textColor },
+                weight === item.display && { color: mainColor, fontWeight: '600' }
+              ]}>
+                {item.display}
+              </Text>
+              {weight === item.display && (
+                <Icon name="checkmark" size={20} color={mainColor} />
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // Render the correct modal content based on selectedSection
+  const renderModalContent = () => {
+    // Only log if we have a section to render
+    if (selectedSection) {
+      console.log(`Rendering modal content for section: ${selectedSection}`);
+    }
+    
+    switch (selectedSection) {
+      case 'sizes':
+        return renderSizePreferencesModal();
+      case 'gender':
+        return renderGenderModal();
+      case 'bodyType':
+        return renderBodyTypeModal();
+      case 'height':
+        return renderHeightSelectionModal();
+      case 'weight':
+        return renderWeightSelectionModal();
+      case 'measurements':
+        return renderMeasurementsModal();
+      case 'birthday':
+        return renderBirthdayModal();
+      default:
+        // Only show warning if modal is visible but section is invalid
+        if (modalVisible && selectedSection !== null) {
+          console.warn(`No modal content for section: ${selectedSection}`);
+        }
+        return <View />;  // Return empty view instead of null
+    }
   };
 
   if (loading) {
@@ -238,16 +914,6 @@ const SettingsScreen: React.FC = () => {
                   />
                 </View>
                 <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Display Name</Text>
-                  <TextInput
-                    style={[styles.editInput, { color: textColor, backgroundColor: surfaceColor }]}
-                    value={editedProfile?.userDisplayName || ''}
-                    onChangeText={(text) => handleInputChange('userDisplayName', text)}
-                    placeholder="Enter your display name"
-                    placeholderTextColor={subTextColor}
-                  />
-                </View>
-                <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
                   <Text style={[styles.editLabel, { color: subTextColor }]}>Username</Text>
                   <TextInput
                     style={[styles.editInput, { color: textColor, backgroundColor: surfaceColor }]}
@@ -256,39 +922,144 @@ const SettingsScreen: React.FC = () => {
                     placeholder="Enter your username"
                     placeholderTextColor={subTextColor}
                   />
+                  <Text style={[styles.inputHelp, { color: subTextColor }]}>
+                    Used as your display name (lowercase, no spaces, only letters, numbers, and underscores)
+                  </Text>
                 </View>
-                <View style={[styles.editItem, { borderBottomColor: 'transparent' }]}>
+                <TouchableOpacity 
+                  style={[styles.editItem, { borderBottomColor: borderColor }]}
+                  onPress={() => handleOpenModal('gender')}
+                >
                   <Text style={[styles.editLabel, { color: subTextColor }]}>Gender</Text>
-                  <TextInput
-                    style={[styles.editInput, { color: textColor, backgroundColor: surfaceColor }]}
-                    value={editedProfile?.userGender || ''}
-                    onChangeText={(text) => handleInputChange('userGender', text)}
-                    placeholder="Enter your gender"
-                    placeholderTextColor={subTextColor}
-                  />
-                </View>
+                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                    <Text style={{ color: editedProfile?.userGender ? textColor : subTextColor }}>
+                      {editedProfile?.userGender || 'Select your gender'}
+                    </Text>
+                    <Icon name="chevron-forward" size={20} color={subTextColor} />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.editItem, { borderBottomColor: borderColor }]}
+                  onPress={() => handleOpenModal('birthday')}
+                >
+                  <Text style={[styles.editLabel, { color: subTextColor }]}>Birthday</Text>
+                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                    <Text style={{ color: birthday ? textColor : subTextColor }}>
+                      {birthday || 'Add your birthday'}
+                    </Text>
+                    <Icon name="chevron-forward" size={20} color={subTextColor} />
+                  </View>
+                </TouchableOpacity>
               </>
             ) : (
               // Display Fields
               <>
-                {renderSettingItem('user', 'Full Name', 'Your legal name', profile?.fullName || 'Not set')}
-                {renderSettingItem('at-sign', 'Display Name', 'Name shown on your profile', profile?.userDisplayName || 'Not set')}
-                {renderSettingItem('hash', 'Username', 'Your unique username', '@' + (profile?.username || 'username'))}
-                {renderSettingItem('users', 'Gender', 'For size recommendations', profile?.userGender || 'Not specified')}
+                {renderSettingItem('user', 'Full Name', 'Your legal name', profile?.fullName || 'Not set', handleEditToggle)}
+                {renderSettingItem('hash', 'Username', 'Your unique username', '@' + (profile?.username || 'username'), handleEditToggle)}
+                {renderSettingItem('users', 'Gender', 'For size recommendations', profile?.userGender || 'Not specified', () => {
+                  handleEditToggle();
+                  setTimeout(() => handleOpenModal('gender'), 300);
+                })}
+                {renderSettingItem('calendar', 'Birthday', 'For personalized recommendations', profile?.birthday || 'Not specified', () => {
+                  handleEditToggle();
+                  setTimeout(() => handleOpenModal('birthday'), 300);
+                })}
               </>
             )}
           </View>
 
-          <View style={styles.buttonContainer}>
-            {editMode && (
+          {/* Body Measurements Section */}
+          <Text style={[styles.sectionHeader, { color: subTextColor, marginTop: 24 }]}>BODY MEASUREMENTS</Text>
+          <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
+            {editMode ? (
+              // Editable Fields
+              <>
+                <TouchableOpacity 
+                  style={[styles.editItem, { borderBottomColor: borderColor }]}
+                  onPress={() => handleOpenModal('measurements')}
+                >
+                  <Text style={[styles.editLabel, { color: subTextColor }]}>Measurements</Text>
+                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                    <Text style={{ color: (height || weight) ? textColor : subTextColor, maxWidth: width - 160 }} numberOfLines={1} ellipsizeMode="tail">
+                      {height && weight ? `${height}, ${weight}` : 
+                       height ? `${height}` : 
+                       weight ? `${weight}` : 'Add your measurements'}
+                    </Text>
+                    <Icon name="chevron-forward" size={20} color={subTextColor} />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.editItem, { borderBottomColor: borderColor }]}
+                  onPress={() => handleOpenModal('bodyType')}
+                >
+                  <Text style={[styles.editLabel, { color: subTextColor }]}>Body Type</Text>
+                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                    <Text style={{ color: bodyType ? textColor : subTextColor }}>
+                      {bodyType || 'Select your body type'}
+                    </Text>
+                    <Icon name="chevron-forward" size={20} color={subTextColor} />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.editItem, { borderBottomColor: 'transparent' }]}
+                  onPress={() => handleOpenModal('sizes')}
+                >
+                  <Text style={[styles.editLabel, { color: subTextColor }]}>Clothing Sizes</Text>
+                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                    <Text style={{ color: subTextColor }}>
+                      {preferences ? 
+                        `${preferences.topsSize || '-'} / ${preferences.bottomsSize || '-'} / ${preferences.shoeSize || '-'}` : 
+                        'Set your clothing sizes'}
+                    </Text>
+                    <Icon name="chevron-forward" size={20} color={subTextColor} />
+                  </View>
+                </TouchableOpacity>
+              </>
+            ) : (
+              // Display Fields
+              <>
+                {renderSettingItem(
+                  'activity', 
+                  'Measurements', 
+                  'For better size recommendations', 
+                  (profile?.height || profile?.weight) ?
+                    `${profile.height || ''} ${profile.height && profile.weight ? '/' : ''} ${profile.weight || ''}` :
+                    'Not specified',
+                  () => handleOpenModal('measurements')
+                )}
+                {renderSettingItem(
+                  'aperture', 
+                  'Body Type', 
+                  'For style recommendations', 
+                  profile?.bodyType || 'Not specified',
+                  () => {
+                    handleEditToggle();
+                    setTimeout(() => handleOpenModal('bodyType'), 300);
+                  }
+                )}
+                {renderSettingItem(
+                  'shopping-bag', 
+                  'Clothing Sizes', 
+                  'Tops / Bottoms / Shoes', 
+                  preferences ? 
+                    `${preferences.topsSize || '-'} / ${preferences.bottomsSize || '-'} / ${preferences.shoeSize || '-'}` : 
+                    'Not specified',
+                  () => handleOpenModal('sizes')
+                )}
+              </>
+            )}
+          </View>
+
+          {editMode && (
+            <View style={styles.buttonContainer}>
               <TouchableOpacity 
                 style={[styles.saveButton, { backgroundColor: mainColor }]} 
                 onPress={handleSaveProfile}
               >
                 <Text style={styles.saveButtonText}>Save Changes</Text>
               </TouchableOpacity>
-            )}
-          </View>
+            </View>
+          )}
         </View>
 
         {/* Email & Security Section */}
@@ -326,15 +1097,39 @@ const SettingsScreen: React.FC = () => {
               'bell', 
               'Push Notifications', 
               'Get mobile alerts', 
-              true, 
-              () => Alert.alert('Push Notifications', 'This feature will be implemented in a future update.')
+              preferences?.pushNotifications ?? true, 
+              () => {
+                if (preferences) {
+                  setUserPreferences(auth().currentUser!.uid, {
+                    ...preferences,
+                    pushNotifications: !preferences.pushNotifications
+                  }).then(() => {
+                    setPreferences({
+                      ...preferences,
+                      pushNotifications: !preferences.pushNotifications
+                    });
+                  });
+                }
+              }
             )}
             {renderSettingItem(
               'mail', 
               'Email Notifications', 
               'Get updates in your inbox', 
-              true, 
-              () => Alert.alert('Email Notifications', 'This feature will be implemented in a future update.')
+              preferences?.emailNotifications ?? true, 
+              () => {
+                if (preferences) {
+                  setUserPreferences(auth().currentUser!.uid, {
+                    ...preferences,
+                    emailNotifications: !preferences.emailNotifications
+                  }).then(() => {
+                    setPreferences({
+                      ...preferences,
+                      emailNotifications: !preferences.emailNotifications
+                    });
+                  });
+                }
+              }
             )}
             {renderSettingItem(
               'heart', 
@@ -454,7 +1249,7 @@ const SettingsScreen: React.FC = () => {
               'Sign Out', 
               'Log out of your account', 
               undefined, 
-              () => auth.signOut(),
+              () => auth().signOut(),
               accentColor
             )}
             {renderSettingItem(
@@ -474,6 +1269,24 @@ const SettingsScreen: React.FC = () => {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Selection/Form Modals */}
+      {modalVisible && selectedSection && (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={handleCloseModal}
+          statusBarTranslucent={true}
+        >
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+            style={[styles.modalContainer, { backgroundColor: modalBgColor }]}
+          >
+            {renderModalContent()}
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 };
@@ -582,9 +1395,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
   },
+  selectInput: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
   buttonContainer: {
     paddingHorizontal: 16,
-    marginTop: 16,
+    marginTop: 24,
+    marginBottom: 16,
   },
   saveButton: {
     paddingVertical: 14,
@@ -604,7 +1426,142 @@ const styles = StyleSheet.create({
   footerText: {
     ...defaultTextStyle,
     fontSize: 13,
-  }
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    width: '100%', // Ensure full width
+    backgroundColor: 'rgba(0, 0, 0, 0.5)', // Semi-transparent background
+  },
+  modalContent: {
+    width: '100%',
+    maxHeight: '90%',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  modalTitle: {
+    ...defaultTextStyle,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  modalBody: {
+    padding: 16,
+    paddingBottom: 0,
+    flexGrow: 1,
+  },
+  modalSectionTitle: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  optionsList: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  optionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  selectedOption: {
+    backgroundColor: 'rgba(239, 61, 71, 0.08)',
+  },
+  optionText: {
+    ...defaultTextStyle,
+    fontSize: 16,
+  },
+  modalForm: {
+    width: '100%',
+  },
+  formGroup: {
+    marginBottom: 16,
+  },
+  formLabel: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  formInput: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  inputHelp: {
+    ...defaultTextStyle,
+    fontSize: 12,
+    marginTop: 5,
+    fontStyle: 'italic',
+  },
+  saveModalButton: {
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  saveModalButtonText: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  datePickerContainer: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  dateSelection: {
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  measOptionsList: {
+    marginVertical: 16,
+  },
+  measurementOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 10,
+  },
+  measurementOptionContent: {
+    flex: 1,
+  },
+  measurementOptionTitle: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  measurementOptionValue: {
+    ...defaultTextStyle,
+    fontSize: 14,
+  },
 });
 
 export default SettingsScreen;

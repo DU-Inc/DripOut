@@ -40,6 +40,7 @@ export type RootStackParamList = {
   CreatePostScreen: undefined;
   UserDetailScreen: { userId: string; username?: string };
   SearchScreen: undefined;
+  MessagingScreen: { conversationId?: string; otherUserId?: string; otherUserName?: string };
   
   // Legacy types for backward compatibility
   Home: undefined;

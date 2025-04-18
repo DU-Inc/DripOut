@@ -25,6 +25,8 @@
 - (NSURL *)bundleURL
 {
 #if DEBUG
+  // Explicitly set the host IP for device debugging
+  [[RCTBundleURLProvider sharedSettings] setJsLocation:@"192.168.1.231"]; 
   return [[RCTBundleURLProvider sharedSettings] jsBundleURLForBundleRoot:@"index"];
 #else
   return [[NSBundle mainBundle] URLForResource:@"main" withExtension:@"jsbundle"];

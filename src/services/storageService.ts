@@ -123,17 +123,20 @@ export const uploadImageAndGetURL = async (
               
               // Switch to the other bucket format
               const currentBucket = storage()._customUrlOrRegion || '';
-              const alternateBucket = currentBucket.includes('appspot')
-                ? 'dripout-32d33.firebasestorage.app'
-                : 'dripout-32d33.appspot.com';
+              let alternateBucket = '';
+              if (currentBucket.includes('appspot')) {
+                alternateBucket = 'dripout-32d33.firebasestorage.app';
+              } else {
+                alternateBucket = 'dripout-32d33.appspot.com';
+              }
               
               console.log('🔍 UPLOAD ATTEMPT [FALLBACK PATH]: Switching to alternate bucket: ' + alternateBucket);
               storage().setStorageBucket(alternateBucket);
               
               // We can't use await here since we're in a non-async callback, so use Promise instead
-              const testPath = `test/simple_test_${Date.now()}.txt`;
+              let testPath = `test/simple_test_${Date.now()}.txt`;
               console.log('🔍 UPLOAD ATTEMPT [FALLBACK PATH]: Testing with simple file: ' + testPath);
-              const simpleRef = storage().ref(testPath);
+              let simpleRef = storage().ref(testPath);
               
               // Use Promise chain instead of await
               simpleRef.putString('Test data')

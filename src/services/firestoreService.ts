@@ -440,7 +440,8 @@ export const propagateProfileUpdates = async (
         await updatePostsWithNewProfileData(
           userId,
           fieldsToPropagate.username,
-          fieldsToPropagate.userAvatar
+          fieldsToPropagate.userAvatar,
+          fieldsToPropagate.userDisplayName
         );
         
         console.log('Posts updated successfully through dedicated function');

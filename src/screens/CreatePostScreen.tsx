@@ -33,7 +33,7 @@ interface FeaturedPiece {
   id: string;
   name: string;
   brand: string;
-  type: 'shirt' | 'pants' | 'shoes' | 'accessory';
+  type: 'shirt' | 'pants' | 'shoes' | 'watch' | 'jewelry' | 'accessory';
   link?: string; // Optional affiliate link
 }
 
@@ -52,7 +52,7 @@ const CreatePostScreen: React.FC = () => {
   const [newPieceName, setNewPieceName] = useState('');
   const [newPieceBrand, setNewPieceBrand] = useState('');
   const [newPieceLink, setNewPieceLink] = useState('');
-  const [newPieceType, setNewPieceType] = useState<'shirt' | 'pants' | 'shoes' | 'accessory'>('shirt');
+  const [newPieceType, setNewPieceType] = useState<'shirt' | 'pants' | 'shoes' | 'watch' | 'jewelry' | 'accessory'>('shirt');
   
   // UI states
   const [isUploading, setIsUploading] = useState(false);
@@ -254,12 +254,14 @@ const CreatePostScreen: React.FC = () => {
         .map(tag => (tag.startsWith('#') ? tag : `#${tag}`));
       
       // Format featured pieces for storage - preserve all data including type and link
-      const outfitItems = featuredPieces.map(piece => ({
-        name: piece.name,
-        brand: piece.brand,
-        type: piece.type, // Include piece type for future reference
-        link: piece.link // Include affiliate link if provided
-      }));
+      const outfitItems = featuredPieces.map(piece => {
+        return {
+          name: piece.name,
+          brand: piece.brand,
+          type: piece.type, // Use the simplified type system
+          affiliateLink: piece.link || null // Include affiliate link if provided, use null instead of undefined
+        };
+      });
       
       console.log('Creating post with featured pieces:', JSON.stringify(outfitItems));
       
@@ -695,12 +697,21 @@ const CreatePostScreen: React.FC = () => {
                   <Text style={[styles.inputLabel, { color: textColor }]}>
                     Type
                   </Text>
-                  <View style={styles.pieceTypesGrid}>
+                  
+                  {/* Horizontal scrollable type selector */}
+                  <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.typeScrollView}
+                    contentContainerStyle={styles.typeScrollContent}
+                  >
                     {[
-                      { id: 'shirt', label: 'Top' },
-                      { id: 'pants', label: 'Bottom' },
-                      { id: 'shoes', label: 'Shoes' },
-                      { id: 'accessory', label: 'Accessory' }
+                      { id: 'shirt', label: 'Top', icon: 'tshirt' },
+                      { id: 'pants', label: 'Bottom', icon: 'tag' },
+                      { id: 'shoes', label: 'Shoes', icon: 'shoe-prints' },
+                      { id: 'watch', label: 'Watch', icon: 'clock' },
+                      { id: 'jewelry', label: 'Jewelry', icon: 'gem' },
+                      { id: 'accessory', label: 'Other', icon: 'glasses' },
                     ].map((type) => (
                       <TouchableOpacity
                         key={type.id}
@@ -714,35 +725,12 @@ const CreatePostScreen: React.FC = () => {
                         onPress={() => setNewPieceType(type.id as any)}
                       >
                         <View style={styles.typeIconContainer}>
-                          {type.id === 'shirt' ? (
-                            <FontAwesome5 
-                              name="tshirt" 
-                              size={24} 
-                              color={newPieceType === type.id ? mainColor : subTextColor}
-                              solid 
-                            />
-                          ) : type.id === 'pants' ? (
-                            <FontAwesome5 
-                              name="tag" 
-                              size={24} 
-                              color={newPieceType === type.id ? mainColor : subTextColor}
-                              solid 
-                            />
-                          ) : type.id === 'shoes' ? (
-                            <FontAwesome5 
-                              name="shoe-prints" 
-                              size={24} 
-                              color={newPieceType === type.id ? mainColor : subTextColor}
-                              solid 
-                            />
-                          ) : (
-                            <FontAwesome5 
-                              name="glasses" 
-                              size={24} 
-                              color={newPieceType === type.id ? mainColor : subTextColor}
-                              solid 
-                            />
-                          )}
+                          <FontAwesome5 
+                            name={type.icon} 
+                            size={24} 
+                            color={newPieceType === type.id ? mainColor : subTextColor}
+                            solid 
+                          />
                         </View>
                         <Text 
                           style={[
@@ -754,7 +742,7 @@ const CreatePostScreen: React.FC = () => {
                         </Text>
                       </TouchableOpacity>
                     ))}
-                  </View>
+                  </ScrollView>
                 </View>
                 
                 <TouchableOpacity 
@@ -1137,19 +1125,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
   },
-  pieceTypesGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
+  typeScrollView: {
+    maxHeight: 100,
+  },
+  typeScrollContent: {
+    paddingBottom: 8,
+    paddingRight: 8,
   },
   pieceTypeButton: {
-    width: '23%',
-    aspectRatio: 0.9,
+    width: 100,
+    height: 80,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'transparent',
+    marginRight: 12,
   },
   selectedPieceType: {
     borderWidth: 2,

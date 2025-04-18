@@ -1098,7 +1098,7 @@ const ThreeDScreen: React.FC = () => {
       </Animated.ScrollView>
       
       {/* Fitting Room (Try-On Bucket) UI at bottom of screen */}
-      {hasModel && tryOnBucket.length > 0 && (
+      {hasModel && tryOnBucket.length > 0 && showTryOnBucket && (
         <Animated.View 
           style={[
             styles.bucketContainer, 

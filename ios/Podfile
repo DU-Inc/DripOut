@@ -1,9 +1,12 @@
+# Override Firebase SDK Version
+$FirebaseSDKVersion = '10.22.0'
+
 # Resolve react_native_pods.rb with node to allow for hoisting
 require Pod::Executable.execute_command('node', ['-p',
-  'require.resolve(
-    "react-native/scripts/react_native_pods.rb",
-    {paths: [process.argv[1]]},
-  )', __dir__]).strip
+'require.resolve(
+"react-native/scripts/react_native_pods.rb",
+{paths: [process.argv[1]]},
+)', __dir__]).strip
 
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
@@ -17,7 +20,9 @@ target 'DripOutApp' do
   use_react_native!(
     :path => config[:reactNativePath],
     # An absolute path to your application root.
-    :app_path => "#{Pod::Config.instance.installation_root}/.."
+    :app_path => "#{Pod::Config.instance.installation_root}/..",
+    # Enable Fabric for the New Architecture
+    :fabric_enabled => true
   )
 
   target 'DripOutAppTests' do

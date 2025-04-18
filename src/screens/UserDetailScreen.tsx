@@ -29,6 +29,7 @@ import { isRealUserId } from '../utils/userUtils';
 type UserDetailParams = {
   userId: string;
   username?: string;
+  userDisplayName?: string;
 };
 
 // Define User data interface
@@ -57,7 +58,7 @@ const UserDetailScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<RouteProp<Record<string, UserDetailParams>, string>>();
-  const { userId, username } = route.params || {};
+  const { userId, username, userDisplayName } = route.params || {};
   
   // Colors based on theme
   const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
@@ -452,17 +453,11 @@ const UserDetailScreen: React.FC = () => {
                             return;
                           }
                           
-                          // In a real app, you'd navigate to a chat screen or open a chat modal
+                          // Navigate directly to the MessagingScreen
                           console.log(`MESSAGE USER from details - userId: ${userId}, username: ${userData.username}`);
-                          // Navigate to the SocialTab first
-                          // @ts-ignore - navigation accepts these params
-                          navigation.navigate('MainTabs', {
-                            screen: 'SocialTab',
-                            params: { 
-                              showMessages: true, 
-                              messageUserId: userData.userID,
-                              messageUsername: userData.username
-                            }
+                          navigation.navigate('MessagingScreen', {
+                            otherUserId: userData.userID,
+                            otherUserName: userData.username
                           });
                         }}
                       >

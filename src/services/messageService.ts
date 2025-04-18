@@ -1,4 +1,5 @@
-import { db, auth } from '../Config/firebaseconfig';
+import { db } from '../Config/firebaseconfig';
+import { auth } from '../Config/firebaseconfig';
 import { 
   collection, 
   doc, 
@@ -10,7 +11,7 @@ import {
   query, 
   where, 
   orderBy, 
-  limit,
+  limit as limitQuery,
   updateDoc,
   serverTimestamp,
   Timestamp,
@@ -31,6 +32,7 @@ export interface Message {
   read: boolean;
   senderName?: string;
   senderAvatar?: string | null;
+  participants?: string[]; // Array of participant IDs
 }
 
 /**
@@ -42,7 +44,7 @@ export interface Conversation {
   lastMessage?: string;
   lastMessageTime?: any;
   lastMessageSenderId?: string;
-  unreadCount?: number;
+  unreadCount?: {[userId: string]: number};
   updatedAt: any;
 }
 
@@ -56,6 +58,16 @@ export interface ConversationWithDetails extends Conversation {
   lastMessageTime: string;
 }
 
+// Helper function to safely get current user
+const getCurrentUser = () => {
+  try {
+    return auth().currentUser;
+  } catch (error) {
+    console.error('Error accessing auth().currentUser:', error);
+    return null;
+  }
+};
+
 /**
  * Send a message to a user
  * @param receiverId - The ID of the recipient
@@ -64,7 +76,7 @@ export interface ConversationWithDetails extends Conversation {
  */
 export const sendMessage = async (receiverId: string, text: string): Promise<string> => {
   try {
-    const currentUser = auth().currentUser;
+    const currentUser = getCurrentUser();
     if (!currentUser) {
       throw new Error('You must be logged in to send messages');
     }
@@ -112,6 +124,7 @@ export const sendMessage = async (receiverId: string, text: string): Promise<str
     const messageDoc = await addDoc(messagesRef, {
       senderId,
       receiverId,
+      participants: [senderId, receiverId], // Add participants array for querying
       text,
       createdAt: timestamp,
       read: false,
@@ -133,9 +146,9 @@ export const sendMessage = async (receiverId: string, text: string): Promise<str
  * @param limit - Optional limit on number of messages to return
  * @returns Promise with array of messages
  */
-export const getMessages = async (otherUserId: string, messageLimit = 20): Promise<Message[]> => {
+export const getMessages = async (otherUserId: string, messageLimit = 100): Promise<Message[]> => {
   try {
-    const currentUser = auth().currentUser;
+    const currentUser = getCurrentUser();
     if (!currentUser) {
       throw new Error('You must be logged in to view messages');
     }
@@ -143,31 +156,46 @@ export const getMessages = async (otherUserId: string, messageLimit = 20): Promi
     const userId = currentUser.uid;
     const messagesRef = collection(db, 'messages');
     
-    // Query for messages sent by either user to the other
+    // Simple query with just a time filter to avoid index requirements
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
     const messagesQuery = query(
       messagesRef,
-      where('participants', 'array-contains', userId),
-      orderBy('createdAt', 'desc'),
-      limit(messageLimit)
+      where('createdAt', '>', Timestamp.fromDate(thirtyDaysAgo)),
+      limitQuery(200) // Get more messages to filter from
     );
 
     const querySnapshot = await getDocs(messagesQuery);
     
+    // Filter messages to only include those between these two users
+    const allMessages = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data() as Message
+    }));
+    
+    // Filter and sort messages
+    const filteredMessages = allMessages
+      .filter(message => 
+        (message.senderId === userId && message.receiverId === otherUserId) || 
+        (message.senderId === otherUserId && message.receiverId === userId)
+      )
+      .sort((a, b) => {
+        // Sort by createdAt timestamp
+        const aTime = a.createdAt?.toDate?.() || new Date(0);
+        const bTime = b.createdAt?.toDate?.() || new Date(0);
+        return aTime.getTime() - bTime.getTime();
+      });
+    
     // Mark messages as read if they were sent to the current user
-    querySnapshot.docs.forEach(async (docSnapshot) => {
-      const message = docSnapshot.data() as Message;
-      if (message.receiverId === userId && !message.read) {
-        await updateDoc(doc(messagesRef, docSnapshot.id), { read: true });
+    filteredMessages.forEach(async (message) => {
+      if (message.receiverId === userId && !message.read && message.id) {
+        await updateDoc(doc(messagesRef, message.id), { read: true });
       }
     });
 
-    // Format messages and reverse to show oldest first
-    return querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data() as Message
-      }))
-      .reverse();
+    // Return messages (already sorted by createdAt ascending)
+    return filteredMessages;
   } catch (error) {
     console.error('Error getting messages:', error);
     throw error;
@@ -180,7 +208,7 @@ export const getMessages = async (otherUserId: string, messageLimit = 20): Promi
  */
 export const getConversations = async (): Promise<ConversationWithDetails[]> => {
   try {
-    const currentUser = auth().currentUser;
+    const currentUser = getCurrentUser();
     if (!currentUser) {
       throw new Error('You must be logged in to view conversations');
     }
@@ -191,8 +219,7 @@ export const getConversations = async (): Promise<ConversationWithDetails[]> => 
     // Query for conversations that include the current user
     const conversationsQuery = query(
       conversationsRef,
-      where('participants', 'array-contains', userId),
-      orderBy('updatedAt', 'desc')
+      where('participants', 'array-contains', userId)
     );
 
     const querySnapshot = await getDocs(conversationsQuery);
@@ -204,7 +231,8 @@ export const getConversations = async (): Promise<ConversationWithDetails[]> => 
       const conversation = docSnapshot.data() as Conversation;
       const otherUserId = conversation.participants.find(id => id !== userId);
       
-      if (otherUserId) {
+      // Skip self-conversations or conversations with undefined otherUserId
+      if (otherUserId && otherUserId !== userId) {
         // Get other user's profile details
         const userDocRef = doc(db, 'users', otherUserId);
         const userDoc = await getDoc(userDocRef);
@@ -239,7 +267,12 @@ export const getConversations = async (): Promise<ConversationWithDetails[]> => 
       }
     }
     
-    return conversations;
+    // Sort conversations by updatedAt timestamp (most recent first)
+    return conversations.sort((a, b) => {
+      const aTime = a.updatedAt?.toDate?.() || new Date(0);
+      const bTime = b.updatedAt?.toDate?.() || new Date(0);
+      return bTime.getTime() - aTime.getTime();
+    });
   } catch (error) {
     console.error('Error getting conversations:', error);
     throw error;
@@ -264,7 +297,7 @@ export const getConversationId = (userId1: string, userId2: string): string => {
  */
 export const markConversationAsRead = async (otherUserId: string): Promise<void> => {
   try {
-    const currentUser = auth().currentUser;
+    const currentUser = getCurrentUser();
     if (!currentUser) {
       throw new Error('You must be logged in to mark messages as read');
     }
@@ -275,9 +308,15 @@ export const markConversationAsRead = async (otherUserId: string): Promise<void>
     const conversationId = getConversationId(userId, otherUserId);
     const conversationRef = doc(db, 'conversations', conversationId);
     
-    await updateDoc(conversationRef, {
-      [`unreadCount.${userId}`]: 0
-    });
+    try {
+      await updateDoc(conversationRef, {
+        [`unreadCount.${userId}`]: 0
+      });
+      console.log(`Reset unread count for conversation ${conversationId}`);
+    } catch (error) {
+      console.error('Failed to update conversation unread count:', error);
+      // Continue even if this fails
+    }
     
     // Mark all unread messages as read
     const messagesRef = collection(db, 'messages');
@@ -289,17 +328,22 @@ export const markConversationAsRead = async (otherUserId: string): Promise<void>
     );
     
     const querySnapshot = await getDocs(unreadMessagesQuery);
+    console.log(`Found ${querySnapshot.size} unread messages to mark as read`);
     
-    const batch = db.batch();
-    querySnapshot.docs.forEach(doc => {
-      batch.update(doc.ref, { read: true });
+    // Update each message individually instead of using batch
+    const updatePromises = querySnapshot.docs.map(docSnapshot => {
+      return updateDoc(doc(messagesRef, docSnapshot.id), { read: true })
+        .catch(error => {
+          console.error(`Failed to mark message ${docSnapshot.id} as read:`, error);
+          return Promise.resolve(); // Continue with other updates even if one fails
+        });
     });
     
-    await batch.commit();
+    await Promise.all(updatePromises);
     console.log(`Marked ${querySnapshot.size} messages as read from ${otherUserId}`);
   } catch (error) {
     console.error('Error marking conversation as read:', error);
-    throw error;
+    // Don't throw error to prevent disrupting the UI
   }
 };
 
@@ -313,7 +357,7 @@ export const subscribeToMessages = (
   otherUserId: string, 
   callback: (messages: Message[]) => void
 ): (() => void) => {
-  const currentUser = auth().currentUser;
+  const currentUser = getCurrentUser();
   if (!currentUser) {
     console.error('You must be logged in to subscribe to messages');
     return () => {};
@@ -322,34 +366,59 @@ export const subscribeToMessages = (
   const userId = currentUser.uid;
   const messagesRef = collection(db, 'messages');
   
-  // Query for messages between these two users
+  // Simple query with just a time filter to avoid index issues
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+  // Use a simple query that doesn't require complex indexes
   const messagesQuery = query(
     messagesRef,
-    where('participants', 'array-contains', userId),
-    orderBy('createdAt', 'desc'),
-    limit(100)
+    where('createdAt', '>', Timestamp.fromDate(thirtyDaysAgo)),
+    limitQuery(200) // Limit to recent messages
   );
+  
+  // Filter function to include only messages between these two users
+  const filterMessagesBetweenUsers = (messages: Message[]) => {
+    return messages.filter(message => 
+      (message.senderId === userId && message.receiverId === otherUserId) || 
+      (message.senderId === otherUserId && message.receiverId === userId)
+    );
+  };
   
   // Set up the listener
   const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
-    const messages = snapshot.docs
+    const allMessages = snapshot.docs
       .map(doc => ({
         id: doc.id,
         ...doc.data() as Message
-      }))
-      .reverse();
+      }));
     
-    callback(messages);
+    // Apply the filter to get only messages between these two users
+    const filteredMessages = filterMessagesBetweenUsers(allMessages)
+      .sort((a, b) => {
+        // Sort by createdAt timestamp in ascending order (oldest first)
+        const aTime = a.createdAt?.toDate?.() || new Date(0);
+        const bTime = b.createdAt?.toDate?.() || new Date(0);
+        return aTime.getTime() - bTime.getTime();
+      });
+    
+    callback(filteredMessages);
     
     // Mark new messages as read
     snapshot.docChanges().forEach(async (change) => {
       if (change.type === 'added') {
         const message = change.doc.data() as Message;
         if (message.receiverId === userId && !message.read) {
-          await updateDoc(doc(messagesRef, change.doc.id), { read: true });
+          try {
+            await updateDoc(doc(messagesRef, change.doc.id), { read: true });
+          } catch (error) {
+            console.error(`Failed to mark message ${change.doc.id} as read:`, error);
+          }
         }
       }
     });
+  }, (error) => {
+    console.error('Error in message snapshot listener:', error);
   });
   
   return unsubscribe;
@@ -363,7 +432,7 @@ export const subscribeToMessages = (
 export const subscribeToConversations = (
   callback: (conversations: ConversationWithDetails[]) => void
 ): (() => void) => {
-  const currentUser = auth().currentUser;
+  const currentUser = getCurrentUser();
   if (!currentUser) {
     console.error('You must be logged in to subscribe to conversations');
     return () => {};
@@ -375,8 +444,7 @@ export const subscribeToConversations = (
   // Query for conversations that include the current user
   const conversationsQuery = query(
     conversationsRef,
-    where('participants', 'array-contains', userId),
-    orderBy('updatedAt', 'desc')
+    where('participants', 'array-contains', userId)
   );
   
   // Set up the listener
@@ -389,45 +457,68 @@ export const subscribeToConversations = (
         const conversation = docSnapshot.data() as Conversation;
         const otherUserId = conversation.participants.find(id => id !== userId);
         
-        if (otherUserId) {
+        // Skip self-conversations or conversations with undefined otherUserId
+        if (otherUserId && otherUserId !== userId) {
           // Get other user's profile details
-          const userDocRef = doc(db, 'users', otherUserId);
-          const userDoc = await getDoc(userDocRef);
-          const userData = userDoc.data() || {};
-          
-          // Format timestamp
-          let timeAgo = 'Just now';
-          if (conversation.lastMessageTime) {
-            const lastMessageDate = conversation.lastMessageTime.toDate();
-            const now = new Date();
-            const diffMinutes = Math.floor((now.getTime() - lastMessageDate.getTime()) / (1000 * 60));
+          try {
+            const userDocRef = doc(db, 'users', otherUserId);
+            const userDoc = await getDoc(userDocRef);
+            const userData = userDoc.data() || {};
             
-            if (diffMinutes < 1) {
-              timeAgo = 'Just now';
-            } else if (diffMinutes < 60) {
-              timeAgo = `${diffMinutes}m`;
-            } else if (diffMinutes < 24 * 60) {
-              timeAgo = `${Math.floor(diffMinutes / 60)}h`;
-            } else {
-              timeAgo = `${Math.floor(diffMinutes / (60 * 24))}d`;
+            // Format timestamp
+            let timeAgo = 'Just now';
+            if (conversation.lastMessageTime) {
+              const lastMessageDate = conversation.lastMessageTime.toDate();
+              const now = new Date();
+              const diffMinutes = Math.floor((now.getTime() - lastMessageDate.getTime()) / (1000 * 60));
+              
+              if (diffMinutes < 1) {
+                timeAgo = 'Just now';
+              } else if (diffMinutes < 60) {
+                timeAgo = `${diffMinutes}m`;
+              } else if (diffMinutes < 24 * 60) {
+                timeAgo = `${Math.floor(diffMinutes / 60)}h`;
+              } else {
+                timeAgo = `${Math.floor(diffMinutes / (60 * 24))}d`;
+              }
             }
+            
+            conversations.push({
+              ...conversation,
+              id: docSnapshot.id,
+              otherUserName: userData.displayName || userData.username || 'Unknown User',
+              otherUserAvatar: userData.photoURL || null,
+              otherUserId,
+              lastMessageTime: timeAgo
+            });
+          } catch (error) {
+            console.error(`Error getting user data for ${otherUserId}:`, error);
+            // Add conversation with minimal info if we can't get user details
+            conversations.push({
+              ...conversation,
+              id: docSnapshot.id,
+              otherUserName: 'Unknown User',
+              otherUserAvatar: null,
+              otherUserId,
+              lastMessageTime: 'Unknown'
+            });
           }
-          
-          conversations.push({
-            ...conversation,
-            id: docSnapshot.id,
-            otherUserName: userData.displayName || userData.username || 'Unknown User',
-            otherUserAvatar: userData.photoURL || null,
-            otherUserId,
-            lastMessageTime: timeAgo
-          });
         }
       }
       
-      callback(conversations);
+      // Sort conversations by updatedAt timestamp (most recent first)
+      const sortedConversations = conversations.sort((a, b) => {
+        const aTime = a.updatedAt?.toDate?.() || new Date(0);
+        const bTime = b.updatedAt?.toDate?.() || new Date(0);
+        return bTime.getTime() - aTime.getTime();
+      });
+      
+      callback(sortedConversations);
     } catch (error) {
       console.error('Error processing conversations update:', error);
     }
+  }, (error) => {
+    console.error('Error in conversations snapshot listener:', error);
   });
   
   return unsubscribe;
@@ -440,7 +531,7 @@ export const subscribeToConversations = (
  */
 export const deleteMessage = async (messageId: string): Promise<void> => {
   try {
-    const currentUser = auth().currentUser;
+    const currentUser = getCurrentUser();
     if (!currentUser) {
       throw new Error('You must be logged in to delete messages');
     }
