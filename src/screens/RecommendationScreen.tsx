@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
-import { useTheme } from '../styles/themeprovider';
+import { useTheme } from '../styles/theme/ThemeContext';
 import { searchProducts, Product, checkApiHealth } from '../services/recommendationService';
 import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../Config/firebaseconfig';

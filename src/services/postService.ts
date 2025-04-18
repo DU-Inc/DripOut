@@ -1,6 +1,7 @@
 import { db, auth } from '../Config/firebaseconfig';
-import { collection, addDoc, getDocs, query, where, orderBy, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, orderBy, Timestamp, serverTimestamp, limit } from 'firebase/firestore';
 import { uploadImageAndGetURL } from './storageService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
  * Interface for outfit item in a post

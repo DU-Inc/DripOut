@@ -1,31 +1,27 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+// This file is being refactored to use only the React Native Firebase SDK
+// Import the auth instance directly from firebaseconfig
+import { auth } from '../Config/firebaseconfig';
+// Commented out Google auth functionality
+// import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN, FIREBASE_PROJECT_ID, FIREBASE_STORAGE_BUCKET, FIREBASE_MESSAGING_SENDER_ID, FIREBASE_APP_ID } from '@env';
 
-// Firebase configuration from environment variables
-const firebaseConfig = {
-  apiKey: FIREBASE_API_KEY,
-  authDomain: FIREBASE_AUTH_DOMAIN,
-  projectId: FIREBASE_PROJECT_ID,
-  storageBucket: FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: FIREBASE_MESSAGING_SENDER_ID,
-  appId: FIREBASE_APP_ID,
+// Note: The Google Auth functionality is temporarily disabled in the app
+
+/*
+// Stub implementation - temporarily disabled
+export const googleSignIn = async (idToken: string, accessToken: string) => {
+  console.log('Google sign in is temporarily disabled');
+  throw new Error('Google sign in is temporarily disabled');
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
-
-// Google Auth helper - temporarily disabled
-/* Original implementation
+// For future implementation when Google Auth is re-enabled:
 export const googleSignIn = async (idToken: string, accessToken: string) => {
   try {
     // Create a Google credential with the tokens
-    const credential = GoogleAuthProvider.credential(idToken, accessToken);
+    const googleCredential = auth.GoogleAuthProvider.credential(idToken, accessToken);
     
     // Sign in with credential
-    const userCredential = await signInWithCredential(auth, credential);
+    const userCredential = await auth().signInWithCredential(googleCredential);
     return userCredential.user;
   } catch (error) {
     console.error('Google sign in error:', error);
@@ -34,14 +30,7 @@ export const googleSignIn = async (idToken: string, accessToken: string) => {
 };
 */
 
-// Stub implementation
-export const googleSignIn = async (idToken: string, accessToken: string) => {
-  console.log('Google sign in is temporarily disabled');
-  throw new Error('Google sign in is temporarily disabled');
-};
-
 export default {
   auth,
-  googleProvider,
-  googleSignIn
+  // googleSignIn - removed for now
 }; 

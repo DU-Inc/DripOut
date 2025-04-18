@@ -17,15 +17,14 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { db } from '../../Config/firebaseconfig';
 import { doc, onSnapshot, updateDoc, Timestamp } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { auth } from '../../Config/firebaseconfig';
 import { UserProfile } from '../../services/firestoreService';
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import { resetOnboardingStatus } from '../../utils/resetOnboarding';
 
-// Get the auth instance with proper typing
-const auth = getAuth();
+// No need for getAuth() initialization
 
 // Set default text styles for SF Pro font family
 const defaultTextStyle = {
@@ -55,7 +54,7 @@ const SettingsScreen: React.FC = () => {
   const dangerColor = isDarkMode ? '#FF453A' : '#FF3B30'; // iOS red
 
   useEffect(() => {
-    const userId = auth.currentUser?.uid;
+    const userId = auth().currentUser?.uid;
     if (userId) {
       // Listen for profile updates
       const profileUnsubscribe = onSnapshot(doc(db, 'users', userId), (docSnapshot) => {
@@ -100,10 +99,10 @@ const SettingsScreen: React.FC = () => {
   };
 
   const handleSaveProfile = async () => {
-    if (!editedProfile || !auth.currentUser) return;
+    if (!editedProfile || !auth().currentUser) return;
     
     try {
-      const userId = auth.currentUser.uid;
+      const userId = auth().currentUser!.uid;
       const userRef = doc(db, 'users', userId);
       
       // Add updatedAt timestamp
@@ -454,7 +453,7 @@ const SettingsScreen: React.FC = () => {
               'Sign Out', 
               'Log out of your account', 
               undefined, 
-              () => auth.signOut(),
+              () => auth().signOut(),
               accentColor
             )}
             {renderSettingItem(

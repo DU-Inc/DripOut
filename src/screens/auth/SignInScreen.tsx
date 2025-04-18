@@ -30,12 +30,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CommonActions, useFocusEffect } from '@react-navigation/native';
 import { useBiometricAuth } from '../../hooks/useBiometricAuth';
 import CodeInput from '../../components/auth/CodeInput';
-import { auth } from '../../config/firebaseconfig';
+import { auth } from '../../Config/firebaseconfig';
 import { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import firebase from '@react-native-firebase/app';
 import SuccessOptionsSheet from '../../components/common/SuccessOptionsSheet';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../config/firebaseconfig';
+import { db } from '../../Config/firebaseconfig';
 
 // Add global setTimeout and clearTimeout type declarations
 declare const setTimeout: (callback: () => void, ms: number) => number;

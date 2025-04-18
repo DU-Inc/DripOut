@@ -1,6 +1,6 @@
 // src/screens/SocialScreen.tsx
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   SafeAreaView,
   Animated,
@@ -24,6 +24,7 @@ import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-g
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
+import { Timestamp } from 'firebase/firestore';
 
 // Add global setTimeout type declaration
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -43,7 +44,7 @@ import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
 // No longer need custom bottom navigation bar with tab navigator
-import { useTheme } from '../styles/themeprovider';
+import { useTheme } from '../styles/theme/ThemeContext';
 
 import { getCachedFeedPosts, Post } from '../services/postService';
 import { getUserProfile, UserProfile } from '../services/firestoreService';
@@ -150,6 +151,95 @@ const SocialScreen: React.FC = () => {
   const panXValues = useRef<Record<string, Animated.Value>>({});
   const panResponders = useRef<Record<string, any>>({});
 
+  // Helper function to safely create a complete FashionPost object with defaults
+  const createFashionPost = (post: any): FashionPost => {
+    // Default gallery with placeholder if needed
+    const gallery = post?.imageUrl 
+      ? [post.imageUrl] 
+      : ['https://via.placeholder.com/400'];
+      
+    // Add random second image sometimes
+    if (post?.imageUrl && Math.random() > 0.5) {
+      gallery.push(`https://picsum.photos/800/1000?random=${Math.floor(Math.random() * 100)}`);
+    }
+    
+    // Default caption
+    const caption = post?.caption || 'Fashion inspiration';
+    
+    // Default title from first sentence of caption
+    let title = '';
+    try {
+      if (caption) {
+        const firstSentence = caption.split('.')[0];
+        title = firstSentence && firstSentence.length > 30 
+          ? firstSentence.substring(0, 30) + '...' 
+          : firstSentence;
+      }
+    } catch (e) {
+      title = 'Fashion inspiration';
+    }
+    
+    // Format date safely
+    let publishedDate = '1 day ago';
+    if (post?.createdAt) {
+      try {
+        const timestamp = post.createdAt;
+        if (timestamp && typeof timestamp.toDate === 'function') {
+          publishedDate = formatDistanceToNow(timestamp.toDate()) + ' ago';
+        } else if (timestamp && typeof timestamp.seconds === 'number') {
+          publishedDate = formatDistanceToNow(new Date(timestamp.seconds * 1000)) + ' ago';
+        } else if (timestamp instanceof Date || typeof timestamp === 'string' || typeof timestamp === 'number') {
+          publishedDate = formatDistanceToNow(new Date(timestamp)) + ' ago';
+        }
+      } catch (e) {
+        console.warn('Date formatting error:', e);
+      }
+    }
+    
+    // Default tag formatting
+    const formattedTags = ((post?.tags || []) as any[])
+      .filter((tag: any) => typeof tag === 'string')
+      .map((tag: string) => tag.startsWith('#') ? tag : `#${tag}`);
+    
+    // Random aesthetic if none provided
+    const aesthetic = STYLE_AESTHETICS[Math.floor(Math.random() * STYLE_AESTHETICS.length)];
+    
+    // Default outfit items
+    const outfitItems = (post?.outfitItems && Array.isArray(post?.outfitItems) && post.outfitItems.length > 0)
+      ? post.outfitItems
+      : [
+          {name: 'Oversized Shirt', brand: 'COS'},
+          {name: 'Slim Trousers', brand: 'Uniqlo'},
+          {name: 'Minimal Sneakers', brand: 'Common Projects'},
+          {name: 'Classic Watch', brand: 'Timex'}
+        ];
+    
+    // Generate sample comments
+    const comments = generateSampleComments(post?.id || Math.random().toString());
+    
+    // Return complete FashionPost with all required properties
+    return {
+      id: post?.id || Math.random().toString(),
+      userId: post?.userId || 'unknown',
+      username: post?.username || 'style_user',
+      userAvatar: post?.userAvatar,
+      title,
+      gallery,
+      aesthetic,
+      caption,
+      tags: formattedTags,
+      outfitItems,
+      publishedDate,
+      comments,
+      commentCount: comments.length,
+      upvotes: post?.likes || Math.floor(Math.random() * 500) + 100,
+      saves: Math.floor(Math.random() * 200) + 50,
+      isSaved: Math.random() > 0.5,
+      isUpvoted: Math.random() > 0.6,
+      createdAt: post?.createdAt
+    };
+  };
+
   // Fetch posts from Firebase
   const fetchPosts = async (forceRefresh = false) => {
     try {
@@ -158,67 +248,8 @@ const SocialScreen: React.FC = () => {
       const posts = await getCachedFeedPosts(forceRefresh);
       setFirebasePosts(posts);
       
-      // Convert to FashionPost format
-      const enhancedPosts = await Promise.all(posts.map(async (post) => {
-        // Format post dates
-        const publishedDate = post.createdAt ? 
-          formatDistanceToNow(post.createdAt.toDate ? post.createdAt.toDate() : new Date(post.createdAt)) + ' ago' : 
-          '1 day ago';
-        
-        // Generate random values for UI elements that don't exist in the database yet
-        const aesthetic = STYLE_AESTHETICS[Math.floor(Math.random() * STYLE_AESTHETICS.length)];
-        const upvotes = post.likes || Math.floor(Math.random() * 500) + 100;
-        const saves = Math.floor(Math.random() * 200) + 50;
-        const isSaved = Math.random() > 0.5;
-        const isUpvoted = Math.random() > 0.6;
-        
-        // Generate comments if none exist
-        const comments = generateSampleComments(post.id);
-        
-        // Convert tags array to include hashtags if they don't have them
-        const formattedTags = (post.tags || []).map(tag => 
-          tag.startsWith('#') ? tag : `#${tag}`
-        );
-        
-        // Create gallery array from the single image
-        const gallery = [post.imageUrl];
-        // Add more images if we want to simulate multiple images
-        if (Math.random() > 0.5) {
-          gallery.push(`https://picsum.photos/800/1000?random=${Math.floor(Math.random() * 100)}`);
-        }
-        
-        // Create title from caption if none exists
-        let title = post.caption.split('.')[0];
-        if (title && title.length > 30) {
-          title = title.substring(0, 30) + '...';
-        }
-        
-        // Create sample outfit items if none exist
-        const outfitItems = post.outfitItems && post.outfitItems.length > 0 ? 
-          post.outfitItems : 
-          [
-            {name: 'Oversized Shirt', brand: 'COS'},
-            {name: 'Slim Trousers', brand: 'Uniqlo'},
-            {name: 'Minimal Sneakers', brand: 'Common Projects'},
-            {name: 'Classic Watch', brand: 'Timex'}
-          ];
-          
-        return {
-          ...post,
-          title,
-          gallery,
-          aesthetic,
-          tags: formattedTags,
-          publishedDate,
-          outfitItems,
-          comments,
-          commentCount: comments.length,
-          upvotes,
-          saves,
-          isSaved,
-          isUpvoted
-        } as FashionPost;
-      }));
+      // Convert to FashionPost format with safe conversion
+      const enhancedPosts = (posts || []).map(post => createFashionPost(post));
       
       setFashionPosts(enhancedPosts);
     } catch (error) {
@@ -308,14 +339,15 @@ const SocialScreen: React.FC = () => {
 
   // Cycle through gallery images
   const cycleGalleryImage = (postId: string, direction: 'next' | 'prev') => {
-    const post = FASHION_POSTS.find(p => p.id === postId);
-    if (!post) return;
+    const post = fashionPosts?.find(p => p?.id === postId);
+    if (!post || !post.gallery || !Array.isArray(post.gallery) || post.gallery.length === 0) return;
     
     const currentIndex = activeGalleryIndex[postId] || 0;
     let newIndex;
     
+    const maxIndex = post.gallery.length - 1;
     if (direction === 'next') {
-      newIndex = (currentIndex + 1) % post.gallery.length;
+      newIndex = (currentIndex + 1) % (maxIndex + 1);
     } else {
       newIndex = (currentIndex - 1 + post.gallery.length) % post.gallery.length;
     }
@@ -329,7 +361,11 @@ const SocialScreen: React.FC = () => {
   // Initialize animations and pan responders for posts
   React.useEffect(() => {
     // Create animations for each post
-    FASHION_POSTS.forEach((post, index) => {
+    if (!fashionPosts || !Array.isArray(fashionPosts)) return;
+    
+    fashionPosts.forEach((post, index) => {
+      if (!post || !post.id) return;
+      
       if (!postAnimations.current[post.id]) {
         const animatedValue = new Animated.Value(0);
         postAnimations.current[post.id] = animatedValue;
@@ -351,7 +387,7 @@ const SocialScreen: React.FC = () => {
         panResponders.current[post.id] = createPanResponderForPost(post.id);
       }
     });
-  }, []);
+  }, [fashionPosts]);
   
   // Create pan responder for post
   const createPanResponderForPost = (postId: string) => {
@@ -372,11 +408,11 @@ const SocialScreen: React.FC = () => {
   const handleSwipeEnd = (postId: string, gestureState: { dx: number }) => {
     const { dx } = gestureState;
     const currentImageIndex = activeGalleryIndex[postId] || 0;
-    const post = FASHION_POSTS.find(p => p.id === postId);
+    const post = fashionPosts?.find(p => p?.id === postId);
     
-    if (!post) return;
+    if (!post || !post.gallery) return;
     
-    if (dx < -swipeThreshold && currentImageIndex < post.gallery.length - 1) {
+    if (dx < -swipeThreshold && currentImageIndex < (post.gallery?.length || 0) - 1) {
       // Swipe left - go to next image
       cycleGalleryImage(postId, 'next');
     } else if (dx > swipeThreshold && currentImageIndex > 0) {
@@ -395,6 +431,12 @@ const SocialScreen: React.FC = () => {
 
   // Render fashion inspiration post
   const renderFashionPost = ({ item, index }: { item: FashionPost; index: number }) => {
+    // Bail out if item is undefined or missing critical properties
+    if (!item || !item.id) {
+      console.warn('Attempted to render undefined post item');
+      return null;
+    }
+    
     // Use the pre-created animation value
     const animatedValue = postAnimations.current[item.id] || new Animated.Value(1);
     
@@ -540,13 +582,19 @@ const SocialScreen: React.FC = () => {
           ]}
           {...(panResponder ? panResponder.panHandlers : {})}
         >
-          <Image 
-            source={{ uri: item.gallery[currentImageIndex] }} 
-            style={styles.galleryImage}
-          />
+          {item.gallery && item.gallery.length > 0 ? (
+            <Image 
+              source={{ uri: item.gallery[currentImageIndex] || 'https://via.placeholder.com/400' }} 
+              style={styles.galleryImage}
+            />
+          ) : (
+            <View style={[styles.galleryImage, { backgroundColor: '#e0e0e0', justifyContent: 'center', alignItems: 'center' }]}>
+              <Text style={{ color: '#888' }}>No image available</Text>
+            </View>
+          )}
           
           {/* Image navigation dots */}
-          {item.gallery.length > 1 && (
+          {item.gallery && item.gallery.length > 1 && (
             <View style={styles.galleryDots}>
               {item.gallery.map((_, i: number) => (
                 <View 
@@ -564,7 +612,7 @@ const SocialScreen: React.FC = () => {
           )}
           
           {/* Left/Right navigation buttons for gallery */}
-          {item.gallery.length > 1 && (
+          {item.gallery && item.gallery.length > 1 && (
             <>
               {/* Swipe indicators */}
               <Animated.View 
@@ -683,7 +731,7 @@ const SocialScreen: React.FC = () => {
         <View style={styles.piecesContainer}>
           <Text style={[styles.piecesHeading, { color: textColor }]}>Featured Pieces</Text>
           <View style={styles.piecesGrid}>
-            {item.outfitItems.map((piece: { name: string, brand: string }, i: number) => (
+            {(item.outfitItems || []).map((piece: { name: string, brand: string }, i: number) => (
               <View 
                 key={`piece-${i}`}
                 style={[
@@ -749,7 +797,7 @@ const SocialScreen: React.FC = () => {
                 styles.actionText, 
                 { color: expandedComments === item.id ? mainColor : subTextColor }
               ]}>
-                {item.commentCount} {expandedComments === item.id ? 'Comments' : 'Discuss'}
+                {(item.commentCount || 0)} {expandedComments === item.id ? 'Comments' : 'Discuss'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -775,7 +823,7 @@ const SocialScreen: React.FC = () => {
         </View>
 
         {/* Comments Section */}
-        {expandedComments === item.id && (
+        {expandedComments === item.id && item.comments && Array.isArray(item.comments) && (
           <View 
             style={[
               styles.commentsSection,
@@ -785,7 +833,7 @@ const SocialScreen: React.FC = () => {
             {/* Comments header with collapse button */}
             <View style={styles.commentsHeader}>
               <Text style={[styles.commentsTitle, { color: textColor }]}>
-                Comments ({item.commentCount})
+                Comments ({item.commentCount || 0})
               </Text>
               <TouchableOpacity 
                 style={[
@@ -804,63 +852,66 @@ const SocialScreen: React.FC = () => {
             {/* Scrollable comments list */}
             <View style={styles.commentsScrollView}>
               <FlatList
-                data={expandedComments === item.id ? item.comments : []}
-                keyExtractor={(comment) => comment.id}
-                renderItem={({item: comment, index}) => (
-                  <View 
-                    style={[
-                      styles.commentItem,
-                      index !== item.comments.length - 1 && { 
-                        borderBottomWidth: 1, 
-                        borderBottomColor: 'rgba(150, 150, 150, 0.1)'
-                      }
-                    ]}
-                  >
-                    <View style={styles.commentHeader}>
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        onPress={() => {
-                          // Generate a user ID for the comment user
-                          const userId = `comment_user_${comment.id}`;
-                          
-                          // Navigate to user detail screen
-                          navigation.navigate('UserDetailScreen', { 
-                            userId, 
-                            username: comment.username 
-                          });
-                        }}
-                      >
-                        <Text style={[styles.commentUsername, { color: textColor }]}>
-                          {comment.username}
-                        </Text>
-                      </TouchableOpacity>
-                      <Text style={[styles.commentTime, { color: subTextColor }]}>
-                        {comment.timeAgo}
-                      </Text>
-                    </View>
-                    
-                    <Text style={[styles.commentText, { color: subTextColor }]}>
-                      {comment.text}
-                    </Text>
-                    
-                    <View style={styles.commentActions}>
-                      <TouchableOpacity style={styles.commentLike}>
-                        <FeatherIcon name="heart" size={14} color={iconColor} />
-                        {comment.likes > 0 && (
-                          <Text style={[styles.commentLikeCount, { color: subTextColor }]}>
-                            {comment.likes}
+                data={expandedComments === item.id && item.comments ? item.comments : []}
+                keyExtractor={(comment) => comment?.id || Math.random().toString()}
+                renderItem={({item: comment, index}) => {
+                  if (!comment) return null;
+                  return (
+                    <View 
+                      style={[
+                        styles.commentItem,
+                        index !== ((item.comments?.length || 0) - 1) && { 
+                          borderBottomWidth: 1, 
+                          borderBottomColor: 'rgba(150, 150, 150, 0.1)'
+                        }
+                      ]}
+                    >
+                      <View style={styles.commentHeader}>
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => {
+                            // Generate a user ID for the comment user
+                            const userId = `comment_user_${comment.id}`;
+                            
+                            // Navigate to user detail screen
+                            navigation.navigate('UserDetailScreen', { 
+                              userId, 
+                              username: comment.username || 'anonymous' 
+                            });
+                          }}
+                        >
+                          <Text style={[styles.commentUsername, { color: textColor }]}>
+                            {comment.username || 'anonymous'}
                           </Text>
-                        )}
-                      </TouchableOpacity>
-                      
-                      <TouchableOpacity>
-                        <Text style={[styles.commentReply, { color: subTextColor }]}>
-                          Reply
+                        </TouchableOpacity>
+                        <Text style={[styles.commentTime, { color: subTextColor }]}>
+                          {comment.timeAgo || 'recently'}
                         </Text>
-                      </TouchableOpacity>
+                      </View>
+                      
+                      <Text style={[styles.commentText, { color: subTextColor }]}>
+                        {comment.text || ''}
+                      </Text>
+                      
+                      <View style={styles.commentActions}>
+                        <TouchableOpacity style={styles.commentLike}>
+                          <FeatherIcon name="heart" size={14} color={iconColor} />
+                          {(comment.likes || 0) > 0 && (
+                            <Text style={[styles.commentLikeCount, { color: subTextColor }]}>
+                              {comment.likes || 0}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity>
+                          <Text style={[styles.commentReply, { color: subTextColor }]}>
+                            Reply
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                  </View>
-                )}
+                  );
+                }}
                 showsVerticalScrollIndicator={false}
                 nestedScrollEnabled={true}
                 style={styles.commentsList}
@@ -891,32 +942,51 @@ const SocialScreen: React.FC = () => {
     );
   };
 
-  // Render a trending topic chip
-  const renderTrendingTopic = ({ item }: { item: string }) => (
-    <TouchableOpacity
-      style={[
-        styles.topicChip,
-        selectedTopic === item && { 
-          backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.15)' : 'rgba(82, 69, 204, 0.08)',
-          borderColor: mainColor,
-        },
-        isDarkMode && selectedTopic !== item && {
-          backgroundColor: 'rgba(22, 23, 31, 0.8)',
-          borderColor: 'rgba(70, 70, 90, 0.3)',
-        }
-      ]}
-      onPress={() => setSelectedTopic(item)}
-    >
-      <Text 
+  // Render trending topic chip
+  const renderTrendingTopic = ({ item }: { item: string }) => {
+    if (!item) return null;
+    
+    return (
+      <TouchableOpacity
         style={[
-          styles.topicText, 
-          { color: selectedTopic === item ? mainColor : subTextColor }
+          styles.topicChip,
+          selectedTopic === item && { 
+            backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.15)' : 'rgba(82, 69, 204, 0.08)',
+            borderColor: mainColor,
+          },
+          isDarkMode && selectedTopic !== item && {
+            backgroundColor: 'rgba(22, 23, 31, 0.8)',
+            borderColor: 'rgba(70, 70, 90, 0.3)',
+          }
         ]}
+        onPress={() => setSelectedTopic(item)}
       >
-        {item}
-      </Text>
-    </TouchableOpacity>
-  );
+        <Text 
+          style={[
+            styles.topicText, 
+            { color: selectedTopic === item ? mainColor : subTextColor }
+          ]}
+        >
+          {item}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  // Wrap renderFashionPost with error handling
+  const safeRenderFashionPost = (props: { item: FashionPost, index: number }) => {
+    try {
+      // Check for undefined item
+      if (!props || !props.item) {
+        console.warn('Received undefined item in renderFashionPost');
+        return null;
+      }
+      return renderFashionPost(props);
+    } catch (err) {
+      console.error('Error rendering fashion post:', err);
+      return null;
+    }
+  };
 
   // Messages modal components
   const renderMessagesModal = () => {
@@ -1084,9 +1154,9 @@ const SocialScreen: React.FC = () => {
         </View>
       ) : (
         <Animated.FlatList
-          data={fashionPosts}
-          renderItem={renderFashionPost}
-          keyExtractor={item => item.id}
+          data={fashionPosts || []}
+          renderItem={safeRenderFashionPost}
+          keyExtractor={item => item?.id || Math.random().toString()}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[
             styles.listContent,
@@ -1107,9 +1177,9 @@ const SocialScreen: React.FC = () => {
                   Trending Inspiration
                 </Text>
                 <FlatList
-                  data={TRENDING_TOPICS}
+                  data={TRENDING_TOPICS || []}
                   renderItem={renderTrendingTopic}
-                  keyExtractor={item => item}
+                  keyExtractor={item => item || Math.random().toString()}
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.topicsList}

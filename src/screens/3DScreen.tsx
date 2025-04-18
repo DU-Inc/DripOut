@@ -12,7 +12,7 @@ import ThreeDNavigation from "../components/NavigationButton/NavigationItems /3D
 import NavigationItems from "../components/3DComponents/3DNavigationItems";
 // No longer need custom bottom navigation bar with tab navigator
 import ThreeDBox from "../components/3DComponents/ThreeDBox"; // Import the reusable 3D Box component
-import { useTheme } from "../styles/themeprovider";
+import { useTheme } from '../styles/theme/ThemeContext';
 import Icon from "react-native-vector-icons/Ionicons";
 
 const FAKE_CARDS = [

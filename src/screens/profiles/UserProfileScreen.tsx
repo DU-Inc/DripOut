@@ -31,7 +31,7 @@ import { followUser, unfollowUser, isUserFollowing, getFollowCounts } from '../.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootStackParamList } from '../../types/NavigationTypes';
 import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
-import { useTheme } from '../../styles/themeprovider';
+import { useTheme } from '../../styles/theme/ThemeContext';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';

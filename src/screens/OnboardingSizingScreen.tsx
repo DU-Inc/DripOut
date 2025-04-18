@@ -17,15 +17,12 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
-import { getAuth } from 'firebase/auth';
+import { auth } from '../Config/firebaseconfig';
 import { setUserPreferences, getUserPreferences } from '../services/firestoreService';
 import { useOnboardingContext } from '../context/OnboardingContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { appStateManager } from '../utils/appStateManager';
 import StepTracker from '../components/Onboarding/StepTracker';
-
-// Initialize auth with proper typing
-const auth = getAuth();
 
 type OnboardingSizingScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'OnboardingSizing'>;
 type OnboardingSizingScreenRouteProp = RouteProp<RootStackParamList, 'OnboardingSizing'>;
@@ -322,7 +319,7 @@ const OnboardingSizingScreen: React.FC = () => {
           return;
         }
         
-        const currentUser = getAuth().currentUser;
+        const currentUser = auth().currentUser;
         if (!currentUser) return;
         
         // Try to get preferences from user_preferences collection

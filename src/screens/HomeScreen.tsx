@@ -38,7 +38,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
-import { useTheme } from '../styles/themeprovider';
+import { useTheme } from '../styles/theme/ThemeContext';
 
 // Get screen dimensions
 const { width, height } = Dimensions.get('window');

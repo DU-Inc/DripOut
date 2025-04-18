@@ -13,7 +13,7 @@ import {
   SectionList,
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
-import { useTheme } from "../styles/themeprovider";
+import { useTheme } from '../styles/theme/ThemeContext';
 
 // Mock wardrobe items - items the user owns
 const OWNED_ITEMS = [
