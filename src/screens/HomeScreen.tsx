@@ -20,9 +20,9 @@ import {
   RefreshControl,
   ImageBackground,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+// import { useNavigation } from '@react-navigation/native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { auth } from '../Config/firebaseconfig';
+// import { auth } from '../Config/firebaseconfig';
 // Using View with background color instead of LinearGradient
 
 // Enable LayoutAnimation for Android
@@ -298,7 +298,7 @@ interface Story {
 
 const HomeScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
-  const navigation = useNavigation();
+  // const navigation = useNavigation();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState('For You');
