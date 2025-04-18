@@ -19,7 +19,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import MaterialIcon from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FontAwesome5 from 'react-native-vector-icons/FontAwesome5';
-import { useTheme } from '../styles/themeprovider';
+import { useTheme } from '../styles/theme/ThemeContext';
 import { createPost } from '../services/postService';
 import { selectImageFromLibrary, takePhotoWithCamera, ImageAsset } from '../services/imagePickerService';
 import AsyncStorage from '@react-native-async-storage/async-storage';

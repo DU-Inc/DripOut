@@ -15,14 +15,11 @@ import {
   Switch 
 } from 'react-native';
 import { db } from '../../Config/firebaseconfig';
-import { getAuth } from 'firebase/auth';
+import { auth } from '../../Config/firebaseconfig';
 import { setUserPreferences, UserPreferences } from '../../services/firestoreService';
 import { doc, onSnapshot } from 'firebase/firestore'; // Import onSnapshot for real-time updates
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
-
-// Initialize auth with proper typing
-const auth = getAuth();
 
 const UserPreferencesScreen: React.FC = () => {
   const { isDarkMode, toggleTheme, themeMode, setThemeMode } = useTheme();
@@ -40,7 +37,7 @@ const UserPreferencesScreen: React.FC = () => {
   const accentColor = isDarkMode ? '#FF6B6B' : '#EF3D47';
 
   useEffect(() => {
-    const userId = auth.currentUser?.uid;
+    const userId = auth().currentUser?.uid;
     if (userId) {
       const unsubscribe = onSnapshot(doc(db, 'user_preferences', userId), (docSnapshot) => {
         if (docSnapshot.exists()) {
@@ -71,8 +68,8 @@ const UserPreferencesScreen: React.FC = () => {
   };
 
   const handleSavePreferences = async () => {
-    if (auth.currentUser && editPreferencesData) {
-      const userId = auth.currentUser.uid;
+    if (auth().currentUser && editPreferencesData) {
+      const userId = auth().currentUser!.uid;
       await setUserPreferences(userId, editPreferencesData);
       Alert.alert('Preferences updated successfully!');
       setIsModalVisible(false); // Close the modal
@@ -85,7 +82,7 @@ const UserPreferencesScreen: React.FC = () => {
   };
 
   const handleAddPreferences = async () => {
-    const userId = auth.currentUser?.uid;
+    const userId = auth().currentUser?.uid;
     if (userId) {
       const defaultPreferences: UserPreferences = {
         preferredStyles: [],

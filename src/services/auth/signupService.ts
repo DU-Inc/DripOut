@@ -4,7 +4,6 @@ import { sendAndStoreVerificationCode, verifyCode } from '../email/emailService'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { appStateManager } from '../../utils/appStateManager';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 
 export enum SignupErrorTypes {
   EMAIL_ALREADY_IN_USE = 'auth/email-already-in-use',

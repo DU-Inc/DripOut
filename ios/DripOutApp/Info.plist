@@ -20,6 +20,17 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>app-1-434862143827-ios-a45dd37726653d1c8f09a6</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
@@ -31,16 +42,18 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
 	<key>NSCameraUsageDescription</key>
 	<string>DripOut needs access to your camera to take photos for creating posts</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>DripOut needs access to your photo library to select images for creating posts</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>$(PRODUCT_NAME) would like to use Face ID for secure and convenient authentication.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>DripOut needs access to your microphone for recording videos</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>DripOut needs permission to save photos to your gallery</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>DripOut needs access to your photo library to select images for creating posts</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>AntDesign.ttf</string>
@@ -77,18 +90,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-	<key>NSFaceIDUsageDescription</key>
-	<string>$(PRODUCT_NAME) would like to use Face ID for secure and convenient authentication.</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>app-1-434862143827-ios-a45dd37726653d1c8f09a6</string>
-			</array>
-		</dict>
-	</array>
 </dict>
 </plist>

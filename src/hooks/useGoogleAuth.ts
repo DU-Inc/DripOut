@@ -6,7 +6,7 @@ import { Platform } from 'react-native';
 import { FIREBASE_CLIENT_ID } from '@env';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../Config/firebaseconfig';
-import { User } from 'firebase/auth';
+import { FirebaseAuthTypes } from '@react-native-firebase/auth';
 
 // Initialize Google Sign In
 GoogleSignin.configure({
@@ -32,7 +32,7 @@ interface GoogleSignInData {
 export const useGoogleAuth = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<FirebaseAuthTypes.User | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
   const [userData, setUserData] = useState<{
     email: string;
@@ -140,13 +140,13 @@ export default useGoogleAuth;
 
 // Provide stub implementation instead of completely removing
 import { useState } from 'react';
-import { User } from 'firebase/auth';
+import { FirebaseAuthTypes } from '@react-native-firebase/auth';
 
 // Stub hook for Google authentication
 export const useGoogleAuth = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<FirebaseAuthTypes.User | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);
   const [userData, setUserData] = useState<{
     email: string;

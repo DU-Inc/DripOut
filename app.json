@@ -1,4 +1,5 @@
 {
   "name": "DripOutApp",
-  "displayName": "DripOutApp"
+  "displayName": "DripOutApp",
+  "orientation": "portrait"
 }

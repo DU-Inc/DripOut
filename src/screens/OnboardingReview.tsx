@@ -23,7 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
 import StepTracker from '../components/Onboarding/StepTracker';
 import { markOnboardingCompleted, markOnboardingSkipped } from '../utils/appStateManager';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../Config/firebaseconfig';
 import { setUserPreferences, getUserPreferences } from '../services/firestoreService';
 import SuccessOptionsSheet from '../components/common/SuccessOptionsSheet';
@@ -495,7 +495,7 @@ const OnboardingReview: React.FC = () => {
     }
   };
   
-  // Update the finishOnboarding function to properly handle completion status
+  // Update the finishOnboarding function to simplify navigation
   const finishOnboarding = async (allFieldsFilled: boolean) => {
     try {
       // Get all completed and filled steps
@@ -584,8 +584,8 @@ const OnboardingReview: React.FC = () => {
           await setUserPreferences(currentUser.uid, userPreferencesData);
           console.log("User preferences saved to database in user_preferences collection");
           
-          // Also save the steps information in the user document with detailed validation data
-          await updateDoc(userDocRef, {
+          // Create the data object for the user document
+          const userDocData = {
             onboardingSteps: {
               ...currentOnboardingSteps,
               completedSteps: updatedCompletedSteps,
@@ -605,13 +605,39 @@ const OnboardingReview: React.FC = () => {
               }
             },
             // Set onboarding as completed since the user explicitly clicked "Complete Setup"
-            onboardingCompleted: true
-          });
-          console.log("User document updated with completion status and marked as completed");
+            onboardingCompleted: allFieldsFilled
+          };
+          
+          // Add required user fields if the document doesn't exist
+          if (!userDoc.exists()) {
+            // Add basic user information to create the document
+            Object.assign(userDocData, {
+              userId: currentUser.uid,
+              email: currentUser.email || '',
+              displayName: currentUser.displayName || '',
+              phoneNumber: currentUser.phoneNumber || '',
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            
+            // Use setDoc instead of updateDoc to create the document if it doesn't exist
+            await setDoc(userDocRef, userDocData);
+            console.log("Created new user document with completion status");
+          } else {
+            // Just update the existing document
+            await updateDoc(userDocRef, userDocData);
+            console.log("Updated existing user document with completion status");
+          }
           
           // Mark onboarding as completed using the app state manager
           await markOnboardingCompleted();
           console.log("Onboarding explicitly marked as completed via app state manager");
+          
+          // Set a temporary flag to prevent immediate redirect back to onboarding
+          // This will be checked in the AppNavigator's useEffect
+          await AsyncStorage.setItem('onboardingJustCompleted', 'true');
+          await AsyncStorage.setItem('onboardingJustCompletedTimestamp', Date.now().toString());
+          console.log("Set temporary flag to prevent redirect back to onboarding");
         } catch (dbError) {
           console.error("Error saving preferences to database:", dbError);
           // Show error to user
@@ -628,14 +654,18 @@ const OnboardingReview: React.FC = () => {
         // Clear onboarding AsyncStorage data
         await clearOnboardingAsyncStorage();
         
-        // Get the return route from AsyncStorage if it exists
+        // Get the return route from AsyncStorage if it exists - but only for logging
         const returnRoute = await AsyncStorage.getItem('onboardingReturnTo');
-        console.log('Returning to:', returnRoute || 'previous screen');
+        console.log('Will return to:', returnRoute || 'previous screen');
         
-        // Small delay to ensure everything is complete
+        // SIMPLIFIED NAVIGATION: Just dismiss the modal
+        // This is the key change - we don't try to navigate anywhere else after dismissing
+        console.log('Dismissing onboarding modal to return to previous screen');
+        
+        // Small delay to ensure everything is saved first
         setTimeout(() => {
-          // Navigate back to dismiss the modal
-          if (navigation && navigation.getParent()) {
+          // Simply dismiss the modal by navigating back
+          if (navigation.getParent()) {
             navigation.getParent()?.goBack();
           } else {
             navigation.goBack();
@@ -661,8 +691,9 @@ const OnboardingReview: React.FC = () => {
       // Close the SuccessOptionsSheet first
       setShowSuccessSheet(false);
       
-      // Get onboarding returnTo route if available
+      // Get onboarding returnTo route if available - for logging only
       const returnRoute = await AsyncStorage.getItem('onboardingReturnTo');
+      console.log('Will return to:', returnRoute || 'previous screen');
       
       // Save all user preferences to database before marking onboarding as completed
       const currentUser = auth().currentUser;
@@ -714,8 +745,13 @@ const OnboardingReview: React.FC = () => {
           await setUserPreferences(currentUser.uid, userPreferencesData);
           console.log("User preferences saved to database during explicit completion");
           
-          // Also save the steps information in the user document
-          await updateDoc(userDocRef, {
+          // Determine if all fields are filled
+          const allFieldsFilled = selectedStyles.length > 0 && 
+                                 selectedBrands.length > 0 && 
+                                 hasAllSizingData;
+          
+          // Create the data object for the user document
+          const userDocData = {
             onboardingSteps: {
               ...currentOnboardingSteps,
               completedSteps: updatedCompletedSteps,
@@ -734,9 +770,35 @@ const OnboardingReview: React.FC = () => {
                 brandsCount: selectedBrands.length,
                 verifiedAt: new Date()
               }
-            }
-          });
-          console.log("User document updated with completed steps during explicit completion");
+            },
+            onboardingCompleted: allFieldsFilled
+          };
+          
+          // Add required user fields if the document doesn't exist
+          if (!userDoc.exists()) {
+            // Add basic user information to create the document
+            Object.assign(userDocData, {
+              userId: currentUser.uid,
+              email: currentUser.email || '',
+              displayName: currentUser.displayName || '',
+              phoneNumber: currentUser.phoneNumber || '',
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            
+            // Use setDoc instead of updateDoc to create the document if it doesn't exist
+            await setDoc(userDocRef, userDocData);
+            console.log("Created new user document with completion status during explicit completion");
+          } else {
+            // Just update the existing document
+            await updateDoc(userDocRef, userDocData);
+            console.log("Updated existing user document with completion status during explicit completion");
+          }
+          
+          // Set a temporary flag to prevent immediate redirect back to onboarding
+          await AsyncStorage.setItem('onboardingJustCompleted', 'true');
+          await AsyncStorage.setItem('onboardingJustCompletedTimestamp', Date.now().toString());
+          console.log("Set temporary flag to prevent redirect back to onboarding");
         } catch (error) {
           console.error("Error saving preferences during explicit completion:", error);
           // Continue with completion process even if there was an error saving preferences
@@ -750,43 +812,16 @@ const OnboardingReview: React.FC = () => {
       // Clear onboarding AsyncStorage data
       await clearOnboardingAsyncStorage();
       
-      // Small delay to ensure the sheet is closed
+      // SIMPLIFIED NAVIGATION: Just dismiss the modal
+      console.log('Dismissing onboarding modal to return to previous screen');
+      
+      // Small delay to ensure the sheet is closed and all data is saved
       setTimeout(() => {
-        // Check the return route and decide what to do
-        if (returnRoute && returnRoute.length > 0) {
-          console.log(`Onboarding complete - returning to specific route: ${returnRoute}`);
-          
-          // If we have a specific return route, use it
-          // This is usually set when launching onboarding from a specific screen
-          if (navigation.canGoBack()) {
-            // First go back to dismiss the modal
-            navigation.goBack();
-            
-            // Then after a small delay, navigate to the specific screen if needed
-            // Only needed if the return route is different from where we're going back to
-            setTimeout(() => {
-              if (returnRoute !== 'MainTabs' && returnRoute !== 'OnboardingFlow') {
-                // Try to navigate to the specific screen
-                navigation.navigate(returnRoute as any);
-              }
-            }, 300);
-          } else {
-            // If we can't go back, just dismiss the modal
-            if (navigation && navigation.getParent()) {
-              navigation.getParent()?.goBack();
-            } else {
-              navigation.goBack();
-            }
-          }
+        // Simply dismiss the modal by navigating back
+        if (navigation.getParent()) {
+          navigation.getParent()?.goBack();
         } else {
-          console.log('Onboarding complete - returning to previous screen');
-          
-          // No specific return route, just dismiss the modal
-          if (navigation && navigation.getParent()) {
-            navigation.getParent()?.goBack();
-          } else {
-            navigation.goBack();
-          }
+          navigation.goBack();
         }
       }, 300);
     } catch (error) {

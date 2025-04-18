@@ -1,5 +1,5 @@
 // src/screens/OverviewScreen.tsx
-// Infinite scroll feed implementation
+// Overview screen with masonry product grid layout
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
@@ -8,39 +8,86 @@ import {
   StyleSheet,
   Text,
   View,
-  Dimensions,
+  ScrollView,
+  TouchableOpacity,
   Animated,
   Platform,
-  FlatList,
+  Dimensions,
+  useColorScheme,
   ActivityIndicator,
-  TouchableOpacity,
+  SectionList,
+  InteractionManager,
   RefreshControl,
-  ScrollView,
-  PanResponder,
-  NativeScrollEvent
+  ImageBackground,
+  Pressable,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useTheme } from '../styles/themeprovider';
+import { useTheme } from "../styles/theme/ThemeContext";
 import Icon from 'react-native-vector-icons/Ionicons';
-import AnimatedLoadingIndicator from '../components/common/AnimatedLoadingIndicator';
+import ProductCard, { ProductCardProps } from '../components/feed/ProductCard';
+import SimpleProductCard, { SimpleProductCardProps } from '../components/feed/SimpleProductCard';
+import PartialDataProductCard, { PartialDataProductCardProps } from '../components/feed/PartialDataProductCard';
+import OutfitGroupComponent from '../components/feed/OutfitGroupComponent';
+import MasonryList from '@react-native-seoul/masonry-list';
+import { colors } from '../styles/theme/colors';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { FeedStackParamList } from '../navigations/feedNavigator/FeedNavigator';
 
-// Add explicit global setTimeout declaration for TypeScript
-declare const setTimeout: (callback: () => void, ms: number) => number;
+// Add import for NewsCard component and news service
+import NewsCard, { Article } from '../components/feed/NewsCard';
+import { fetchFashionNews } from '../services/newsService';
 
-const { width } = Dimensions.get('window');
+// Import the feed data
+import feedData from '../data/feed.json';
+
+// Fix for setTimeout and clearTimeout
+declare function setTimeout(callback: () => void, ms: number): number;
+declare function clearTimeout(id: number): void;
+
+// Define type for the navigation prop
+type OverviewScreenNavigationProp = StackNavigationProp<FeedStackParamList, 'Overview'>;
+
+// Define a type for the formatted product data
+interface FormattedProduct extends Omit<ProductCardProps, 'cardWidth' | 'cardStyle' | 'isDarkMode'> {
+  brand?: string; // Add optional fields if they exist in feedData
+  description?: string;
+}
+
+// Define a type for the formatted simple product data
+interface FormattedSimpleProduct extends Omit<SimpleProductCardProps, 'cardWidth' | 'cardStyle' | 'isDarkMode'> {
+}
+
+// Define a type for the formatted partial data product
+interface FormattedPartialProduct extends Omit<PartialDataProductCardProps, 'cardWidth' | 'cardStyle' | 'isDarkMode'> {
+  productUrl: string;
+}
+
+// Define types for outfit group components
+interface OutfitGroup {
+  id: string;
+  title: string;
+  type: 'full-only' | 'partial-only' | 'mixed';
+  products: OutfitProduct[];
+}
+
+interface OutfitProduct {
+  id: string;
+  price: number;
+  currency?: string;
+  brand?: string;
+  images: {
+    id: string;
+    url: string;
+  }[];
+}
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Default text styles for SF Pro font family
 const defaultTextStyle = {
   fontFamily: Platform.OS === 'ios' ? 'System' : 'SF Pro Text',
   letterSpacing: 0.1,
 };
-
-// Sample post data structure
-interface FeedItem {
-  id: string;
-  type: 'post' | 'product' | 'outfit' | 'ad' | 'collection';
-  content: any; // This will be specific to each card type
-}
 
 // Sample filter options
 const FILTER_OPTIONS = [
@@ -50,333 +97,1126 @@ const FILTER_OPTIONS = [
   { id: 'popular', label: 'Popular' },
   { id: 'recommended', label: 'For You' },
   { id: 'sale', label: 'On Sale' },
-  { id: 'winter', label: 'Winter Collection' },
-  { id: 'summer', label: 'Summer Styles' }
+  { id: 'news', label: 'Fashion News' }, // Add News filter
 ];
 
-// Helper function to generate unique IDs
-const generateUniqueId = (): string => {
-  return Math.random().toString(36).substring(2, 15) + 
-         Math.random().toString(36).substring(2, 15) + 
-         Date.now().toString(36);
-};
-
-// Pull-to-refresh threshold
-const REFRESH_THRESHOLD = 80;
+const NUM_COLUMNS = 2; // Number of columns in the grid
+const ITEM_SPACING = 6; // Consistent spacing between items
+const INITIAL_LOAD_COUNT = 10; // Number of items to load initially
+const LOAD_MORE_COUNT = 10; // Number of items to load when scrolling
 
 const OverviewScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<OverviewScreenNavigationProp>();
   const { isDarkMode } = useTheme();
+  const systemColorScheme = useColorScheme(); // Get system color scheme as backup
   const scrollY = useRef(new Animated.Value(0)).current;
-  const pullY = useRef(new Animated.Value(0)).current;
   
-  // Reference to the FlatList
-  const flatListRef = useRef<FlatList>(null);
+  // Timer refs to avoid callback accumulation
+  const loadMoreTimerRef = useRef<number | null>(null);
   
-  // Keep track of current scroll position
-  const scrollYValue = useRef(0);
+  // Mounted ref to prevent state updates after unmount
+  const isMountedRef = useRef(true);
   
-  // Feed state
-  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [activeFilter, setActiveFilter] = useState('all');
-  const [isPullingDown, setIsPullingDown] = useState(false);
-
-  // Theme colors
-  const bgColor = isDarkMode ? '#000000' : '#FFFFFF';
-  const textColor = isDarkMode ? '#FFFFFF' : '#000000';
-  const subTextColor = isDarkMode ? '#8E8E93' : '#6E6E73';
-  const cardBgColor = isDarkMode ? '#1C1C1E' : '#FFFFFF';
-  const borderColor = isDarkMode ? '#38383A' : '#E5E5EA';
-  const mainColor = isDarkMode ? '#0A84FF' : '#007AFF';
-  const filterBgColor = isDarkMode ? '#1C1C1E' : '#F2F2F7';
-  const filterActiveBgColor = isDarkMode ? '#2C2C2E' : '#E5E5EA';
-
-  // Update scrollYValue when the animated value changes
-  scrollY.addListener(({ value }) => {
-    scrollYValue.current = value;
+  // Add ref to track if news has been loaded
+  const hasLoadedNewsRef = useRef(false);
+  
+  // Add static session cache for news articles - persists across component re-renders
+  const staticNewsCache = useRef<{
+    articles: {
+      id: string;
+      sourceName: string;
+      sourceLogoUrl?: string;
+      headline: string;
+      imageUrl: string;
+      publishedAt: Date;
+      author?: string;
+    }[];
+    lastFetchTime: number;
+  }>({
+    articles: [],
+    lastFetchTime: 0
   });
-
-  // Header animation - Super smooth transition with even more steps
-  const headerHeight = scrollY.interpolate({
-    inputRange: [0, 10, 20, 30, 40, 50, 60],
-    outputRange: [50, 48, 40, 30, 20, 10, 0], // More steps for smoother transition
+  
+  // Animation value refs to prevent memory leaks
+  const headerHeightRef = useRef(scrollY.interpolate({
+    inputRange: [0, 60],
+    outputRange: [50, 0],
     extrapolate: 'clamp'
-  });
+  }));
   
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [0, 10, 20, 30, 40, 50, 60],
-    outputRange: [1, 0.9, 0.8, 0.6, 0.4, 0.2, 0], // More steps for smoother fade
+  const headerOpacityRef = useRef(scrollY.interpolate({
+    inputRange: [0, 60],
+    outputRange: [1, 0],
     extrapolate: 'clamp'
-  });
+  }));
   
-  const titleScale = scrollY.interpolate({
-    inputRange: [0, 10, 20, 30, 40, 50, 60],
-    outputRange: [1, 0.98, 0.96, 0.94, 0.92, 0.9, 0.88], // More subtle scaling
-    extrapolate: 'clamp'
-  });
+  // Product state arrays
+  const [products, setProducts] = useState<FormattedProduct[]>([]); // Full products
+  const [partialProducts, setPartialProducts] = useState<FormattedPartialProduct[]>([]); // Partial data products
+  const [simpleProducts, setSimpleProducts] = useState<FormattedSimpleProduct[]>([]); // Simple products
   
-  // Animation for the pull-to-refresh indicator
-  const refreshIndicatorHeight = pullY.interpolate({
-    inputRange: [0, REFRESH_THRESHOLD],
-    outputRange: [0, 80],
-    extrapolate: 'clamp'
-  });
-
-  // Setup pan responder for custom pull-to-refresh
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-        // Only activate when pulling down at the top of the list
-        return !refreshing && !loading && gestureState.dy > 0 && scrollYValue.current === 0;
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        // Update the pull distance
-        pullY.setValue(Math.max(0, gestureState.dy));
-        if (gestureState.dy > REFRESH_THRESHOLD && !isPullingDown) {
-          setIsPullingDown(true);
-        } else if (gestureState.dy <= REFRESH_THRESHOLD && isPullingDown) {
-          setIsPullingDown(false);
-        }
-      },
-      onPanResponderRelease: (evt, gestureState) => {
-        // If pulled enough, trigger refresh
-        if (gestureState.dy > REFRESH_THRESHOLD) {
-          handleRefresh();
-        }
-        
-        // Animate the pull distance back to 0
-        Animated.timing(pullY, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: false
-        }).start();
-      }
-    })
-  ).current;
-
-  // Cleanup function to remove listeners on unmount
+  // News state
+  const [newsArticles, setNewsArticles] = useState<Article[]>([]); 
+  const [isLoadingNews, setIsLoadingNews] = useState(true);
+  const [newsError, setNewsError] = useState<string | null>(null);
+  
+  // Outfit groups state
+  const [outfitGroups, setOutfitGroups] = useState<OutfitGroup[]>([]);
+  const [displayedOutfitCount, setDisplayedOutfitCount] = useState(5); // Start with 5 outfit groups
+  const [isLoadingOutfits, setIsLoadingOutfits] = useState(true);
+  
+  // Display counters for lazy loading
+  const [displayedProductCount, setDisplayedProductCount] = useState(INITIAL_LOAD_COUNT);
+  const [displayedPartialProductCount, setDisplayedPartialProductCount] = useState(0); // Start at 0
+  const [displayedSimpleProductCount, setDisplayedSimpleProductCount] = useState(0); // Start at 0
+  const [displayedNewsCount, setDisplayedNewsCount] = useState(10); 
+  
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [currentFilter, setCurrentFilter] = useState('all');
+  
+  // Track which product card has an active/expanded content action menu
+  const [activeActionCardId, setActiveActionCardId] = useState<string | null>(null);
+  const [activeSimpleActionCardId, setActiveSimpleActionCardId] = useState<string | null>(null);
+  const [activePartialActionCardId, setActivePartialActionCardId] = useState<string | null>(null);
+  const [activeNewsCardId, setActiveNewsCardId] = useState<string | null>(null);
+  const [activeOutfitActionCardId, setActiveOutfitActionCardId] = useState<string | null>(null);
+  
+  // Determine current theme
+  const currentIsDarkMode = isDarkMode ?? systemColorScheme === 'dark';
+  
+  // Theme colors based on current mode
+  const themeColors = currentIsDarkMode ? colors.dark : colors.light;
+  const bgColor = themeColors.background;
+  const subTextColor = themeColors.text.secondary;
+  const accentColor = themeColors.primary;
+  
+  // Add a ref map to store references to each product card
+  const productRefs = useRef<{ [key: string]: React.RefObject<View> }>({});
+  
+  // Clean up timers on unmount and set mounted state
   useEffect(() => {
+    isMountedRef.current = true;
+    
+    // Create a proper cleanup function to avoid animation memory leaks
     return () => {
-      scrollY.removeAllListeners();
+      // Mark component as unmounted to prevent setState after unmount
+      isMountedRef.current = false;
+      
+      // Clear any pending timers when component unmounts
+      if (loadMoreTimerRef.current) {
+        clearTimeout(loadMoreTimerRef.current);
+        loadMoreTimerRef.current = null;
+      }
+      
+      // Clean up animation values to prevent memory leaks
+      if (scrollY) {
+        // Remove all listeners by passing empty callback
+        scrollY.removeAllListeners();
+      }
     };
-  }, [scrollY]);
-
-  // Fetch feed data
-  const fetchFeed = useCallback(async (pageNumber: number, refresh: boolean = false, filter: string = activeFilter) => {
-    if (loading || (!hasMore && !refresh)) return;
+  }, []);
+  
+  // Load products from feed data
+  useEffect(() => {
+    // Format regular product data
+    const formattedProducts: FormattedProduct[] = feedData.singleOutfitFullData.map(product => ({
+      id: product.id,
+      name: product.productName,
+      price: parseFloat(product.price.replace('$', '')),
+      images: [
+        { id: `${product.id}_main`, url: product.productImage },
+        ...product.additionalImages.map((img, index) => ({
+          id: `${product.id}_${index}`,
+          url: img
+        }))
+      ],
+      brand: product.brand,
+      description: product.description,
+    }));
+    
+    // Format partial product data - now using singleOutfitPartialData instead of simpleCardComponent
+    const formattedPartialProducts: FormattedPartialProduct[] = feedData.singleOutfitPartialData.map(product => ({
+      id: product.id,
+      name: product.productName || '',
+      brand: product.brand || '',
+      price: product.price ? parseFloat(product.price.replace('$', '')) : 0,
+      images: [
+        { id: `${product.id}_main`, url: product.productImage },
+        ...(product.additionalImages || []).map((img, index) => ({
+          id: `${product.id}_${index}`,
+          url: img
+        }))
+      ],
+      productUrl: product.productUrl || `https://example.com/product/${product.id}` 
+    }));
+    
+    // Format simple product data - using the simpleCardComponent (keep this unchanged)
+    const formattedSimpleProducts: FormattedSimpleProduct[] = feedData.simpleCardComponent
+      .slice(0, 40) // Use just first 40 items for simple cards
+      .map(product => ({
+        id: `simple_${product.id}`,
+        price: parseFloat(product.price.replace('$', '')),
+        brand: product.brand,
+        images: [
+          { id: `simple_${product.id}_main`, url: product.productImage }
+        ],
+      }));
+    
+    // Generate outfit groups
+    const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
+    
+    if (isMountedRef.current) {
+      setProducts(formattedProducts);
+      setPartialProducts(formattedPartialProducts);
+      setSimpleProducts(formattedSimpleProducts);
+      setOutfitGroups(generatedOutfitGroups);
+      setIsLoadingOutfits(false);
+    }
+  }, []);
+  
+  // Function to generate outfit groups with various combinations
+  const generateOutfitGroups = (
+    fullProducts: FormattedProduct[], 
+    partialProducts: FormattedPartialProduct[]
+  ): OutfitGroup[] => {
+    // Shuffle the products to ensure randomness
+    const shuffledFullProducts = [...fullProducts].sort(() => 0.5 - Math.random());
+    const shuffledPartialProducts = [...partialProducts].sort(() => 0.5 - Math.random());
+    
+    const result: OutfitGroup[] = [];
+    
+    // Helper to convert product data to OutfitProduct format
+    const convertToOutfitProduct = (product: FormattedProduct | FormattedPartialProduct): OutfitProduct => {
+      return {
+        id: product.id,
+        price: typeof product.price === 'number' ? product.price : 0,
+        currency: '$',
+        brand: product.brand,
+        images: product.images
+      };
+    };
+    
+    // Track used product sizes to ensure at least one of each
+    const usedSizes = new Set<number>();
+    
+    // Create 20 outfit groups
+    for (let i = 0; i < 20; i++) {
+      // Determine type of outfit group
+      // For variety, create 7 full-only, 7 partial-only, and 6 mixed
+      let type: 'full-only' | 'partial-only' | 'mixed';
+      
+      if (i < 7) {
+        type = 'full-only';
+      } else if (i < 14) {
+        type = 'partial-only';
+      } else {
+        type = 'mixed';
+      }
+      
+      // Determine number of products (2-6)
+      // Ensure we have at least one outfit of each size (2, 3, 4, 5, 6)
+      let numProducts: number;
+      
+      if (i < 5) {
+        // First 5 outfits: one of each size from 2 to 6
+        numProducts = i + 2;
+        usedSizes.add(numProducts);
+      } else {
+        // For the rest, ensure we have at least one of each size
+        if (usedSizes.size < 5) {
+          // Find a size we haven't used yet
+          const availableSizes = [2, 3, 4, 5, 6].filter(size => !usedSizes.has(size));
+          numProducts = availableSizes[0];
+          usedSizes.add(numProducts);
+        } else {
+          // We've used all sizes, now pick randomly
+          numProducts = Math.floor(Math.random() * 5) + 2; // Random number between 2 and 6
+        }
+      }
+      
+      // Create products array based on type
+      let outfitProducts: OutfitProduct[] = [];
+      
+      if (type === 'full-only') {
+        // Use only full products
+        outfitProducts = shuffledFullProducts
+          .slice(i * numProducts, i * numProducts + numProducts)
+          .map(convertToOutfitProduct);
+      } else if (type === 'partial-only') {
+        // Use only partial products
+        outfitProducts = shuffledPartialProducts
+          .slice(i * numProducts, i * numProducts + numProducts)
+          .map(convertToOutfitProduct);
+      } else {
+        // Mix of full and partial products
+        const fullCount = Math.ceil(numProducts / 2);
+        const partialCount = numProducts - fullCount;
+        
+        const fullItems = shuffledFullProducts
+          .slice(i * fullCount, i * fullCount + fullCount)
+          .map(convertToOutfitProduct);
+          
+        const partialItems = shuffledPartialProducts
+          .slice(i * partialCount, i * partialCount + partialCount)
+          .map(convertToOutfitProduct);
+          
+        outfitProducts = [...fullItems, ...partialItems];
+      }
+      
+      // If we don't have enough products, reuse some
+      if (outfitProducts.length < numProducts) {
+        const productsToUse = type === 'full-only' ? shuffledFullProducts : 
+                              type === 'partial-only' ? shuffledPartialProducts :
+                              [...shuffledFullProducts, ...shuffledPartialProducts];
+        
+        while (outfitProducts.length < numProducts) {
+          const randomProduct = productsToUse[Math.floor(Math.random() * productsToUse.length)];
+          outfitProducts.push(convertToOutfitProduct(randomProduct));
+        }
+      }
+      
+      // Create the outfit group
+      result.push({
+        id: `outfit-group-${i + 1}`,
+        title: getOutfitTitle(type, i + 1),
+        type,
+        products: outfitProducts
+      });
+    }
+    
+    return result;
+  };
+  
+  // Generate outfit title based on type
+  const getOutfitTitle = (type: 'full-only' | 'partial-only' | 'mixed', index: number): string => {
+    const adjectives = ['Stylish', 'Modern', 'Trendy', 'Urban', 'Casual', 'Classic', 'Elegant', 'Contemporary'];
+    const nouns = ['Collection', 'Ensemble', 'Outfit', 'Set', 'Look', 'Style', 'Combo', 'Attire'];
+    
+    // Pick a random adjective and noun
+    const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const noun = nouns[Math.floor(Math.random() * nouns.length)];
+    
+    return `${adjective} ${noun} ${index}`;
+  };
+  
+  // Fetch fashion news using a properly memoized callback to prevent excessive renders
+  const fetchNews = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
+    setIsLoadingNews(true);
+    setNewsError(null);
     
     try {
-      setLoading(true);
+      // Check static cache first - if it has data and was fetched less than 1 hour ago, use it
+      const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+      const now = Date.now();
       
-      // Simulating API call with timeout
-      await new Promise(resolve => setTimeout(() => resolve(true), 1000));
-      
-      // This would be replaced with actual API call
-      // const response = await api.getFeed(pageNumber, filter);
-      
-      // Simulated data for testing - now with truly unique IDs
-      const newItems: FeedItem[] = Array.from({ length: 10 }, (_, i) => ({
-        id: generateUniqueId(), // Unique ID that won't collide
-        type: ['post', 'product', 'outfit', 'ad', 'collection'][Math.floor(Math.random() * 5)] as FeedItem['type'],
-        content: {
-          title: `${filter !== 'all' ? filter + ' - ' : ''}Item ${pageNumber}-${i}`,
-          description: 'This is a sample item in the feed',
-          timestamp: new Date().toISOString(),
-        }
-      }));
-      
-      if (refresh) {
-        setFeedItems(newItems);
-        setPage(1);
-      } else {
-        setFeedItems(prev => [...prev, ...newItems]);
+      if (staticNewsCache.current.articles.length > 0 && 
+          (now - staticNewsCache.current.lastFetchTime) < CACHE_TTL) {
+        // Use cached data
+        // console.log('Using cached news articles from session cache');
+        
+        setNewsArticles(staticNewsCache.current.articles);
+        setDisplayedNewsCount(staticNewsCache.current.articles.length);
+        setIsLoadingNews(false);
+        return;
       }
       
-      // Check if there's more data to load
-      setHasMore(pageNumber < 5); // For testing, limit to 5 pages
+      // If no cache or cache expired, fetch from API
+      // console.log('🔄 Fetching fashion news...');
       
+      // Fetch fashion news from our service - increased to 50 and added Italy region
+      const articles = await fetchFashionNews(50, 'latest', 'us,italy,france,uk');
+      
+      if (!isMountedRef.current) return;
+      
+      // Simulate fetched articles from cache
+      // const articles: {
+      //   id: string;
+      //   source: string;
+      //   title: string;
+      //   imageUrl: string;
+      //   publishedAt: Date;
+      //   author?: string;
+      // }[] = [];
+      
+      if (articles && articles.length > 0) {
+        // console.log(`✅ Successfully loaded ${articles.length} fashion articles`);
+        
+        // Convert to the format expected by NewsCard component
+        const formattedArticles = articles.map(article => ({
+          id: article.id,
+          sourceName: article.source,
+          sourceLogoUrl: undefined, // We don't have logos in our data model yet
+          headline: article.title,
+          imageUrl: article.imageUrl,
+          publishedAt: article.publishedAt,
+          author: article.author
+        }));
+        
+        // Store in static session cache
+        staticNewsCache.current = {
+          articles: formattedArticles,
+          lastFetchTime: now
+        };
+        
+        setNewsArticles(formattedArticles);
+        // Always show all available news articles
+        setDisplayedNewsCount(formattedArticles.length);
+      } else {
+        // console.log('⚠️ No fashion articles returned from API');
+        setNewsError('No fashion articles available');
+        setNewsArticles([]);
+      }
     } catch (error) {
-      console.error('Error fetching feed:', error);
+      if (!isMountedRef.current) return;
+      
+      // console.error('❌ Error loading fashion news:', error);
+      setNewsError(error instanceof Error ? error.message : 'Failed to load news');
+      setNewsArticles([]);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
-      setIsPullingDown(false);
+      if (isMountedRef.current) {
+        setIsLoadingNews(false);
+      }
     }
-  }, [loading, hasMore, activeFilter]);
-
-  // Initial load
+  }, []);
+  
+  // Fetch news on mount, but only once after splash screen animations
   useEffect(() => {
-    fetchFeed(1);
-  }, [fetchFeed]);
+    // Wait for animations to complete before fetching news
+    InteractionManager.runAfterInteractions(() => {
+      if (isMountedRef.current && !hasLoadedNewsRef.current) {
+        hasLoadedNewsRef.current = true; // Mark as loaded
+        fetchNews();
+      }
+    });
+  }, [fetchNews]);
+  
+  // Handle action button expand/collapse for regular products - memoized to reduce rerenders
+  const handleContentActionExpandChange = useCallback((productId: string, isExpanded: boolean) => {
+    if (isExpanded) {
+      // If expanding, set this card as active
+      setActiveActionCardId(productId);
+      // Close any active simple or partial card
+      setActiveSimpleActionCardId(null);
+      setActivePartialActionCardId(null);
+      setActiveNewsCardId(null);
+    } else {
+      // If collapsing, clear active card
+      setActiveActionCardId(null);
+    }
+  }, []);
 
-  // Handle refresh
-  const handleRefresh = useCallback(() => {
-    if (refreshing) return;
-    setRefreshing(true);
-    fetchFeed(1, true);
-  }, [refreshing, fetchFeed]);
+  // Handle action button expand/collapse for simple products
+  const handleSimpleContentActionExpandChange = useCallback((productId: string, isExpanded: boolean) => {
+    if (isExpanded) {
+      // If expanding, set this card as active
+      setActiveSimpleActionCardId(productId);
+      // Close any active regular or partial card
+      setActiveActionCardId(null);
+      setActivePartialActionCardId(null);
+      setActiveNewsCardId(null);
+    } else {
+      // If collapsing, clear active card
+      setActiveSimpleActionCardId(null);
+    }
+  }, []);
 
-  // Handle loading more
-  const handleLoadMore = useCallback(() => {
-    if (loading || !hasMore) return;
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchFeed(nextPage);
-  }, [loading, hasMore, page, fetchFeed]);
+  // Handle action button expand/collapse for partial data products
+  const handlePartialContentActionExpandChange = useCallback((productId: string, isExpanded: boolean) => {
+    if (isExpanded) {
+      // If expanding, set this card as active
+      setActivePartialActionCardId(productId);
+      // Close any active regular or simple card
+      setActiveActionCardId(null);
+      setActiveSimpleActionCardId(null);
+      setActiveNewsCardId(null);
+    } else {
+      // If collapsing, clear active card
+      setActivePartialActionCardId(null);
+    }
+  }, []);
 
-  // Handle filter change
-  const handleFilterChange = useCallback((filterId: string) => {
-    if (filterId === activeFilter) return;
-    setActiveFilter(filterId);
-    setPage(1);
-    setFeedItems([]);
-    setHasMore(true);
-    fetchFeed(1, true, filterId);
-  }, [activeFilter, fetchFeed]);
+  // Handle action button expand/collapse for news articles
+  const handleNewsContentActionExpandChange = useCallback((articleId: string, isExpanded: boolean) => {
+    if (isExpanded) {
+      // If expanding, set this card as active
+      setActiveNewsCardId(articleId);
+      // Close any other active cards
+      setActiveActionCardId(null);
+      setActiveSimpleActionCardId(null);
+      setActivePartialActionCardId(null);
+      setActiveOutfitActionCardId(null);
+    } else {
+      // If collapsing, clear active card
+      setActiveNewsCardId(null);
+    }
+  }, []);
 
-  // Render item based on type
-  const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
-    // This would be implemented with separate card components for each type
-    return (
-      <View 
-        style={[styles.feedCard, { 
-          backgroundColor: cardBgColor,
-          borderColor: borderColor,
-        }]}
-      >
-        <View style={styles.cardHeader}>
-          <Text style={[styles.cardType, { color: mainColor }]}>{item.type.toUpperCase()}</Text>
-          <Text style={[styles.cardTitle, { color: textColor }]}>{item.content.title}</Text>
-        </View>
-        <View style={styles.cardBody}>
-          <Text style={[styles.cardDescription, { color: subTextColor }]}>
-            {item.content.description}
-          </Text>
-        </View>
-        <View style={styles.cardFooter}>
-          <Text style={[styles.cardTimestamp, { color: subTextColor }]}>
-            {new Date(item.content.timestamp).toLocaleDateString()}
-          </Text>
-        </View>
-      </View>
-    );
-  }, [cardBgColor, borderColor, mainColor, textColor, subTextColor]);
+  // Handle action button expand/collapse for outfit groups
+  const handleOutfitContentActionExpandChange = useCallback((outfitId: string, isExpanded: boolean) => {
+    if (isExpanded) {
+      // If expanding, set this outfit as active
+      setActiveOutfitActionCardId(outfitId);
+      // Close any other active cards
+      setActiveActionCardId(null);
+      setActiveSimpleActionCardId(null);
+      setActivePartialActionCardId(null);
+      setActiveNewsCardId(null);
+    } else {
+      // If collapsing, clear active outfit
+      setActiveOutfitActionCardId(null);
+    }
+  }, []);
 
+  // More efficient way to close expanded menus without interfering with scrolling
+  const handleCardPress = useCallback((productId: string, isSimple: boolean = false, isPartial: boolean = false) => {
+    // Close any open action menu
+    if (activeActionCardId) setActiveActionCardId(null);
+    if (activeSimpleActionCardId) setActiveSimpleActionCardId(null);
+    if (activePartialActionCardId) setActivePartialActionCardId(null);
+    if (activeNewsCardId) setActiveNewsCardId(null);
+    
+    // Only navigate for regular product cards
+    if (!isSimple && !isPartial) {
+      handleProductPress(productId);
+    }
+  }, [activeActionCardId, activeSimpleActionCardId, activePartialActionCardId, activeNewsCardId]);
+  
+  // Handle news card press
+  const handleNewsCardPress = useCallback((articleId: string) => {
+    // Close any open action menu
+    if (activeActionCardId) setActiveActionCardId(null);
+    if (activeSimpleActionCardId) setActiveSimpleActionCardId(null);
+    if (activePartialActionCardId) setActivePartialActionCardId(null);
+    if (activeNewsCardId) setActiveNewsCardId(null);
+    
+    // Navigate to expanded news screen
+    navigation.navigate('ExpandedNewsScreen', { articleId });
+  }, [navigation, activeActionCardId, activeSimpleActionCardId, activePartialActionCardId, activeNewsCardId]);
+  
+  // Handle product card press
+  const handleProductPress = useCallback((productId: string, currentImageIndex = 0) => {
+    // Find the product data to pass
+    const productToPass = products.find(p => p.id === productId);
+    
+    // Get the ref for this specific card
+    const cardRef = productRefs.current[productId];
+    
+    if (cardRef?.current) {
+      // Measure the position of the card on the screen
+      cardRef.current.measure((x, y, width, height, pageX, pageY) => {
+        // Navigate with the position, product data, and current image index
+        navigation.navigate('ExpandedProductScreen2', { 
+          productId,
+          sourcePosition: {
+            x: pageX,
+            y: pageY,
+            width,
+            height
+          },
+          product: productToPass,
+          initialImageIndex: currentImageIndex
+        });
+      });
+    } else {
+      // Fallback if ref isn't available
+      navigation.navigate('ExpandedProductScreen2', { 
+        productId,
+        product: productToPass,
+        initialImageIndex: currentImageIndex
+      });
+    }
+  }, [navigation, products]);
+  
+  // Handle add to cart
+  const handleAddToCart = useCallback((productId: string) => {
+    // Add to cart logic
+    // console.log('Add to cart:', productId);
+  }, []);
+  
+  // Handle like, dislike, share actions
+  const handleLike = useCallback((id: string) => {
+    // Like logic
+    // console.log('Like:', id);
+  }, []);
+  
+  const handleDislike = useCallback((id: string) => {
+    // Dislike logic
+    // console.log('Dislike:', id);
+  }, []);
+  
+  const handleShare = useCallback((id: string) => {
+    // Share logic
+    // console.log('Share:', id);
+  }, []);
+  
+  const handleBookmark = useCallback((id: string) => {
+    // Bookmark logic
+    // console.log('Bookmark:', id);
+  }, []);
+  
   // Render filter item
   const renderFilterItem = useCallback((filter: typeof FILTER_OPTIONS[0]) => {
-    const isActive = filter.id === activeFilter;
+    const isActive = filter.id === currentFilter;
     return (
       <TouchableOpacity
         key={filter.id}
-        style={styles.filterItem}
-        onPress={() => handleFilterChange(filter.id)}
+        style={[
+          styles.filterItem,
+          isActive && styles.activeFilterItem, { borderBottomColor: isActive ? accentColor : 'transparent' }
+        ]}
+        onPress={() => setCurrentFilter(filter.id)}
       >
-        <Text 
-          style={[
-            styles.filterText, 
-            { 
-              color: isActive ? mainColor : subTextColor,
-              fontWeight: '600', // All filter items are bold now
-            }
-          ]}
-        >
-          {filter.label}
+        <Text style={[
+          styles.filterText,
+          { color: isActive ? themeColors.text.primary : subTextColor }
+        ]}>
+          {String(filter.label)}
         </Text>
       </TouchableOpacity>
     );
-  }, [activeFilter, mainColor, subTextColor, handleFilterChange]);
+  }, [currentFilter, accentColor, themeColors.text.primary, subTextColor]);
 
-  // Render footer (loading indicator)
-  const renderFooter = useCallback(() => {
-    if (!loading || refreshing) return null;
+  // Calculate card width based on screen width, columns and spacing
+  const calculatedItemWidth = (SCREEN_WIDTH - (ITEM_SPACING * (NUM_COLUMNS + 1))) / NUM_COLUMNS;
+
+  // Get pseudo-random aspect ratio for a product
+  const getAspectRatioForProduct = useCallback((product: any, index: number) => {
+    // Generate a pseudo-random variation based on multiple factors
+    const charSum = product.id.split('').reduce((sum: number, char: string) => sum + char.charCodeAt(0), 0);
+    const nameLengthFactor = product.name ? product.name.length % 5 : 0;
+    const priceFactor = Math.floor(product.price) % 3;
+    
+    // Complex seed that uses multiple properties to create seemingly random but reproducible variation
+    const seed = (index * 13) + charSum + (nameLengthFactor * 7) + (priceFactor * 11);
+    
+    // Using modulo 20 to select one of 20 variations
+    const variationIndex = seed % 20;
+    
+    // Generate aspect ratio between 1.0 and 1.6 with 20 even steps
+    return 1.0 + (variationIndex * 0.03);
+  }, []);
+
+  // Render product item for MasonryList
+  const renderProductItem = useCallback(({ item, i }: { item: any, i: number }) => {
+    const product = item as FormattedProduct;
+    const aspectRatio = getAspectRatioForProduct(product, i);
+    
+    // Check if this card's content action is active
+    const isContentActionActive = activeActionCardId === product.id;
+    
+    // Create a ref for this product card if it doesn't exist
+    if (!productRefs.current[product.id]) {
+      productRefs.current[product.id] = React.createRef<View>();
+    }
+    
+    // Ensure name is a string
+    const productName = product.name ? String(product.name) : "";
     
     return (
-      <View style={styles.footerContainer}>
-        <AnimatedLoadingIndicator 
-          text="" 
-          size="small" 
-          includeIcons={false} 
-          customColor={mainColor}
+      <View 
+        ref={productRefs.current[product.id]}
+        style={{
+          margin: ITEM_SPACING / 2,
+          marginBottom: ITEM_SPACING,
+          position: 'relative', // Position relative for overlay
+        }}
+      >
+        <ProductCard
+          id={product.id}
+          name={productName}
+          price={product.price}
+          images={product.images}
+          onCardPress={() => handleCardPress(product.id)}
+          onCartPress={() => handleAddToCart(product.id)}
+          onLikePress={() => handleLike(product.id)}
+          onDislikePress={() => handleDislike(product.id)}
+          onSharePress={() => handleShare(product.id)}
+          isDarkMode={currentIsDarkMode}
+          cardWidth={calculatedItemWidth}
+          imageAspectRatio={aspectRatio} // Pass the calculated aspect ratio
+          cardStyle={{ margin: 0 }}
+          // Pass props to control action menu state
+          isContentActionActive={isContentActionActive}
+          onContentActionExpandChange={(isExpanded) => 
+            handleContentActionExpandChange(product.id, isExpanded)}
         />
       </View>
     );
-  }, [loading, refreshing, mainColor]);
+  }, [activeActionCardId, currentIsDarkMode, calculatedItemWidth, getAspectRatioForProduct, handleCardPress, handleAddToCart, handleLike, handleDislike, handleShare, handleContentActionExpandChange]);
 
-  // Render header with pull-to-refresh
-  const renderHeader = useCallback(() => {
-    return (
-      <Animated.View style={[styles.pullToRefreshContainer, { height: refreshIndicatorHeight }]}>
-        {isPullingDown || refreshing ? (
-          <AnimatedLoadingIndicator 
-            text="" 
-            size="small" 
-            includeIcons={false} 
-            customColor={mainColor}
-          />
-        ) : null}
-      </Animated.View>
-    );
-  }, [refreshIndicatorHeight, isPullingDown, refreshing, mainColor]);
-
-  // Empty list component
-  const renderEmpty = useCallback(() => {
-    if (loading) return null;
+  // Render partial data product item for MasonryList
+  const renderPartialProductItem = useCallback(({ item, i }: { item: any, i: number }) => {
+    const product = item as FormattedPartialProduct;
+    const aspectRatio = getAspectRatioForProduct(product, i);
+    
+    // Check if this card's content action is active
+    const isContentActionActive = activePartialActionCardId === product.id;
     
     return (
-      <View style={styles.emptyContainer}>
-        <Text style={[styles.emptyText, { color: textColor }]}>No items to display</Text>
-        <TouchableOpacity 
-          style={[styles.emptyButton, { backgroundColor: mainColor }]}
-          onPress={() => fetchFeed(1, true)}
-        >
-          <Text style={styles.emptyButtonText}>Refresh</Text>
-        </TouchableOpacity>
+      <View style={{
+        margin: ITEM_SPACING / 2,
+        marginBottom: ITEM_SPACING,
+        position: 'relative', // Position relative for overlay
+      }}>
+        <PartialDataProductCard
+          id={product.id}
+          name={product.name}
+          brand={product.brand}
+          price={product.price}
+          images={product.images}
+          productUrl={product.productUrl}
+          onCardPress={() => handleCardPress(product.id, false, true)}
+          onCartPress={() => handleAddToCart(product.id)}
+          onLikePress={() => handleLike(product.id)}
+          onDislikePress={() => handleDislike(product.id)}
+          onSharePress={() => handleShare(product.id)}
+          isDarkMode={currentIsDarkMode}
+          cardWidth={calculatedItemWidth}
+          imageAspectRatio={aspectRatio} // Pass the calculated aspect ratio
+          cardStyle={{ margin: 0 }}
+          // Pass props to control action menu state
+          isContentActionActive={isContentActionActive}
+          onContentActionExpandChange={(isExpanded) => 
+            handlePartialContentActionExpandChange(product.id, isExpanded)}
+        />
       </View>
     );
-  }, [loading, textColor, mainColor, fetchFeed]);
+  }, [activePartialActionCardId, currentIsDarkMode, calculatedItemWidth, getAspectRatioForProduct, handleCardPress, handleAddToCart, handleLike, handleDislike, handleShare, handlePartialContentActionExpandChange]);
 
+  // Render simple product item for MasonryList
+  const renderSimpleProductItem = useCallback(({ item, i }: { item: any, i: number }) => {
+    const product = item as FormattedSimpleProduct;
+    const aspectRatio = getAspectRatioForProduct(product, i);
+    
+    // Check if this card's content action is active
+    const isContentActionActive = activeSimpleActionCardId === product.id;
+    
+    return (
+      <View style={{
+        margin: ITEM_SPACING / 2,
+        marginBottom: ITEM_SPACING,
+        position: 'relative', // Position relative for overlay
+      }}>
+        <SimpleProductCard
+          id={product.id}
+          price={product.price}
+          brand={product.brand}
+          images={product.images}
+          onCardPress={() => handleCardPress(product.id, true)}
+          onCartPress={() => handleAddToCart(product.id)}
+          onLikePress={() => handleLike(product.id)}
+          onDislikePress={() => handleDislike(product.id)}
+          onSharePress={() => handleShare(product.id)}
+          isDarkMode={currentIsDarkMode}
+          cardWidth={calculatedItemWidth}
+          imageAspectRatio={aspectRatio} // Pass the calculated aspect ratio
+          cardStyle={{ margin: 0 }}
+          // Pass props to control action menu state
+          isContentActionActive={isContentActionActive}
+          onContentActionExpandChange={(isExpanded) => 
+            handleSimpleContentActionExpandChange(product.id, isExpanded)}
+        />
+      </View>
+    );
+  }, [activeSimpleActionCardId, currentIsDarkMode, calculatedItemWidth, getAspectRatioForProduct, handleCardPress, handleAddToCart, handleLike, handleDislike, handleShare, handleSimpleContentActionExpandChange]);
+  
+  // Render news items with proper grid layout and spacing
+  const renderNewsItems = useCallback(() => {
+    if (isLoadingNews) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={accentColor} />
+          <Text style={[styles.emptyText, { color: themeColors.text.secondary, marginTop: 8 }]}>
+            Loading fashion news...
+          </Text>
+        </View>
+      );
+    }
+    
+    if (newsError) {
+      return (
+        <View style={styles.emptyContent}>
+          <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+            {newsError}
+          </Text>
+          <TouchableOpacity 
+            style={styles.retryButton} 
+            onPress={fetchNews}
+          >
+            <Text style={[styles.retryText, { color: accentColor }]}>
+              Retry
+            </Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    if (newsArticles.length === 0) {
+      return (
+        <View style={styles.emptyContent}>
+          <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+            No fashion news available
+          </Text>
+          <TouchableOpacity 
+            style={styles.retryButton} 
+            onPress={fetchNews}
+          >
+            <Text style={[styles.retryText, { color: accentColor }]}>
+              Retry
+            </Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // console.log(`Rendering ${displayedNewsCount} out of ${newsArticles.length} news articles`);
+    
+    // Only show the number of news items that should be displayed
+    const visibleNews = newsArticles.slice(0, displayedNewsCount);
+    
+    // Separate list and grid items
+    const listItems = visibleNews.filter((_, i) => i % 2 === 0);
+    const gridItems = visibleNews.filter((_, i) => i % 2 === 1);
+    
+    return (
+      <View style={styles.newsContainer}>
+        {/* List mode items (full width) */}
+        {listItems.map((article, index) => {
+          const isContentActionActive = activeNewsCardId === article.id;
+          
+          return (
+            <View key={article.id} style={styles.newsListItemContainer}>
+              <NewsCard
+                article={article}
+                mode="list"
+                onLike={handleLike}
+                onDislike={handleDislike}
+                onShare={handleShare}
+                onBookmark={handleBookmark}
+                isDarkMode={currentIsDarkMode}
+                isContentActionActive={isContentActionActive}
+                onContentActionExpandChange={(isExpanded) => 
+                  handleNewsContentActionExpandChange(article.id, isExpanded)}
+              />
+            </View>
+          );
+        })}
+        
+        {/* Grid mode items (2 per row) */}
+        <View style={styles.newsGridContainer}>
+          {gridItems.map((article, index) => {
+            const isContentActionActive = activeNewsCardId === article.id;
+            
+            return (
+              <View key={article.id} style={styles.newsGridItemContainer}>
+                <NewsCard
+                  article={article}
+                  mode="grid"
+                  onLike={handleLike}
+                  onDislike={handleDislike}
+                  onShare={handleShare}
+                  onBookmark={handleBookmark}
+                  isDarkMode={currentIsDarkMode}
+                  isContentActionActive={isContentActionActive}
+                  onContentActionExpandChange={(isExpanded) => 
+                    handleNewsContentActionExpandChange(article.id, isExpanded)}
+                />
+              </View>
+            );
+          })}
+        </View>
+        
+        {/* Show "Load More" button if there are more news articles to display */}
+        {displayedNewsCount < newsArticles.length && (
+          <TouchableOpacity 
+            style={[styles.loadMoreButton, { borderColor: accentColor }]}
+            onPress={() => setDisplayedNewsCount(newsArticles.length)}
+          >
+            <Text style={[styles.loadMoreText, { color: accentColor }]}>
+              Show All News
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }, [isLoadingNews, newsError, newsArticles, displayedNewsCount, activeNewsCardId, accentColor, themeColors.text.secondary, currentIsDarkMode, fetchNews, handleLike, handleDislike, handleShare, handleBookmark, handleNewsContentActionExpandChange]);
+  
+  // Handle scrolling to dismiss active content action and implement infinite scroll
+  const handleScroll = useCallback((event: any) => {
+    // Clear active cards on scroll
+    if (activeActionCardId) setActiveActionCardId(null);
+    if (activeSimpleActionCardId) setActiveSimpleActionCardId(null);
+    if (activePartialActionCardId) setActivePartialActionCardId(null);
+    if (activeNewsCardId) setActiveNewsCardId(null);
+    if (activeOutfitActionCardId) setActiveOutfitActionCardId(null);
+    
+    // Process regular scroll event
+    Animated.event(
+      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+      { useNativeDriver: false }
+    )(event);
+  }, [scrollY, activeActionCardId, activeSimpleActionCardId, activePartialActionCardId, activeNewsCardId, activeOutfitActionCardId]);
+  
+  // Handle loading more items
+  const handleLoadMore = useCallback(() => {
+    if (isLoadingMore || !isMountedRef.current) return;
+    
+    setIsLoadingMore(true);
+    
+    // First, load more outfit groups if there are more to show
+    if (displayedOutfitCount < outfitGroups.length) {
+      setDisplayedOutfitCount(prev => Math.min(
+        prev + 3, // Load 3 outfits at a time
+        outfitGroups.length
+      ));
+    }
+    // Then load news if there are more news articles to show
+    else if (displayedNewsCount < newsArticles.length) {
+      // Load news first
+      setDisplayedNewsCount(prev => Math.min(
+        prev + 2, // Load 2 news at a time
+        newsArticles.length
+      ));
+    }
+    else if (displayedProductCount < products.length) {
+      // All news is loaded, now load full products
+      setDisplayedProductCount(prev => Math.min(
+        prev + LOAD_MORE_COUNT,
+        products.length
+      ));
+    } 
+    else if (displayedPartialProductCount < partialProducts.length) {
+      // All full products are loaded, now load partial products
+      setDisplayedPartialProductCount(prev => Math.min(
+        prev + LOAD_MORE_COUNT,
+        partialProducts.length
+      ));
+    }
+    else if (displayedSimpleProductCount < simpleProducts.length) {
+      // All news, full and partial products are loaded, finally load simple products
+      setDisplayedSimpleProductCount(prev => Math.min(
+        prev + LOAD_MORE_COUNT,
+        simpleProducts.length
+      ));
+    }
+    
+    // Clear loading state after a slight delay to prevent rapid loading
+    // Use timer ref to avoid callback accumulation
+    if (loadMoreTimerRef.current) {
+      clearTimeout(loadMoreTimerRef.current);
+    }
+    
+    loadMoreTimerRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setIsLoadingMore(false);
+      }
+      loadMoreTimerRef.current = null;
+    }, 500);
+  }, [isLoadingMore, displayedOutfitCount, outfitGroups.length, displayedNewsCount, newsArticles.length, displayedProductCount, products.length, displayedPartialProductCount, partialProducts.length, displayedSimpleProductCount, simpleProducts.length]);
+  
+  // Slice the data arrays to only show the currently loaded items
+  const visibleProducts = products.slice(0, displayedProductCount);
+  const visiblePartialProducts = partialProducts.slice(0, displayedPartialProductCount);
+  const visibleSimpleProducts = simpleProducts.slice(0, displayedSimpleProductCount);
+  
+  // Determine if we should show Fashion News section
+  const shouldShowNews = currentFilter === 'all' || currentFilter === 'news';
+  
+  // Determine if we should show Featured Products section
+  // Only show if we're not in news-only filter mode
+  const shouldShowFeaturedProducts = currentFilter === 'all' || currentFilter !== 'news';
+  
+  // Determine if we should show Partial Products section
+  // Only show it if we've loaded ALL featured products
+  const shouldShowPartialProducts = displayedProductCount >= products.length;
+  
+  // Determine if we should show Simple Products section
+  // Only show it if we've loaded ALL partial products
+  const shouldShowSimpleProducts = 
+    displayedProductCount >= products.length && 
+    displayedPartialProductCount >= partialProducts.length;
+  
+  // Function to render section header
+  const renderSectionHeader = useCallback((title: string) => (
+    <View style={[styles.sectionHeader, { backgroundColor: bgColor }]}>
+      <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>
+        {title}
+      </Text>
+    </View>
+  ), [bgColor, themeColors.text.primary]);
+
+  // Render outfit groups section
+  const renderOutfitGroups = useCallback(() => {
+    // Show loading state
+    if (isLoadingOutfits) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={accentColor} />
+          <Text style={[styles.emptyText, { color: themeColors.text.secondary, marginTop: 8 }]}>
+            Loading outfit collections...
+          </Text>
+        </View>
+      );
+    }
+    
+    // Only render if we have outfit groups
+    if (outfitGroups.length === 0) {
+      return (
+        <View style={styles.emptyContent}>
+          <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+            No outfit collections available
+          </Text>
+        </View>
+      );
+    }
+
+    // Only display the number of outfits specified by displayedOutfitCount
+    const visibleOutfits = outfitGroups.slice(0, displayedOutfitCount);
+
+    return (
+      <View style={styles.outfitGroupsContainer}>
+        {visibleOutfits.map((group) => (
+          <OutfitGroupComponent
+            key={group.id}
+            products={group.products}
+            title={group.title}
+            onCartPress={(productId) => handleAddToCart(productId)}
+            onCardPress={(productId) => handleCardPress(productId)}
+            onLikePress={(id) => handleLike(id)}
+            onDislikePress={(id) => handleDislike(id)}
+            onSharePress={(id) => handleShare(id)}
+            onBookmarkPress={(id) => handleBookmark(id)}
+            isDarkMode={currentIsDarkMode}
+            outfitId={group.id}
+            isContentActionActive={activeOutfitActionCardId === group.id}
+            onContentActionExpandChange={(isExpanded: boolean) => 
+              handleOutfitContentActionExpandChange(group.id, isExpanded)}
+          />
+        ))}
+        
+        {/* Load more button */}
+        {displayedOutfitCount < outfitGroups.length && (
+          <TouchableOpacity 
+            style={[styles.loadMoreButton, { borderColor: accentColor }]}
+            onPress={() => setDisplayedOutfitCount(prev => Math.min(prev + 5, outfitGroups.length))}
+          >
+            <Text style={[styles.loadMoreText, { color: accentColor }]}>
+              Load More Outfits
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }, [outfitGroups, displayedOutfitCount, isLoadingOutfits, themeColors.text.secondary, accentColor, currentIsDarkMode, handleAddToCart, handleCardPress, handleLike, handleDislike, handleShare, handleBookmark, handleOutfitContentActionExpandChange]);
+
+  // Render loading indicator
+  const renderFooter = useCallback(() => {
+    if (!isLoadingMore) return null;
+    
+    return (
+      <View style={styles.loadingFooter}>
+        <ActivityIndicator size="small" color={accentColor} />
+      </View>
+    );
+  }, [isLoadingMore, accentColor]);
+  
+  // Render featured products list
+  const renderFeaturedProducts = useCallback(() => {
+    // Only show the number of products that should be displayed
+    const visibleProducts = products.slice(0, displayedProductCount);
+    
+    return (
+      <MasonryList
+        data={visibleProducts}
+        numColumns={NUM_COLUMNS}
+        renderItem={renderProductItem}
+        keyExtractor={(item): string => item.id}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={false} // Disable scrolling - parent ScrollView handles scrolling
+        contentContainerStyle={styles.masonryContentContainer}
+        ListEmptyComponent={
+          <View style={styles.emptyContent}>
+            <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+              Loading products...
+            </Text>
+          </View>
+        }
+      />
+    );
+  }, [displayedProductCount, products, renderProductItem, themeColors.text.secondary]);
+
+  // Render partial products list
+  const renderPartialProducts = useCallback(() => {
+    // Only show the number of partial products that should be displayed
+    const visiblePartialProducts = partialProducts.slice(0, displayedPartialProductCount);
+    
+    return (
+      <MasonryList
+        data={visiblePartialProducts}
+        numColumns={NUM_COLUMNS}
+        renderItem={renderPartialProductItem}
+        keyExtractor={(item): string => item.id}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={false} // Disable scrolling - parent ScrollView handles scrolling
+        contentContainerStyle={styles.masonryContentContainer}
+        ListEmptyComponent={
+          <View style={styles.emptyContent}>
+            <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+              Loading partner products...
+            </Text>
+          </View>
+        }
+      />
+    );
+  }, [displayedPartialProductCount, partialProducts, renderPartialProductItem, themeColors.text.secondary]);
+
+  // Render simple products list
+  const renderSimpleProducts = useCallback(() => {
+    // Only show the number of simple products that should be displayed
+    const visibleSimpleProducts = simpleProducts.slice(0, displayedSimpleProductCount);
+    
+    return (
+      <MasonryList
+        data={visibleSimpleProducts}
+        numColumns={NUM_COLUMNS}
+        renderItem={renderSimpleProductItem}
+        keyExtractor={(item): string => item.id}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={false} // Disable scrolling - parent ScrollView handles scrolling
+        contentContainerStyle={styles.masonryContentContainer}
+        ListEmptyComponent={
+          <View style={styles.emptyContent}>
+            <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+              Loading suggestions...
+            </Text>
+          </View>
+        }
+      />
+    );
+  }, [displayedSimpleProductCount, simpleProducts, renderSimpleProductItem, themeColors.text.secondary]);
+  
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <StatusBar barStyle={currentIsDarkMode ? "light-content" : "dark-content"} />
       
-      {/* Collapsible App Name Header - Left aligned */}
+      {/* Header with app title */}
       <Animated.View 
         style={[
-          styles.appNameHeader, 
+          styles.header, 
           { 
-            backgroundColor: bgColor,
-            height: headerHeight,
-            opacity: headerOpacity,
+            height: headerHeightRef.current,
+            opacity: headerOpacityRef.current,
+            backgroundColor: bgColor // Ensure header background matches
           }
         ]}
       >
-        <Animated.Text 
-          style={[
-            styles.appNameText, 
-            { 
-              color: textColor,
-              transform: [{ scale: titleScale }] 
-            }
-          ]}
-        >
-          DripOut
-        </Animated.Text>
+        <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>DripOut</Text>
       </Animated.View>
       
-      {/* Horizontal Filter Bar - This stays fixed */}
-      <View 
-        style={[
-          styles.filterContainer, 
-          { 
-            backgroundColor: bgColor,
-            borderBottomColor: 'transparent', // Removed border
-          }
-        ]}
-      >
+      {/* Filter tabs */}
+      <View style={[styles.filterContainer, { borderBottomColor: themeColors.border }]}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -386,40 +1226,70 @@ const OverviewScreen: React.FC = () => {
         </ScrollView>
       </View>
       
-      {/* Feed List with custom pull-to-refresh */}
-      <View style={styles.listContainer} {...panResponder.panHandlers}>
-        {renderHeader()}
-        <FlatList
-          ref={flatListRef}
-          data={feedItems}
-          renderItem={renderFeedItem}
-          keyExtractor={item => item.id}
-          contentContainerStyle={[styles.feedContainer, { paddingTop: 12 }]} // Reduced top padding
-          showsVerticalScrollIndicator={false}
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={renderFooter}
-          ListEmptyComponent={renderEmpty}
-          scrollEventThrottle={16}
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-            { useNativeDriver: false }
-          )}
-          // Standard RefreshControl removed, using custom pull-to-refresh
-        />
-      </View>
-      
-      {/* Initial loading state */}
-      {loading && feedItems.length === 0 && !refreshing && (
-        <View style={[styles.initialLoadingContainer, { backgroundColor: bgColor }]}>
-          <AnimatedLoadingIndicator 
-            text="" 
-            size="small" 
-            includeIcons={false}
-            customColor={mainColor}
-          />
-        </View>
-      )}
+      {/* Main content with scrolling sections */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={({ nativeEvent }) => {
+          const isCloseToBottom = (nativeEvent.layoutMeasurement.height + nativeEvent.contentOffset.y) 
+            >= (nativeEvent.contentSize.height - 20);
+          if (isCloseToBottom) {
+            handleLoadMore();
+          }
+        }}
+      >
+        {/* Outfit Groups */}
+        {renderSectionHeader('Outfit Collections')}
+        {renderOutfitGroups()}
+        
+        {/* News Section */}
+        {shouldShowNews && (
+          <>
+            {renderSectionHeader('Fashion News')}
+            {renderNewsItems()}
+          </>
+        )}
+        
+        {/* Featured Products */}
+        {shouldShowFeaturedProducts && (
+          <>
+            {renderSectionHeader('Featured Products')}
+            {renderFeaturedProducts()}
+            {isLoadingMore && displayedProductCount < products.length && (
+              <ActivityIndicator style={styles.loadingIndicator} />
+            )}
+          </>
+        )}
+        
+        {/* Partial Products */}
+        {shouldShowPartialProducts && currentFilter !== 'news' && (
+          <>
+            {renderSectionHeader('Partner Products')}
+            {renderPartialProducts()}
+            {displayedPartialProductCount < partialProducts.length && (
+              <ActivityIndicator style={styles.loadingIndicator} />
+            )}
+          </>
+        )}
+        
+        {/* Simple Products */}
+        {shouldShowSimpleProducts && currentFilter !== 'news' && (
+          <>
+            {renderSectionHeader('You Might Also Like')}
+            {renderSimpleProducts()}
+            {displayedSimpleProductCount < simpleProducts.length && (
+              <ActivityIndicator style={styles.loadingIndicator} />
+            )}
+          </>
+        )}
+        
+        {/* Loading footer */}
+        {renderFooter()}
+        
+        {/* Bottom padding to ensure all content is visible */}
+        <View style={styles.bottomPadding} />
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -428,131 +1298,184 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  // App Name Header (Collapsible)
-  appNameHeader: {
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
-    paddingHorizontal: 20,
-    paddingBottom: 2, // Reduced from 5 to 2 to bring closer to filters
-    overflow: 'hidden',
+  header: {
+    paddingHorizontal: 16,
+    justifyContent: 'flex-end',
+    paddingBottom: 8,
   },
-  appNameText: {
+  headerTitle: {
     ...defaultTextStyle,
-    fontSize: 24, // Reduced from 32 to 24
-    fontWeight: '700', // Slightly reduced weight
-    letterSpacing: 0.5,
+    fontSize: 24,
+    fontWeight: '700',
   },
-  // Filter Bar (Fixed)
   filterContainer: {
-    height: 34, // Reduced from 40 to 34
-    justifyContent: 'center',
+    borderBottomWidth: 0.5,
+    paddingVertical: 8,
   },
   filterScrollContent: {
-    paddingHorizontal: 20,
-    paddingVertical: 0, // Removed vertical padding
-    alignItems: 'center',
+    paddingHorizontal: 16,
   },
   filterItem: {
-    paddingHorizontal: 8, // Reduced from 12 to 8
-    paddingVertical: 2, // Reduced from 4 to 2
-    marginRight: 12, // Reduced from 16 to 12
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    marginRight: 8,
+    borderBottomWidth: 2,
+  },
+  activeFilterItem: {
+    // Accent color applied dynamically
   },
   filterText: {
     ...defaultTextStyle,
-    fontSize: 14, // Reduced from 16 to 14
-    fontWeight: '600', // All items are bold by default
-  },
-  // List container for custom pull-to-refresh
-  listContainer: {
-    flex: 1,
-  },
-  // Pull to refresh
-  pullToRefreshContainer: {
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
-  // Feed content
-  feedContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  feedCard: {
-    borderRadius: 16,
-    marginBottom: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  cardHeader: {
-    padding: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  cardType: {
-    ...defaultTextStyle,
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  cardTitle: {
-    ...defaultTextStyle,
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  cardBody: {
-    padding: 16,
-  },
-  cardDescription: {
-    ...defaultTextStyle,
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  cardFooter: {
-    padding: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  cardTimestamp: {
-    ...defaultTextStyle,
     fontSize: 14,
   },
-  footerContainer: {
-    paddingVertical: 10,
-    alignItems: 'center',
+  activeFilterText: {
+    fontWeight: '600',
   },
-  emptyContainer: {
-    padding: 20,
-    alignItems: 'center',
+  sectionHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 24,
+    paddingBottom: 8,
+  },
+  sectionTitle: {
+    ...defaultTextStyle,
+    fontSize: 20,
+    fontWeight: '600',
+  },
+  masonryContainer: {
+    paddingHorizontal: 0,
+    paddingVertical: ITEM_SPACING / 2,
+    paddingBottom: 5,
+    alignSelf: 'stretch',
+  },
+  masonryContentContainer: {
+    paddingHorizontal: ITEM_SPACING / 2,
+    paddingVertical: ITEM_SPACING / 2,
+    paddingBottom: 16,
+  },
+  columnWrapper: {
+    justifyContent: 'space-between', // Space columns evenly
+  },
+  productCardContainer: {
+    marginVertical: ITEM_SPACING / 2,
+    marginHorizontal: ITEM_SPACING / 2,
+  },
+  emptyContent: {
+    flex: 1,
     justifyContent: 'center',
-    height: 300,
+    alignItems: 'center',
+    height: 100,
+    marginVertical: 20,
   },
   emptyText: {
     ...defaultTextStyle,
     fontSize: 16,
+    opacity: 0.5,
+  },
+  loadingFooter: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomPadding: {
+    height: 50,
+  },
+  // News related styles
+  newsContainer: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  newsListItemContainer: {
+    marginBottom: 16,
+    width: '100%',
+  },
+  newsGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginHorizontal: -5, // Compensate for the inner padding
+  },
+  newsGridItemContainer: {
+    width: '50%', // Two cards per row
+    paddingHorizontal: 5,
     marginBottom: 16,
   },
-  emptyButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  emptyButtonText: {
-    ...defaultTextStyle,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  initialLoadingContainer: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
+  loadingContainer: {
+    height: 150,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
+  },
+  retryButton: {
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(100,100,100,0.3)',
+  },
+  retryText: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  newsSection: {
+    padding: 16,
+  },
+  featuredProductsSection: {
+    padding: 16,
+  },
+  featuredProductsTitle: {
+    ...defaultTextStyle,
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  loadingIndicator: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  partialProductsSection: {
+    padding: 16,
+  },
+  partialProductsTitle: {
+    ...defaultTextStyle,
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  simpleProductsSection: {
+    padding: 16,
+  },
+  simpleProductsTitle: {
+    ...defaultTextStyle,
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  seeAllText: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  loadMoreButton: {
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(100,100,100,0.3)',
+    borderRadius: 4,
+    alignItems: 'center',
+  },
+  loadMoreText: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  outfitGroupsContainer: {
+    paddingHorizontal: 1,
+    paddingVertical: 0,
   },
 });
 

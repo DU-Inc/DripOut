@@ -1,6 +1,3 @@
-import { 
-  AuthError,
-} from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs, limit, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../Config/firebaseconfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';

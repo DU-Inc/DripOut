@@ -30,12 +30,13 @@ import ForgotPasswordScreen from "../screens/auth/ForgotPasswordScreen";
 import SuccessOptionsSheet from "../components/common/SuccessOptionsSheet";
 import AnimatedSplashScreen from "../components/common/AnimatedSplashScreen";
 import { RootStackParamList, MainTabParamList } from "../types/NavigationTypes";
-import { useTheme } from "../styles/themeprovider";
+import { useTheme } from "../styles/theme/ThemeContext";
 import { appStateManager } from "../utils/appStateManager";
 import { OnboardingProvider } from "../context/OnboardingContext";
 import { auth } from "../Config/firebaseconfig";
 import { getDoc, doc } from "firebase/firestore";
 import { db } from "../Config/firebaseconfig";
+import FeedNavigator from "./feedNavigator/FeedNavigator";
 
 // Add global setTimeout type
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -98,7 +99,7 @@ const MainTabNavigator = () => {
     >
       <Tab.Screen 
         name="HomeTab" 
-        component={OverviewScreen} 
+        component={FeedNavigator} 
         options={{
           tabBarLabel: 'Home',
           tabBarIcon: ({ color, size, focused }) => {
