@@ -19,6 +19,7 @@ import ContentAction from '../common/CardButtons/contentAction';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../../styles/theme/colors';
 import { SharedElement } from 'react-navigation-shared-element';
+import { logger } from '../../utils/logger';
 
 // Add type declaration at the top of file (after imports)
 // declare const setTimeout: (callback: (...args: any[]) => void, ms: number) => number;
@@ -135,10 +136,31 @@ const ProductCard: React.FC<ProductCardProps> = ({
 
   // Add ref to track rendered images to prevent unnecessary rerenders
   const renderedImagesRef = useRef<{[key: string]: boolean}>({});
+  
+  // Create safe fallback URL using a more reliable source
+  const getFallbackImageUrl = (index: number) => {
+    // First try a reliable online service
+    const colors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6'];
+    const color = colors[index % colors.length];
+    return `https://dummyimage.com/400x600/${color.replace('#', '')}/ffffff&text=Product+${index + 1}`;
+  };
+  
+  // Hard-coded single fallback image that will always be available (local)
+  const localFallbackImage = require('../../assets/images/3dimage.png');
 
   // Preload all images and create cached components
   useEffect(() => {
-    // console.log(`[ProductCard ${id}] Component mounted/updated, images count:${images.length}`);
+    logger.log(`[IMAGE FLOW] ProductCard ${id} mounted/updated, images count:${images.length}`);
+    
+    // Log each image in detail
+    images.forEach((img, index) => {
+      logger.log(`[IMAGE FLOW] ProductCard ${id} Image ${index + 1}:`);
+      logger.log(`  ID: ${img.id}`);
+      logger.log(`  URL: ${img.url}`);
+      logger.log(`  URL type: ${typeof img.url}`);
+      logger.log(`  URL length: ${img.url?.length || 0}`);
+      logger.log(`  URL starts with http: ${img.url?.startsWith('http')}`);
+    });
     
     const preloadImages = async () => {
       // console.log(`[ProductCard ${id}] Starting image preloading for ${images.length} images`);
@@ -173,13 +195,16 @@ const ProductCard: React.FC<ProductCardProps> = ({
                 source={{ uri: image.url }}
                 style={[styles.image, { width: cardWidth, borderRadius: 12 }]}
                 resizeMode="cover"
-                defaultSource={{ uri: image.url }}
+                defaultSource={localFallbackImage}
                 key={`preloaded-${image.id}-shared`}
                 fadeDuration={0}
                 onLoadStart={() => {/* console.log(`[ProductCard ${id}] Cached shared image ${image.id} LOAD START`) */}}
                 onLoad={() => {
                   // console.log(`[ProductCard ${id}] Cached shared image ${image.id} LOADED`);
                   handleImageLoad(image.id);
+                }}
+                onError={(e) => {
+                  console.error(`[ProductCard ${id}] Cached shared image ${image.id} failed to load: ${e.nativeEvent.error}, URL: ${image.url}`);
                 }}
               />
             </SharedElement>
@@ -202,13 +227,16 @@ const ProductCard: React.FC<ProductCardProps> = ({
                 source={{ uri: image.url }}
                 style={[styles.image, { width: cardWidth, borderRadius: 12 }]}
                 resizeMode="cover"
-                defaultSource={{ uri: image.url }}
+                defaultSource={localFallbackImage}
                 key={`preloaded-${image.id}-normal`}
                 fadeDuration={0}
                 onLoadStart={() => {/* console.log(`[ProductCard ${id}] Cached normal image ${image.id} LOAD START`) */}}
                 onLoad={() => {
                   // console.log(`[ProductCard ${id}] Cached normal image ${image.id} LOADED`);
                   handleImageLoad(image.id);
+                }}
+                onError={(e) => {
+                  console.error(`[ProductCard ${id}] Cached normal image ${image.id} failed to load: ${e.nativeEvent.error}, URL: ${image.url}`);
                 }}
               />
             </View>
@@ -704,7 +732,8 @@ const ProductCard: React.FC<ProductCardProps> = ({
 
   // Render image component with placeholder - use cached components
   const renderImage = (image: ProductImage, index: number, isCurrentImage: boolean) => {
-    // console.log(`[ProductCard ${id}] Rendering image [${index}] id:${image.id}, isCurrentImage:${isCurrentImage}, isLoaded:${!!loadedImages[image.id]}`);
+    logger.log(`[ProductCard ${id}] Rendering image [${index}] id:${image.id}, isCurrentImage:${isCurrentImage}, isLoaded:${!!loadedImages[image.id]}`);
+    logger.log(`[ProductCard ${id}] Image URL:`, image.url);
     
     // Track that this image has been rendered at least once
     renderedImagesRef.current[image.id] = true;
@@ -737,10 +766,21 @@ const ProductCard: React.FC<ProductCardProps> = ({
             source={{ uri: image.url }}
             style={[styles.image, { width: cardWidth, borderRadius: 12 }]}
             resizeMode="cover"
-            defaultSource={{ uri: image.url }}
+            defaultSource={localFallbackImage}
             key={`preloaded-${image.id}-shared`}
             fadeDuration={0}
-            onLoad={() => handleImageLoad(image.id)}
+            onLoadStart={() => {
+              logger.log(`[IMAGE FLOW] Image ${index} loading STARTED: ${image.url}`);
+            }}
+            onLoad={() => {
+              logger.log(`[IMAGE FLOW] SUCCESS! Image ${index} LOADED: ${image.url}`);
+              handleImageLoad(image.id);
+            }}
+            onError={(e) => {
+              logger.error(`[IMAGE FLOW] FAILED! Image ${index} failed to load: ${e.nativeEvent.error}`);
+              logger.error(`[IMAGE FLOW] Failed URL: ${image.url}`);
+              logger.error(`[IMAGE FLOW] URL Host: ${image.url.split('/')[2]}`);
+            }}
           />
         </SharedElement>
       );
@@ -758,10 +798,21 @@ const ProductCard: React.FC<ProductCardProps> = ({
             source={{ uri: image.url }}
             style={[styles.image, { width: cardWidth, borderRadius: 12 }]}
             resizeMode="cover"
-            defaultSource={{ uri: image.url }}
+            defaultSource={localFallbackImage}
             key={`preloaded-${image.id}-normal`}
             fadeDuration={0}
-            onLoad={() => handleImageLoad(image.id)}
+            onLoadStart={() => {
+              logger.log(`[IMAGE FLOW] Normal Image ${index} loading STARTED: ${image.url}`);
+            }}
+            onLoad={() => {
+              logger.log(`[IMAGE FLOW] SUCCESS! Normal Image ${index} LOADED: ${image.url}`);
+              handleImageLoad(image.id);
+            }}
+            onError={(e) => {
+              logger.error(`[IMAGE FLOW] FAILED! Normal Image ${index} failed to load: ${e.nativeEvent.error}`);
+              logger.error(`[IMAGE FLOW] Failed URL: ${image.url}`);
+              logger.error(`[IMAGE FLOW] URL Host: ${image.url.split('/')[2]}`);
+            }}
           />
         </View>
       );
@@ -907,15 +958,32 @@ const ProductCard: React.FC<ProductCardProps> = ({
               >
                 <Image
                   source={{ uri: images[0].url }}
-                  style={[styles.image, { borderRadius: 12 }]}
+                  style={[styles.image, { 
+                    borderRadius: 12,
+                    width: '100%',
+                    height: '100%',
+                  }]}
                   resizeMode="cover"
-                  // Important: set defaultSource for faster image loading
-                  defaultSource={{ uri: images[0].url }}
+                  // Use local image as default source to ensure something always shows
+                  defaultSource={localFallbackImage}
                   // Disable fade-in animation for smoother experience
                   fadeDuration={0} 
-                  onLoad={() => handleImageLoad(images[0].id)}
+                  onLoadStart={() => {
+                    logger.log(`[IMAGE FLOW] Single Image loading STARTED: ${images[0].url}`);
+                    logger.log(`[IMAGE FLOW] URL host: ${images[0].url.split('/')[2]}`);
+                    logger.log(`[IMAGE FLOW] URL path: ${images[0].url.split('/').slice(3).join('/')}`);
+                  }}
+                  onLoad={() => {
+                    logger.log(`[IMAGE FLOW] SUCCESS! Single Image LOADED: ${images[0].url}`);
+                    handleImageLoad(images[0].id);
+                  }}
                   onError={(e) => {
-                    // console.error(`[ProductCard ${id}] Shared Single Image failed to load: ${e.nativeEvent.error}, URL: ${images[0].url}`)
+                    logger.error(`[IMAGE FLOW] FAILED! Single Image failed to load`);
+                    logger.error(`[IMAGE FLOW] Error details: ${e.nativeEvent.error}`);
+                    logger.error(`[IMAGE FLOW] Failed URL: ${images[0].url}`);
+                    logger.error(`[IMAGE FLOW] URL length: ${images[0].url.length}`);
+                    logger.error(`[IMAGE FLOW] URL host: ${images[0].url.split('/')[2]}`);
+                    logger.error(`[IMAGE FLOW] Network state: ${typeof navigator !== 'undefined' && navigator.onLine ? 'Online' : 'Offline'}`);
                   }}
                 />
               </SharedElement>

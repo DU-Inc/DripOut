@@ -24,6 +24,7 @@ import {
   InteractionManager,
   LogBox,
   PanResponderGestureState,
+  Easing,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -35,9 +36,10 @@ import { useTheme } from '../../styles/theme/ThemeContext';
 import { colors } from '../../styles/theme/colors';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { SharedElement } from 'react-navigation-shared-element';
+import { logger } from '../../utils/logger';
 
 // Import sample data
-import feedData from '../../data/feed.json';
+// import feedData from '../../data/feed.json';
 
 // For strongly typed route params
 interface RouteParams {
@@ -324,21 +326,20 @@ const ExpandedProductScreen: SharedElementsFC = () => {
     const fetchProduct = async () => {
       if (!initialProduct) {
         setIsLoadingAdditionalData(true);
-      }
-      
-      try {
-        // Simulate API call with a delay
-        await createDelay(500);
         
-        // Find the product from our dummy data
-        const foundProduct = feedData.singleOutfitFullData.find(
-          item => item.id === productId
-        ) || feedData.singleOutfitFullData[0]; // Default to first product if not found
-        
-        setProduct(foundProduct);
-        setIsLoadingAdditionalData(false);
-      } catch (error) {
-        console.error("Error fetching product:", error);
+        try {
+          // Here you would fetch the product by ID from your API if it wasn't passed
+          // For now, we'll just show an error since we want to use passed data
+          logger.error("No product data passed from previous screen");
+          setIsLoadingAdditionalData(false);
+        } catch (error) {
+          logger.error("Error fetching product:", error);
+          setIsLoadingAdditionalData(false);
+        }
+      } else {
+        // Use the product data passed from OverviewScreen
+        logger.log("Using product data passed from OverviewScreen:", initialProduct.id);
+        setProduct(initialProduct);
         setIsLoadingAdditionalData(false);
       }
     };
@@ -351,15 +352,20 @@ const ExpandedProductScreen: SharedElementsFC = () => {
     fetchSimilarProducts();
   }, []);
   
-  // Format product images into the expected format
+  // Format product images into the expected format - update to handle more possible formats
   const productImages = product
     ? [
-        { id: `${product.id}_main`, url: product.productImage },
+        { id: `${product.id}_main`, url: product.productImage || (product.images && product.images[0]?.url) },
         ...(product.additionalImages?.map((url: string, index: number) => ({
           id: `${product.id}_${index}`,
           url,
         })) || []),
-      ]
+        // Include images array if present (for products from API)
+        ...(product.images?.slice(1).map((img: any, index: number) => ({
+          id: `${product.id}_img_${index}`,
+          url: typeof img === 'string' ? img : img.url,
+        })) || []),
+      ].filter(img => img.url) // Filter out items with no URL
     : [];
   
   // Handle scroll to top
@@ -663,43 +669,63 @@ const ExpandedProductScreen: SharedElementsFC = () => {
     setIsContentActionActive(isExpanded);
   };
   
-  // Fetch similar products with random height offsets
+  // Fetch similar products from API instead of dummy data
   const fetchSimilarProducts = async (isRefresh = false) => {
     if (isLoadingMore && !isRefresh) return;
     
     setIsLoadingMore(true);
     
     try {
-      // Simulate API call with a delay
+      // Simulate API call with a delay - in real implementation, fetch from your API
       await createDelay(500);
       
-      // Get products from the dummy data
-      const productsData = feedData.simpleCardComponent.slice(0, 50);
-      
-      // Format products with random height offsets for masonry
-      const formattedProducts: FormattedSimpleProduct[] = productsData.map((item, index) => {
-        // Generate a random height offset for masonry staggering
-        const randomOffset = Math.floor(Math.random() * 50);
+      try {
+        // You should replace this with actual API call to get similar products
+        // For example: const similarProductsData = await fetchSimilarProductsFromApi(productId);
         
-        return {
-          id: `${item.id}_${Date.now()}_${index}`, // Make sure IDs are truly unique
-          price: typeof item.price === 'string' 
-            ? parseFloat(item.price.replace('$', '')) 
-            : item.price,
-          brand: item.brand,
-          images: [{ id: `${item.id}_main_${index}`, url: item.productImage }],
-          masonryHeightOffset: randomOffset
-        };
-      });
-      
-      if (isRefresh) {
-        setSimilarProducts(formattedProducts);
-        setDisplayedSimilarCount(LOAD_MORE_COUNT);
-      } else {
-        setSimilarProducts(prevProducts => [...prevProducts, ...formattedProducts]);
+        // For now, create some mock data based on the current product's properties
+        // In a real implementation, you would call your API here
+        const mockSimilarProducts = Array(12).fill(0).map((_, index) => {
+          const randomPrice = Math.floor(Math.random() * 100) + 50;
+          
+          return {
+            id: `similar-${product?.id || 'product'}-${index}`,
+            price: randomPrice,
+            brand: product?.brand || 'Similar Brand',
+            images: [{ 
+              id: `img-${index}`, 
+              url: product?.productImage || `https://via.placeholder.com/400x600?text=Similar+${index}` 
+            }],
+            masonryHeightOffset: Math.floor(Math.random() * 50)
+          };
+        });
+        
+        if (isRefresh) {
+          setSimilarProducts(mockSimilarProducts);
+          setDisplayedSimilarCount(LOAD_MORE_COUNT);
+        } else {
+          setSimilarProducts(prevProducts => [...prevProducts, ...mockSimilarProducts]);
+        }
+      } catch (apiError) {
+        logger.error('Error fetching similar products from API:', apiError);
+        // Create fallback similar products if API fails
+        const fallbackProducts = Array(6).fill(0).map((_, index) => ({
+          id: `fallback-${index}`,
+          price: 99.99,
+          brand: 'Fallback Brand',
+          images: [{ id: `fallback-img-${index}`, url: `https://via.placeholder.com/400x600?text=Fallback+${index}` }],
+          masonryHeightOffset: Math.floor(Math.random() * 50)
+        }));
+        
+        if (isRefresh) {
+          setSimilarProducts(fallbackProducts);
+          setDisplayedSimilarCount(LOAD_MORE_COUNT);
+        } else {
+          setSimilarProducts(prevProducts => [...prevProducts, ...fallbackProducts]);
+        }
       }
     } catch (error) {
-      console.error('Error fetching similar products:', error);
+      logger.error('Error in fetchSimilarProducts:', error);
     } finally {
       setIsLoadingMore(false);
       setRefreshing(false);
@@ -1117,46 +1143,47 @@ const ExpandedProductScreen: SharedElementsFC = () => {
   // Add a new state to track when transition is active
   const [isTransitionActive, setIsTransitionActive] = useState(true);
 
-  // Update the completeTransition function to mark when transition ends
+  // Add timestamp logging helper
+  const getTimestamp = () => {
+    const now = new Date();
+    // Format time with leading zeros and include milliseconds
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const milliseconds = String(now.getMilliseconds()).padStart(3, '0');
+    
+    return `${hours}:${minutes}:${seconds}.${milliseconds}`;
+  };
+
+  // Update the transition completion by optimizing the shared element visibility handling
   const completeTransition = () => {
     if (!transitionCompleteRef.current) {
-      console.log(`[${getTimestamp()}] [TRANSITION] EXPLICITLY completing transition`);
+      logger.log(`[${getTimestamp()}] [TRANSITION] EXPLICITLY completing transition`);
       transitionCompleteRef.current = true;
       
-      // First make slider completely visible
-      Animated.timing(sliderOpacity, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true
-      }).start(({finished}) => {
-        if (finished) {
-          // Small delay before hiding shared element to ensure slider is visible
-          setTimeout(() => {
-            console.log(`[${getTimestamp()}] [TRANSITION] Slider is visible, now hiding shared element`);
-            
-            // Only once slider is confirmed visible, hide the shared element
-            Animated.timing(sharedElementOpacity, {
-              toValue: 0,
-              duration: 180,
-              useNativeDriver: true
-            }).start(({finished}) => {
-              if (finished) {
-                // Use a slight delay to ensure the animation has visually completed
-                setTimeout(() => {
-                  // Mark transition as complete to enable interactions
-                  console.log(`[${getTimestamp()}] [TRANSITION] Transition complete, enabling scrolling and interactions`);
-                  setIsTransitionActive(false);
-                }, 50); // Very short delay - just enough to ensure animation completes
-              } else {
-                // Force complete on animation failure
-                setIsTransitionActive(false);
-              }
-            });
-          }, 30);
-        } else {
-          // Force complete on animation failure
+      // Apply sequential visibility changes for more natural transitions
+      Animated.sequence([
+        // First make slider completely visible
+        Animated.timing(sliderOpacity, {
+          toValue: 1,
+          duration: 200, // Slightly faster
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic) // Add easing for smoother animation
+        }),
+        
+        // Then hide shared element
+        Animated.timing(sharedElementOpacity, {
+          toValue: 0,
+          duration: 150, // Faster fade out
+          useNativeDriver: true,
+          easing: Easing.out(Easing.quad) // Smoother easing
+        })
+      ]).start(() => {
+        // Mark transition as complete to enable interactions
+        setTimeout(() => {
+          logger.log(`[${getTimestamp()}] [TRANSITION] Transition complete, enabling scrolling and interactions`);
           setIsTransitionActive(false);
-        }
+        }, 50); // Very short delay - just enough to ensure animation completes
       });
     }
   };
@@ -1202,17 +1229,13 @@ const ExpandedProductScreen: SharedElementsFC = () => {
   // Add timestamp logging helper
   const getTimestamp = () => {
     const now = new Date();
-    // Format time with leading zeros and include milliseconds up to 9 decimal places
+    // Format time with leading zeros and include milliseconds
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const seconds = String(now.getSeconds()).padStart(2, '0');
     const milliseconds = String(now.getMilliseconds()).padStart(3, '0');
-    // Use the elapsed time since app start for more precision
-    const elapsedMs = Date.now() - APP_START_TIME;
-    const preciseMs = String(elapsedMs % 1000).padStart(3, '0');
-    const nanoTime = String(Math.floor(Math.random() * 999999)).padStart(6, '0'); // Add random digits for nanoseconds
     
-    return `${hours}:${minutes}:${seconds}.${milliseconds}${nanoTime}`;
+    return `${hours}:${minutes}:${seconds}.${milliseconds}`;
   };
 
   // Add states to track rendering of all required components

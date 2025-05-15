@@ -871,32 +871,87 @@ const ThreeDScreen: React.FC = () => {
               </Text>
             </View>
           ) : hasModel && modelUrl ? (
-            // User has a model, show it with an elegant overlay for updates
+            // User HAS a model
             <>
               <Text style={[styles.sectionTitle, { color: textColor }]}>Your Avatar</Text>
-              <View style={styles.avatarImageContainer}>
-                <TouchableOpacity
-                  activeOpacity={0.95}
-                  onPress={handleUpdateAvatar}
-                  style={styles.avatarTouchable}
-                >
-                  <Image 
-                    source={{ uri: modelUrl }} 
-                    style={styles.avatarImage}
-                    resizeMode="cover"
-                  />
-                  {/* Professional overlay with camera icon */}
-                  <View style={styles.avatarUpdateOverlay}>
-                    <View style={styles.avatarUpdateIconContainer}>
-                      <Icon name="camera" size={20} color="#FFFFFF" />
-                    </View>
-                    <Text style={styles.avatarUpdateText}>Update Photo</Text>
+              {selectedImages.length === 0 ? (
+                  // ===> No new images selected, show current avatar
+                  <View style={styles.avatarImageContainer}>
+                    <TouchableOpacity
+                      activeOpacity={0.95}
+                      onPress={handleUpdateAvatar}
+                    >
+                      <Image
+                        source={{ uri: modelUrl }}
+                        style={styles.avatarImage}
+                        resizeMode="cover"
+                      />
+                      {/* Professional overlay with camera icon */}
+                      <View style={styles.avatarUpdateOverlay}>
+                        <View style={styles.avatarUpdateIconContainer}>
+                          <Icon name="camera" size={20} color="#FFFFFF" />
+                        </View>
+                        <Text style={styles.avatarUpdateText}>Update Photo</Text>
+                      </View>
+                    </TouchableOpacity>
                   </View>
-                </TouchableOpacity>
-              </View>
+              ) : (
+                  // ===> New images ARE selected, show them and the Update button
+                  <View style={styles.createModelContainer}>
+                    <Text style={[styles.createModelTitle, { color: textColor }]}>
+                      Ready to update with this photo?
+                    </Text>
+                    {/* Display selected images (copied from create flow) */}
+                    <View style={styles.selectedImagesContainer}>
+                      {selectedImages.map((image, index) => (
+                        <View key={index} style={styles.selectedImageWrapper}>
+                          <Image source={{ uri: image.uri }} style={styles.selectedImage} />
+                          <TouchableOpacity
+                            style={styles.removeImageButton}
+                            onPress={() => {
+                              const newImages = [...selectedImages];
+                              newImages.splice(index, 1);
+                              setSelectedImages(newImages); // Allow removing the newly selected image
+                            }}
+                          >
+                            <Icon name="close-circle" size={24} color={accentColor} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                      {/* Optionally allow adding more up to a limit if needed */}
+                      {/* {selectedImages.length < 3 && (
+                        <TouchableOpacity
+                          style={[styles.addMoreButton, { borderColor: mainColor }]}
+                          onPress={() => setShowImageOptions(true)}
+                        >
+                          <Icon name="add" size={30} color={mainColor} />
+                        </TouchableOpacity>
+                      )} */}
+                    </View>
+
+                    {/* Display Update button (copied from create flow, but action is fixed to update) */}
+                    <TouchableOpacity
+                      style={[styles.createButton, { backgroundColor: mainColor }]}
+                      onPress={() => handleCreateModel(true)} // Pass true for isUpdate
+                      disabled={creatingModel}
+                    >
+                      {creatingModel ? (
+                        <>
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                          <Text style={styles.buttonText}>
+                            {modelProgress < 0.5 ? 'Uploading...' : 'Processing...'}
+                            {` (${Math.round(modelProgress * 100)}%)`}
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={styles.buttonText}>Update My Avatar</Text> // Fixed text
+                      )}
+                    </TouchableOpacity>
+                  </View>
+              )}
             </>
           ) : (
-            // User needs to create a model
+            // User needs to CREATE a model
             <View style={styles.createModelContainer}>
               <Text style={[styles.createModelTitle, { color: textColor }]}>
                 We need a picture of you to create your avatar!

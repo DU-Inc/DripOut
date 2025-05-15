@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import {
   SafeAreaView,
   Animated,
@@ -24,6 +24,8 @@ import {
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 // import { auth } from '../Config/firebaseconfig';
 // Using View with background color instead of LinearGradient
+import { fetchRandomProducts, Product } from '../services/productService';
+import PartialDataProductCard from '../components/feed/PartialDataProductCard';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -86,173 +88,49 @@ const STORIES = [
   }
 ];
 
-// Generate fashion inspiration posts for the feed
-const FASHION_POSTS = Array.from({ length: 8 }).map((_, i) => {
-  // Fashion inspiration titles
-  const inspirationTitles = [
-    'Urban Minimalism',
-    'Modern Vintage Fusion',
-    'Structured Casual',
-    'Elevated Basics',
-    'Technical Athleisure',
-    'Sustainable Luxury',
-    'Monochrome Magic',
-    'Statement Pieces'
-  ];
-  
-  // Different styling notes
-  const stylingNotes = [
-    'Streamlined silhouettes with monochromatic color blocking create visual interest while maintaining a clean aesthetic. Focus on premium fabrics and perfect fit.',
-    'Blending contemporary elements with classic vintage pieces for a timeless yet fresh look. The contrast between old and new creates unique visual interest.',
-    'Soft draping combined with architectural lines creates a balanced silhouette that\'s both refined and comfortable for everyday wear.',
-    'Reimagining wardrobe essentials with premium materials and subtle design details. The beauty is in the precision of construction and quality of materials.',
-    'Technical fabrics and functional details combined with thoughtful layering for a look that transitions seamlessly between activities.',
-    'Environmentally conscious design choices featuring organic materials and ethical production methods, without compromising on style or quality.',
-    'Playing with various shades of a single color creates depth and visual interest while maintaining a cohesive and sophisticated aesthetic.',
-    'Building outfits around one eye-catching piece, allowing it to stand out while keeping other elements understated and complementary.'
-  ];
-  
-  // Style aesthetics
-  const aesthetics = [
-    'Minimalist',
-    'Vintage Revival',
-    'Modern Classic',
-    'Scandinavian',
-    'Tech Streetwear',
-    'Sustainable Luxury',
-    'Monochromatic',
-    'Bold Statement'
-  ];
-  
-  // Caption and tags for each post
-  const postCaptions = [
-    'Clean lines and monochromatic palettes that embody simplicity and sophistication.',
-    'Contemporary takes on classic vintage pieces that blend nostalgia with modern sensibilities.',
-    'Timeless pieces reimagined with subtle contemporary details for everyday elegance.',
-    'Functional minimalism with clean lines, natural materials, and subdued colors.',
-    'Performance-driven designs blending urban style with technical innovation.',
-    'Eco-conscious luxury focusing on ethical production and sustainable materials.',
-    'Exploring the subtle power of single-color dressing with textural contrasts and tonal variations.',
-    'Making an impact with carefully chosen statement pieces that elevate your entire look.'
-  ];
-  
-  // Tags for each post
-  const postTags = [
-    ['#minimalism', '#monochrome', '#essentials', '#quality'],
-    ['#vintage', '#retro', '#reuse', '#timeless'],
-    ['#classic', '#tailored', '#structured', '#refined'],
-    ['#scandinavian', '#nordic', '#clean', '#functional'],
-    ['#techwear', '#urban', '#performance', '#innovative'],
-    ['#sustainable', '#ethical', '#conscious', '#eco'],
-    ['#monochrome', '#tonal', '#texture', '#layers'],
-    ['#statement', '#bold', '#unique', '#standout']
-  ];
-  
-  // Generate data for outfit details
-  const outfitItems = [
-    [
-      {name: 'Oversized Wool Blazer', brand: 'Arket'},
-      {name: 'Ribbed Tank', brand: 'COS'},
-      {name: 'Wide-Leg Trousers', brand: 'Toteme'},
-      {name: 'Leather Loafers', brand: 'ATP Atelier'}
-    ],
-    [
-      {name: 'Vintage Denim Jacket', brand: 'Levi\'s'},
-      {name: 'Silk Button-Down', brand: 'Equipment'},
-      {name: 'High-Rise Jeans', brand: 'AGOLDE'},
-      {name: 'Square-Toe Boots', brand: 'By Far'}
-    ],
-    [
-      {name: 'Belted Trench Coat', brand: 'Burberry'},
-      {name: 'Cashmere Turtleneck', brand: 'Vince'},
-      {name: 'Tailored Pants', brand: 'The Row'},
-      {name: 'Leather Chelsea Boots', brand: 'Common Projects'}
-    ],
-    [
-      {name: 'Merino Crewneck', brand: 'Uniqlo'},
-      {name: 'Relaxed Oxford Shirt', brand: 'Acne Studios'},
-      {name: 'Straight-Leg Chinos', brand: 'A.P.C.'},
-      {name: 'Minimal Sneakers', brand: 'Axel Arigato'}
-    ],
-    [
-      {name: 'Technical Parka', brand: 'Nanamica'},
-      {name: 'Performance T-Shirt', brand: 'Lululemon'},
-      {name: 'Tapered Track Pants', brand: 'Y-3'},
-      {name: 'Knit Runners', brand: 'Adidas'}
-    ],
-    [
-      {name: 'Organic Cotton Overshirt', brand: 'Asket'},
-      {name: 'Recycled Wool Sweater', brand: 'Patagonia'},
-      {name: 'Hemp Twill Pants', brand: 'Story Mfg.'},
-      {name: 'Vegan Leather Boots', brand: 'Veja'}
-    ],
-    [
-      {name: 'Black Merino Turtleneck', brand: 'Uniqlo'},
-      {name: 'Charcoal Wool Coat', brand: 'COS'},
-      {name: 'Slate Gray Trousers', brand: 'Arket'},
-      {name: 'Black Leather Boots', brand: 'Dr. Martens'}
-    ],
-    [
-      {name: 'Printed Silk Blouse', brand: 'Sandro'},
-      {name: 'High-Rise Straight Jeans', brand: 'Levi\'s'},
-      {name: 'Sculptural Hoop Earrings', brand: 'Machete'},
-      {name: 'Leather Strappy Sandals', brand: 'Maryam Nassir Zadeh'}
-    ]
-  ];
-  
-  // Random data for engagement
-  const publishedDate = [`April ${i + 1}`, `May ${i + 10}`, `June ${i + 5}`][i % 3];
-  const upvotes = Math.floor(Math.random() * 500) + 100;
-  const saves = Math.floor(Math.random() * 200) + 50;
-  
-  // Generate fake comments
-  const commentUsernames = ['grace_style', 'fashion_guru', 'trend_watcher', 'clothescritic', 'runway_fan', 'style_seeker', 'fashionista', 'denim_lover', 'minimal_style'];
+// Initial empty fashion posts (will be populated from API)
+const FASHION_POSTS = Array.from({ length: 4 }).map((_, i) => {
+  // Generate fake comments for fallback data
+  const commentUsernames = ['grace_style', 'fashion_guru', 'trend_watcher', 'clothescritic'];
   const commentTexts = [
     'Love this aesthetic! Would definitely try combining these pieces.',
     'The color palette is perfect for this season.',
     'Where can I find something similar to that key piece?',
-    'Been looking for this exact style inspiration, thanks for sharing!',
-    'Already saved this to my collection, great curation!',
-    'The silhouette is so flattering, going to try this look tomorrow.',
-    'This is exactly what I\'ve been searching for. Do you think it works for all body types?',
-    'I\'ve been trying to incorporate more pieces like this into my wardrobe.',
-    'The styling here is impeccable. Love how the pieces complement each other.',
-    'Just bought something similar and was looking for styling ideas. This is perfect!',
-    'Can you recommend any affordable alternatives for the featured pieces?',
-    'This would work great for my upcoming event. Thanks for the inspiration!'
+    'Been looking for this exact style inspiration, thanks for sharing!'
   ];
   
-  const comments = Array.from({ length: Math.floor(Math.random() * 6) + 5 }).map((_, j) => ({
+  const comments = Array.from({ length: 4 }).map((_, j) => ({
     id: `${i}-${j}`,
-    username: commentUsernames[Math.floor(Math.random() * commentUsernames.length)],
-    text: commentTexts[Math.floor(Math.random() * commentTexts.length)],
-    timeAgo: `${Math.floor(Math.random() * 12) + 1}h ago`,
+    username: commentUsernames[j % commentUsernames.length],
+    text: commentTexts[j % commentTexts.length],
+    timeAgo: `${j + 1}h ago`,
     likes: Math.floor(Math.random() * 20)
   }));
   
+  // These will be replaced with API data
   return {
-    id: i.toString(),
-    title: inspirationTitles[i],
+    id: `placeholder-${i}`,
+    title: `Loading Product ${i + 1}...`,
     gallery: [
-      `https://picsum.photos/800/1000?random=${i * 3 + 51}`,
-      `https://picsum.photos/800/1000?random=${i * 3 + 52}`,
-      `https://picsum.photos/800/1000?random=${i * 3 + 53}`
+      `https://picsum.photos/800/1000?random=${i * 3 + 51}`
     ],
-    aesthetic: aesthetics[i],
-    caption: postCaptions[i],
-    tags: postTags[i],
-    outfitItems: outfitItems[i],
-    publishedDate,
+    aesthetic: 'Loading...',
+    caption: 'Loading product information...',
+    tags: ['#loading'],
+    outfitItems: [
+      {name: 'Loading...', brand: 'Loading...'}
+    ],
+    publishedDate: 'Today',
     comments,
     commentCount: comments.length,
-    upvotes,
-    saves,
-    isSaved: Math.random() > 0.5,
-    isUpvoted: Math.random() > 0.6,
+    upvotes: 0,
+    saves: 0,
+    isSaved: false,
+    isUpvoted: false,
     author: {
-      username: commentUsernames[Math.floor(Math.random() * commentUsernames.length)],
+      username: 'loading_user',
       avatar: `https://i.pravatar.cc/150?img=${i + 10}`,
-      isVerified: Math.random() > 0.7
+      isVerified: false
     }
   };
 });
@@ -305,6 +183,10 @@ const HomeScreen: React.FC = () => {
   const [expandedPost, setExpandedPost] = useState<string | null>(null);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState<Record<string, number>>({});
   const [expandedComments, setExpandedComments] = useState<string | null>(null);
+  const [randomProducts, setRandomProducts] = useState<Product[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [expandedContentAction, setExpandedContentAction] = useState<string | null>(null);
+  const [fashionPosts, setFashionPosts] = useState<FashionPost[]>(FASHION_POSTS);
   
   // Animation values
   const commentAnimation = useRef(new Animated.Value(0)).current;
@@ -315,13 +197,96 @@ const HomeScreen: React.FC = () => {
   const panXValues = useRef<Record<string, Animated.Value>>({});
   const panResponders = useRef<Record<string, any>>({});
 
-  // Simulate refresh action
+  // Fetch random products from API
+  const getRandomProducts = useCallback(async () => {
+    try {
+      setLoadingProducts(true);
+      const products = await fetchRandomProducts(10); // Fetch 10 random products
+      if (products.length > 0) {
+        setRandomProducts(products);
+        
+        // Convert products to fashion posts format
+        const newPosts = products.map((product, index) => {
+          // Generate comments for this product
+          const commentUsernames = ['grace_style', 'fashion_guru', 'trend_watcher', 'clothescritic'];
+          const commentTexts = [
+            'Love this style! Would definitely try this.',
+            'The color is perfect for this season.',
+            'Where can I find something similar to this?',
+            'Been looking for something like this, thanks!'
+          ];
+          
+          const comments = Array.from({ length: 4 }).map((_, j) => ({
+            id: `${product.id}-${j}`,
+            username: commentUsernames[j % commentUsernames.length],
+            text: commentTexts[j % commentTexts.length],
+            timeAgo: `${j + 1}h ago`,
+            likes: Math.floor(Math.random() * 20)
+          }));
+          
+          // Generate tags based on product details
+          const tags = [];
+          if (product.brand) tags.push(`#${product.brand.toLowerCase().replace(/\s+/g, '')}`);
+          tags.push('#trending', '#newproduct', '#popular');
+          
+          // Create outfit items from the product
+          const outfitItems = [
+            {name: product.name || 'Product', brand: product.brand || 'Brand'}
+          ];
+          
+          // Generate a random author
+          const author = {
+            username: 'dripout_official',
+            avatar: `https://i.pravatar.cc/150?img=${index + 10}`,
+            isVerified: true
+          };
+          
+          return {
+            id: product.id,
+            title: product.name || `Fashion Item ${index + 1}`,
+            gallery: product.images.map(img => img.url),
+            aesthetic: product.brand || 'Trending',
+            caption: `${product.brand}: ${product.name} - ${product.currency}${product.price}`,
+            tags: tags,
+            outfitItems: outfitItems,
+            publishedDate: 'Today',
+            comments: comments,
+            commentCount: comments.length,
+            upvotes: Math.floor(Math.random() * 500) + 100,
+            saves: Math.floor(Math.random() * 200) + 50,
+            isSaved: Math.random() > 0.5,
+            isUpvoted: Math.random() > 0.6,
+            author: author
+          };
+        });
+        
+        // Update the fashion posts state with the new product-based posts
+        setFashionPosts(newPosts);
+      }
+    } catch (error) {
+      console.error('Error fetching random products:', error);
+      // If error, keep using default posts
+      setFashionPosts(DEFAULT_FASHION_POSTS);
+    } finally {
+      setLoadingProducts(false);
+    }
+  }, []);
+
+  // Fetch products on component mount
+  useEffect(() => {
+    getRandomProducts();
+  }, [getRandomProducts]);
+
+  // Refresh handler - refreshes fashion posts and random products
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => {
+    // Show loading state while refreshing
+    setFashionPosts(DEFAULT_FASHION_POSTS);
+    // Fetch new random products
+    getRandomProducts().finally(() => {
       setRefreshing(false);
-    }, 1500);
-  }, []);
+    });
+  }, [getRandomProducts]);
 
   // Colors based on theme - using red theme
   const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
@@ -509,6 +474,21 @@ const HomeScreen: React.FC = () => {
       inputRange: [0, 1],
       outputRange: [0, 1],
     });
+    
+    // Show loading state when refreshing or initial loading
+    if ((refreshing || loadingProducts) && item.id.startsWith('placeholder-')) {
+      return (
+        <View style={[styles.postCard, { 
+          backgroundColor: isDarkMode ? '#222232' : '#f5f5f5',
+          height: 400,
+          justifyContent: 'center',
+          alignItems: 'center'
+        }]}>
+          <ActivityIndicator size="large" color={mainColor} />
+          <Text style={{ color: textColor, marginTop: 10 }}>Loading products...</Text>
+        </View>
+      );
+    }
 
     // Get current gallery image index for this post
     const currentImageIndex = activeGalleryIndex[item.id] || 0;
@@ -965,9 +945,18 @@ const HomeScreen: React.FC = () => {
               <Text style={[styles.headerTitle, { color: textColor }]}>
                 DripOut
               </Text>
-              <Text style={[styles.headerSubtitle, { color: subTextColor }]}>
-                Your Style Feed
-              </Text>
+              <View style={styles.headerSubtitleRow}>
+                <Text style={[styles.headerSubtitle, { color: subTextColor }]}>
+                  Your Style Feed
+                </Text>
+                {loadingProducts && (
+                  <ActivityIndicator 
+                    size="small" 
+                    color={mainColor} 
+                    style={styles.smallLoadingIndicator} 
+                  />
+                )}
+              </View>
             </View>
             
             <View style={styles.headerActions}>
@@ -983,7 +972,7 @@ const HomeScreen: React.FC = () => {
 
         {/* Main Content */}
         <Animated.FlatList
-          data={FASHION_POSTS}
+          data={fashionPosts}
           renderItem={renderFashionPost}
           keyExtractor={item => item.id}
           showsVerticalScrollIndicator={false}
@@ -1024,6 +1013,13 @@ const HomeScreen: React.FC = () => {
                   {TRENDING_TOPICS.map(item => renderTrendingTopic({ item }))}
                 </ScrollView>
               </View>
+              
+              {/* Show loading indicator when fetching products */}
+              {loadingProducts && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={mainColor} style={styles.loadingIndicator} />
+                </View>
+              )}
             </>
           }
           ListFooterComponent={
@@ -1074,6 +1070,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 2,
     letterSpacing: 0.2,
+  },
+  headerSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  smallLoadingIndicator: {
+    marginLeft: 8,
   },
   headerActions: {
     flexDirection: 'row',
@@ -1145,6 +1148,15 @@ const styles = StyleSheet.create({
   topicText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  
+  // Loading indicator
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  loadingIndicator: {
+    marginVertical: 20,
   },
   
   // Feed content

@@ -521,7 +521,7 @@ const OutfitGroupComponent: React.FC<OutfitGroupComponentProps> = ({
     
     return (
       <Animated.View
-        key={product.id}
+        key={`${outfitId}-product-${productIndex}-${product.id}`}
         style={[
           styles.cardContainer,
           customStyle,

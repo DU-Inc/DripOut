@@ -32,13 +32,22 @@ import MasonryList from '@react-native-seoul/masonry-list';
 import { colors } from '../styles/theme/colors';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { FeedStackParamList } from '../navigations/feedNavigator/FeedNavigator';
+import { logger } from '../utils/logger';
 
 // Add import for NewsCard component and news service
 import NewsCard, { Article } from '../components/feed/NewsCard';
 import { fetchFashionNews } from '../services/newsService';
 
-// Import the feed data
-import feedData from '../data/feed.json';
+// Import the feed data (commented out to use API instead)
+// import feedData from '../data/feed.json';
+
+// Import product service to fetch from API
+import { fetchRandomProducts, Product } from '../services/productService';
+
+// Create an extended Product interface with optional title field
+interface ExtendedProduct extends Product {
+  title?: string;
+}
 
 // Fix for setTimeout and clearTimeout
 declare function setTimeout(callback: () => void, ms: number): number;
@@ -51,6 +60,8 @@ type OverviewScreenNavigationProp = StackNavigationProp<FeedStackParamList, 'Ove
 interface FormattedProduct extends Omit<ProductCardProps, 'cardWidth' | 'cardStyle' | 'isDarkMode'> {
   brand?: string; // Add optional fields if they exist in feedData
   description?: string;
+  title?: string; // Add title property to fix type errors
+  productUrl?: string; // Add productUrl for alternative identification
 }
 
 // Define a type for the formatted simple product data
@@ -216,62 +227,154 @@ const OverviewScreen: React.FC = () => {
     };
   }, []);
   
-  // Load products from feed data
+  // Load products from API instead of feed.json
   useEffect(() => {
-    // Format regular product data
-    const formattedProducts: FormattedProduct[] = feedData.singleOutfitFullData.map(product => ({
-      id: product.id,
-      name: product.productName,
-      price: parseFloat(product.price.replace('$', '')),
-      images: [
-        { id: `${product.id}_main`, url: product.productImage },
-        ...product.additionalImages.map((img, index) => ({
-          id: `${product.id}_${index}`,
-          url: img
-        }))
-      ],
-      brand: product.brand,
-      description: product.description,
-    }));
+    const loadProductsFromAPI = async () => {
+      try {
+        // Fetch random products from API
+        let apiProducts = await fetchRandomProducts(5); // Get a good number of products for various displays
+        
+        if (!isMountedRef.current) return; // Don't update state if unmounted
+        
+        // Generate fallback products if API returns empty
+        if (apiProducts.length === 0) {
+          console.warn('No products returned from API, generating fallback products');
+          
+          // Create fallback products with placeholder images
+          apiProducts = Array(30).fill(0).map((_, index) => ({
+            id: `fallback-product-${index}`,
+            name: `Fallback Product ${index + 1}`,
+            brand: 'Sample Brand',
+            price: 99.99 + index,
+            currency: '$',
+            productUrl: 'https://example.com',
+            images: [
+              {
+                id: `fallback-image-${index}-1`,
+                url: `https://dummyimage.com/400x600/3498db/ffffff&text=Product+${index + 1}`
+              },
+              {
+                id: `fallback-image-${index}-2`,
+                url: `https://dummyimage.com/400x600/2ecc71/ffffff&text=Product+${index + 1}+View+2`
+              }
+            ]
+          }));
+        }
+        
+        // Log a sample product to debug the structure
+        if (apiProducts.length > 0) {
+          console.log('Sample product structure:', JSON.stringify(apiProducts[0], null, 2));
+          // Log the image URLs for debugging
+          console.log('Image URLs from API:', apiProducts[0].images.map(img => img.url));
+        }
+
+        // Format API products as FormattedProduct for full product display with null checks
+        const formattedProducts: FormattedProduct[] = apiProducts.slice(0, 10).map((product: ExtendedProduct) => {
+          // Log the title, name, and images fields specifically
+          logger.log(`Processing product: ${product.id}`);
+          logger.log(`  Original name: ${product.name}`);
+          logger.log(`  Original images: ${JSON.stringify(product.images)}`);
+          
+          const formattedProduct = {
+            id: product.id || `product-${Math.random().toString(36).substring(2, 9)}`,
+            title: product.name || 'Unnamed Product', // Use name as title
+            name: product.name || 'Unnamed Product',
+            price: typeof product.price === 'number' ? product.price : 0,
+            images: Array.isArray(product.images)
+              ? product.images.map((img: any, idx: number) => (
+                  typeof img === 'string'
+                    ? { id: `${product.id}-${idx}`, url: img }
+                    : img && img.url
+                      ? { id: img.id || `${product.id}-${idx}`, url: img.url }
+                      : { id: `${product.id}-${idx}`, url: '' }
+                ))
+              : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }],
+            brand: product.brand || 'Unknown Brand',
+            description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'} - ${product.currency || '$'}${typeof product.price === 'number' ? product.price : 0}`,
+            productUrl: product.productUrl || '', // Include URL as it might be used as identifier
+          };
+          
+          // Log the formatted product
+          logger.log(`  Formatted title: ${formattedProduct.title}`);
+          logger.log(`  Formatted name: ${formattedProduct.name}`);
+          logger.log(`  Formatted images: ${JSON.stringify(formattedProduct.images)}`);
+          
+          return formattedProduct;
+        });
+        
+        // Format API products as FormattedPartialProduct for partial product display with null checks
+        const formattedPartialProducts: FormattedPartialProduct[] = apiProducts.slice(10, 20).map((product: ExtendedProduct) => {
+          // Log the title, name, and images fields specifically
+          logger.log(`Processing partial product: ${product.id}`);
+          logger.log(`  Original name: ${product.name}`);
+          logger.log(`  Original images: ${JSON.stringify(product.images)}`);
+          
+          const formattedProduct = {
+            id: product.id || `partial-${Math.random().toString(36).substring(2, 9)}`,
+            title: product.name || 'Unnamed Product', // Use name as title
+            name: product.name || 'Unnamed Product',
+            brand: product.brand || 'Unknown Brand',
+            price: typeof product.price === 'number' ? product.price : 0,
+            images: Array.isArray(product.images)
+              ? product.images.map((img: any, idx: number) => (
+                  typeof img === 'string'
+                    ? { id: `${product.id}-${idx}`, url: img }
+                    : img && img.url
+                      ? { id: img.id || `${product.id}-${idx}`, url: img.url }
+                      : { id: `${product.id}-${idx}`, url: '' }
+                ))
+              : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }],
+            productUrl: product.productUrl || `https://example.com/product/${product.id || 'unknown'}`
+          };
+          
+          logger.log(`  Formatted partial product images: ${JSON.stringify(formattedProduct.images)}`);
+          return formattedProduct;
+        });
+        
+        // Format API products as FormattedSimpleProduct for simple product display with null checks
+        const formattedSimpleProducts: FormattedSimpleProduct[] = apiProducts.slice(20).map((product: ExtendedProduct) => {
+          // Log the title, name, and images fields specifically
+          logger.log(`Processing simple product: ${product.id}`);
+          logger.log(`  Original name: ${product.name}`);
+          logger.log(`  Original images: ${JSON.stringify(product.images)}`);
+          
+          const formattedProduct = {
+            id: product.id || `simple-${Math.random().toString(36).substring(2, 9)}`,
+            title: product.name || 'Unnamed Product', // Use name as title
+            price: typeof product.price === 'number' ? product.price : 0,
+            brand: product.brand || 'Unknown Brand',
+            images: Array.isArray(product.images)
+              ? product.images.map((img: any, idx: number) => (
+                  typeof img === 'string'
+                    ? { id: `${product.id}-${idx}`, url: img }
+                    : img && img.url
+                      ? { id: img.id || `${product.id}-${idx}`, url: img.url }
+                      : { id: `${product.id}-${idx}`, url: '' }
+                ))
+              : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }]
+          };
+          
+          logger.log(`  Formatted simple product images: ${JSON.stringify(formattedProduct.images)}`);
+          return formattedProduct;
+        });
+        
+        // Generate outfit groups
+        const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
+        
+        if (isMountedRef.current) {
+          setProducts(formattedProducts);
+          setPartialProducts(formattedPartialProducts);
+          setSimpleProducts(formattedSimpleProducts);
+          setOutfitGroups(generatedOutfitGroups);
+          setIsLoadingOutfits(false);
+        }
+      } catch (error) {
+        console.error('Error loading products from API:', error);
+        setIsLoadingOutfits(false);
+      }
+    };
     
-    // Format partial product data - now using singleOutfitPartialData instead of simpleCardComponent
-    const formattedPartialProducts: FormattedPartialProduct[] = feedData.singleOutfitPartialData.map(product => ({
-      id: product.id,
-      name: product.productName || '',
-      brand: product.brand || '',
-      price: product.price ? parseFloat(product.price.replace('$', '')) : 0,
-      images: [
-        { id: `${product.id}_main`, url: product.productImage },
-        ...(product.additionalImages || []).map((img, index) => ({
-          id: `${product.id}_${index}`,
-          url: img
-        }))
-      ],
-      productUrl: product.productUrl || `https://example.com/product/${product.id}` 
-    }));
-    
-    // Format simple product data - using the simpleCardComponent (keep this unchanged)
-    const formattedSimpleProducts: FormattedSimpleProduct[] = feedData.simpleCardComponent
-      .slice(0, 40) // Use just first 40 items for simple cards
-      .map(product => ({
-        id: `simple_${product.id}`,
-        price: parseFloat(product.price.replace('$', '')),
-        brand: product.brand,
-        images: [
-          { id: `simple_${product.id}_main`, url: product.productImage }
-        ],
-      }));
-    
-    // Generate outfit groups
-    const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
-    
-    if (isMountedRef.current) {
-      setProducts(formattedProducts);
-      setPartialProducts(formattedPartialProducts);
-      setSimpleProducts(formattedSimpleProducts);
-      setOutfitGroups(generatedOutfitGroups);
-      setIsLoadingOutfits(false);
-    }
+    loadProductsFromAPI();
   }, []);
   
   // Function to generate outfit groups with various combinations
@@ -285,10 +388,13 @@ const OverviewScreen: React.FC = () => {
     
     const result: OutfitGroup[] = [];
     
-    // Helper to convert product data to OutfitProduct format
-    const convertToOutfitProduct = (product: FormattedProduct | FormattedPartialProduct): OutfitProduct => {
+    // Helper to convert product data to OutfitProduct format with unique ID
+    const convertToOutfitProduct = (product: FormattedProduct | FormattedPartialProduct, outfitIndex: number, productIndex: number): OutfitProduct => {
+      // Create a unique ID by combining the original product ID with outfit and product indices
+      const uniqueProductId = `product-${outfitIndex}-${productIndex}-${Math.random().toString(36).substring(2, 7)}`;
+      
       return {
-        id: product.id,
+        id: uniqueProductId, // Use unique ID to prevent duplicate keys
         price: typeof product.price === 'number' ? product.price : 0,
         currency: '$',
         brand: product.brand,
@@ -300,7 +406,7 @@ const OverviewScreen: React.FC = () => {
     const usedSizes = new Set<number>();
     
     // Create 20 outfit groups
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 3; i++) {
       // Determine type of outfit group
       // For variety, create 7 full-only, 7 partial-only, and 6 mixed
       let type: 'full-only' | 'partial-only' | 'mixed';
@@ -325,7 +431,7 @@ const OverviewScreen: React.FC = () => {
         // For the rest, ensure we have at least one of each size
         if (usedSizes.size < 5) {
           // Find a size we haven't used yet
-          const availableSizes = [2, 3, 4, 5, 6].filter(size => !usedSizes.has(size));
+          const availableSizes = [2, 3].filter(size => !usedSizes.has(size));
           numProducts = availableSizes[0];
           usedSizes.add(numProducts);
         } else {
@@ -341,12 +447,12 @@ const OverviewScreen: React.FC = () => {
         // Use only full products
         outfitProducts = shuffledFullProducts
           .slice(i * numProducts, i * numProducts + numProducts)
-          .map(convertToOutfitProduct);
+          .map((product, index) => convertToOutfitProduct(product, i, index));
       } else if (type === 'partial-only') {
         // Use only partial products
         outfitProducts = shuffledPartialProducts
           .slice(i * numProducts, i * numProducts + numProducts)
-          .map(convertToOutfitProduct);
+          .map((product, index) => convertToOutfitProduct(product, i, index));
       } else {
         // Mix of full and partial products
         const fullCount = Math.ceil(numProducts / 2);
@@ -354,24 +460,26 @@ const OverviewScreen: React.FC = () => {
         
         const fullItems = shuffledFullProducts
           .slice(i * fullCount, i * fullCount + fullCount)
-          .map(convertToOutfitProduct);
+          .map((product, index) => convertToOutfitProduct(product, i, index));
           
         const partialItems = shuffledPartialProducts
           .slice(i * partialCount, i * partialCount + partialCount)
-          .map(convertToOutfitProduct);
+          .map((product, index) => convertToOutfitProduct(product, i, index + fullCount));
           
         outfitProducts = [...fullItems, ...partialItems];
       }
       
-      // If we don't have enough products, reuse some
+      // If we don't have enough products, reuse some with new unique IDs
       if (outfitProducts.length < numProducts) {
         const productsToUse = type === 'full-only' ? shuffledFullProducts : 
                               type === 'partial-only' ? shuffledPartialProducts :
                               [...shuffledFullProducts, ...shuffledPartialProducts];
         
+        let currentIndex = outfitProducts.length;
         while (outfitProducts.length < numProducts) {
           const randomProduct = productsToUse[Math.floor(Math.random() * productsToUse.length)];
-          outfitProducts.push(convertToOutfitProduct(randomProduct));
+          outfitProducts.push(convertToOutfitProduct(randomProduct, i, currentIndex));
+          currentIndex++;
         }
       }
       
@@ -426,7 +534,7 @@ const OverviewScreen: React.FC = () => {
       // console.log('🔄 Fetching fashion news...');
       
       // Fetch fashion news from our service - increased to 50 and added Italy region
-      const articles = await fetchFashionNews(50, 'latest', 'us,italy,france,uk');
+      const articles = await fetchFashionNews(10, 'latest', 'us,italy,france,uk');
       
       if (!isMountedRef.current) return;
       
@@ -569,6 +677,89 @@ const OverviewScreen: React.FC = () => {
     }
   }, []);
 
+  // Handle product card press - update to use URL as an alternative identifier if ID not found
+  const handleProductPress = useCallback((productId: string, currentImageIndex = 0) => {
+    // Find the product data to pass - first try by ID
+    let rawProduct = products.find(p => p.id === productId);
+    
+    // If not found by ID, try to find by other possible identifiers
+    if (!rawProduct) {
+      logger.warn(`Product with ID ${productId} not found directly - trying alternative methods`);
+      
+      // Try to find by partial ID match (in case of composite IDs)
+      rawProduct = products.find(p => p.id.includes(productId) || productId.includes(p.id));
+      
+      if (!rawProduct) {
+        // Try to find by URL if available
+        rawProduct = products.find(p => 
+          p.productUrl === productId || 
+          (p.images && p.images.length > 0 && p.images[0].url === productId)
+        );
+        
+        if (!rawProduct) {
+          // Last resort: just use the first product as a fallback to avoid crashes
+          logger.error(`Could not find product with ID or URL ${productId} - using fallback`);
+          rawProduct = products[0];
+          
+          if (!rawProduct) {
+            logger.error('No products available to use as fallback');
+            return; // Exit if no products are available
+          }
+        }
+      }
+    }
+    
+    // Format the product data to ensure it has all necessary fields
+    // for the ExpandedProductScreen
+    const productToPass = {
+      id: rawProduct.id,
+      productName: rawProduct.name || rawProduct.title || 'Unnamed Product',
+      productImage: rawProduct.images && rawProduct.images.length > 0 ? rawProduct.images[0].url : '',
+      additionalImages: rawProduct.images && rawProduct.images.length > 1 
+        ? rawProduct.images.slice(1).map(img => img.url) 
+        : [],
+      price: typeof rawProduct.price === 'number' ? rawProduct.price : 0,
+      brand: rawProduct.brand || '',
+      description: rawProduct.description || '',
+      images: rawProduct.images || [], // Keep original images array for flexibility
+      productUrl: rawProduct.productUrl || '', // Include URL as it might be used as identifier
+      // Add any other fields needed by ExpandedProductScreen
+    };
+    
+    // Get the ref for this specific card
+    const cardRef = productRefs.current[productId];
+    
+    if (cardRef?.current) {
+      // Measure the position of the card on the screen
+      cardRef.current.measure((x, y, width, height, pageX, pageY) => {
+        // Log the product we're passing to help with debugging
+        logger.log(`Navigating to ExpandedProductScreen with product ID: ${productToPass.id}`);
+        
+        // Navigate with the position, product data, and current image index
+        navigation.navigate('ExpandedProductScreen2', { 
+          productId: productToPass.id, // Use the actual found product ID
+          sourcePosition: {
+            x: pageX,
+            y: pageY,
+            width,
+            height
+          },
+          product: productToPass,
+          initialImageIndex: currentImageIndex
+        });
+      });
+    } else {
+      // Fallback if ref isn't available
+      logger.log(`Navigating to ExpandedProductScreen (fallback) with product ID: ${productToPass.id}`);
+      
+      navigation.navigate('ExpandedProductScreen2', { 
+        productId: productToPass.id, // Use the actual found product ID
+        product: productToPass,
+        initialImageIndex: currentImageIndex
+      });
+    }
+  }, [navigation, products]);
+  
   // More efficient way to close expanded menus without interfering with scrolling
   const handleCardPress = useCallback((productId: string, isSimple: boolean = false, isPartial: boolean = false) => {
     // Close any open action menu
@@ -579,9 +770,10 @@ const OverviewScreen: React.FC = () => {
     
     // Only navigate for regular product cards
     if (!isSimple && !isPartial) {
+      logger.log(`Card pressed for product: ${productId}`);
       handleProductPress(productId);
     }
-  }, [activeActionCardId, activeSimpleActionCardId, activePartialActionCardId, activeNewsCardId]);
+  }, [activeActionCardId, activeSimpleActionCardId, activePartialActionCardId, activeNewsCardId, handleProductPress]);
   
   // Handle news card press
   const handleNewsCardPress = useCallback((articleId: string) => {
@@ -595,65 +787,31 @@ const OverviewScreen: React.FC = () => {
     navigation.navigate('ExpandedNewsScreen', { articleId });
   }, [navigation, activeActionCardId, activeSimpleActionCardId, activePartialActionCardId, activeNewsCardId]);
   
-  // Handle product card press
-  const handleProductPress = useCallback((productId: string, currentImageIndex = 0) => {
-    // Find the product data to pass
-    const productToPass = products.find(p => p.id === productId);
-    
-    // Get the ref for this specific card
-    const cardRef = productRefs.current[productId];
-    
-    if (cardRef?.current) {
-      // Measure the position of the card on the screen
-      cardRef.current.measure((x, y, width, height, pageX, pageY) => {
-        // Navigate with the position, product data, and current image index
-        navigation.navigate('ExpandedProductScreen2', { 
-          productId,
-          sourcePosition: {
-            x: pageX,
-            y: pageY,
-            width,
-            height
-          },
-          product: productToPass,
-          initialImageIndex: currentImageIndex
-        });
-      });
-    } else {
-      // Fallback if ref isn't available
-      navigation.navigate('ExpandedProductScreen2', { 
-        productId,
-        product: productToPass,
-        initialImageIndex: currentImageIndex
-      });
-    }
-  }, [navigation, products]);
-  
   // Handle add to cart
   const handleAddToCart = useCallback((productId: string) => {
     // Add to cart logic
-    // console.log('Add to cart:', productId);
+    logger.log('Add to cart:', productId);
   }, []);
   
   // Handle like, dislike, share actions
   const handleLike = useCallback((id: string) => {
     // Like logic
-    // console.log('Like:', id);
+    logger.log('Like:', id);
   }, []);
   
   const handleDislike = useCallback((id: string) => {
     // Dislike logic
-    // console.log('Dislike:', id);
+    logger.log('Dislike:', id);
   }, []);
   
   const handleShare = useCallback((id: string) => {
     // Share logic
-    // console.log('Share:', id);
+    logger.log('Share:', id);
   }, []);
   
   const handleBookmark = useCallback((id: string) => {
     // Bookmark logic
-    // console.log('Bookmark:', id);
+    logger.log('Bookmark:', id);
   }, []);
   
   // Render filter item
@@ -701,6 +859,18 @@ const OverviewScreen: React.FC = () => {
   // Render product item for MasonryList
   const renderProductItem = useCallback(({ item, i }: { item: any, i: number }) => {
     const product = item as FormattedProduct;
+    
+    // Log detailed rendering information
+    logger.log(`[RENDER FLOW] Preparing to render product ${i} (${product.id})`);
+    logger.log(`[RENDER FLOW] product.name: ${product.name !== undefined ? product.name : 'undefined'}`);
+    logger.log(`[RENDER FLOW] product.images: ${product.images !== undefined ? JSON.stringify(product.images) : 'undefined'}`);
+    logger.log(`[RENDER FLOW] images count: ${product.images ? product.images.length : 0}`);
+    if (product.images && product.images.length > 0) {
+      logger.log(`[RENDER FLOW] First image URL: ${product.images[0].url}`);
+      logger.log(`[RENDER FLOW] URL starts with http? ${product.images[0].url.startsWith('http')}`);
+      logger.log(`[RENDER FLOW] URL length: ${product.images[0].url.length}`);
+    }
+    
     const aspectRatio = getAspectRatioForProduct(product, i);
     
     // Check if this card's content action is active
@@ -714,8 +884,15 @@ const OverviewScreen: React.FC = () => {
     // Ensure name is a string
     const productName = product.name ? String(product.name) : "";
     
+    // Log right before rendering
+    logger.log(`[RENDER FLOW] About to render ProductCard for ${product.id}`);
+    if (product.images && product.images.length > 0) {
+      logger.log(`[RENDER FLOW] Final image URL check: ${product.images[0].url}`);
+    }
+    
     return (
       <View 
+        key={`product-item-${product.id}-${i}`}
         ref={productRefs.current[product.id]}
         style={{
           margin: ITEM_SPACING / 2,
@@ -755,7 +932,9 @@ const OverviewScreen: React.FC = () => {
     const isContentActionActive = activePartialActionCardId === product.id;
     
     return (
-      <View style={{
+      <View 
+        key={`partial-product-${product.id}-${i}`}
+        style={{
         margin: ITEM_SPACING / 2,
         marginBottom: ITEM_SPACING,
         position: 'relative', // Position relative for overlay
@@ -794,7 +973,9 @@ const OverviewScreen: React.FC = () => {
     const isContentActionActive = activeSimpleActionCardId === product.id;
     
     return (
-      <View style={{
+      <View 
+        key={`simple-product-${product.id}-${i}`}
+        style={{
         margin: ITEM_SPACING / 2,
         marginBottom: ITEM_SPACING,
         position: 'relative', // Position relative for overlay
@@ -1231,6 +1412,126 @@ const OverviewScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={isLoadingOutfits}
+            onRefresh={async () => {
+              // Set loading state
+              setIsLoadingOutfits(true);
+              
+              try {
+                // Fetch new random products from API
+                const apiProducts = await fetchRandomProducts(30);
+                
+                if (apiProducts.length > 0) {
+                  // Format API products as FormattedProduct for full product display
+                  const formattedProducts: FormattedProduct[] = apiProducts.slice(0, 10).map((product: ExtendedProduct) => {
+                    // Log the title, name, and images fields specifically
+                    logger.log(`Processing product: ${product.id}`);
+                    logger.log(`  Original name: ${product.name}`);
+                    logger.log(`  Original images: ${JSON.stringify(product.images)}`);
+                    
+                    const formattedProduct = {
+                      id: product.id || `product-${Math.random().toString(36).substring(2, 9)}`,
+                      title: product.name || 'Unnamed Product', // Use name as title
+                      name: product.name || 'Unnamed Product',
+                      price: typeof product.price === 'number' ? product.price : 0,
+                      images: Array.isArray(product.images)
+                        ? product.images.map((img: any, idx: number) => (
+                            typeof img === 'string'
+                              ? { id: `${product.id}-${idx}`, url: img }
+                              : img && img.url
+                                ? { id: img.id || `${product.id}-${idx}`, url: img.url }
+                                : { id: `${product.id}-${idx}`, url: '' }
+                          ))
+                        : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }],
+                      brand: product.brand || 'Unknown Brand',
+                      description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'} - ${product.currency || '$'}${typeof product.price === 'number' ? product.price : 0}`,
+                      productUrl: product.productUrl || '', // Include URL as it might be used as identifier
+                    };
+                    
+                    // Log the formatted product
+                    logger.log(`  Formatted title: ${formattedProduct.title}`);
+                    logger.log(`  Formatted name: ${formattedProduct.name}`);
+                    logger.log(`  Formatted images: ${JSON.stringify(formattedProduct.images)}`);
+                    
+                    return formattedProduct;
+                  });
+                  
+                  // Format API products as FormattedPartialProduct for partial product display
+                  const formattedPartialProducts: FormattedPartialProduct[] = apiProducts.slice(10, 20).map((product: ExtendedProduct) => {
+                    // Log the title, name, and images fields specifically
+                    logger.log(`Processing partial product: ${product.id}`);
+                    logger.log(`  Original name: ${product.name}`);
+                    logger.log(`  Original images: ${JSON.stringify(product.images)}`);
+                    
+                    const formattedProduct = {
+                      id: product.id || `partial-${Math.random().toString(36).substring(2, 9)}`,
+                      title: product.name || 'Unnamed Product', // Use name as title
+                      name: product.name || 'Unnamed Product',
+                      brand: product.brand || 'Unknown Brand',
+                      price: typeof product.price === 'number' ? product.price : 0,
+                      images: Array.isArray(product.images)
+                        ? product.images.map((img: any, idx: number) => (
+                            typeof img === 'string'
+                              ? { id: `${product.id}-${idx}`, url: img }
+                              : img && img.url
+                                ? { id: img.id || `${product.id}-${idx}`, url: img.url }
+                                : { id: `${product.id}-${idx}`, url: '' }
+                          ))
+                        : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }],
+                      productUrl: product.productUrl || `https://example.com/product/${product.id || 'unknown'}`
+                    };
+                    
+                    logger.log(`  Formatted partial product images: ${JSON.stringify(formattedProduct.images)}`);
+                    return formattedProduct;
+                  });
+                  
+                  // Format API products as FormattedSimpleProduct for simple product display
+                  const formattedSimpleProducts: FormattedSimpleProduct[] = apiProducts.slice(20).map((product: ExtendedProduct) => {
+                    // Log the title, name, and images fields specifically
+                    logger.log(`Processing simple product: ${product.id}`);
+                    logger.log(`  Original name: ${product.name}`);
+                    logger.log(`  Original images: ${JSON.stringify(product.images)}`);
+                    
+                    const formattedProduct = {
+                      id: product.id || `simple-${Math.random().toString(36).substring(2, 9)}`,
+                      title: product.name || 'Unnamed Product', // Use name as title
+                      price: typeof product.price === 'number' ? product.price : 0,
+                      brand: product.brand || 'Unknown Brand',
+                      images: Array.isArray(product.images)
+                        ? product.images.map((img: any, idx: number) => (
+                            typeof img === 'string'
+                              ? { id: `${product.id}-${idx}`, url: img }
+                              : img && img.url
+                                ? { id: img.id || `${product.id}-${idx}`, url: img.url }
+                                : { id: `${product.id}-${idx}`, url: '' }
+                          ))
+                        : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }]
+                    };
+                    
+                    logger.log(`  Formatted simple product images: ${JSON.stringify(formattedProduct.images)}`);
+                    return formattedProduct;
+                  });
+                  
+                  // Generate outfit groups
+                  const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
+                  
+                  setProducts(formattedProducts);
+                  setPartialProducts(formattedPartialProducts);
+                  setSimpleProducts(formattedSimpleProducts);
+                  setOutfitGroups(generatedOutfitGroups);
+                }
+              } catch (error) {
+                console.error('Error refreshing products:', error);
+              } finally {
+                setIsLoadingOutfits(false);
+              }
+            }}
+            colors={[accentColor]}
+            tintColor={accentColor}
+          />
+        }
         onMomentumScrollEnd={({ nativeEvent }) => {
           const isCloseToBottom = (nativeEvent.layoutMeasurement.height + nativeEvent.contentOffset.y) 
             >= (nativeEvent.contentSize.height - 20);

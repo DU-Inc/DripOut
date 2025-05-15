@@ -35,6 +35,8 @@ import { SharedElement } from 'react-navigation-shared-element';
 
 // Import sample data
 import feedData from '../../data/feed.json';
+// Import API product fetcher to retrieve product by ID if initial data is missing
+import { fetchRandomProducts, Product as ApiProduct } from '../../services/productService';
 
 // --- Constants ------------------
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -160,6 +162,17 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   // Get product from route
   const { productId, sourcePosition, product: initialProduct, initialImageIndex = 0 } = route.params;
   
+  // Log the received product data for debugging
+  console.log('[ExpandedProductScreen] Received product data:', 
+    initialProduct ? JSON.stringify({
+      id: initialProduct.id,
+      name: initialProduct.name || initialProduct.title,
+      brand: initialProduct.brand,
+      imageCount: initialProduct.images?.length
+    }) : 'No product data');
+  console.log('[ExpandedProductScreen] Product ID:', productId);
+  console.log('[ExpandedProductScreen] Initial Image Index:', initialImageIndex);
+  
   // State for product data and UI
   const [isLoading, setIsLoading] = useState(!initialProduct);
   const [product, setProduct] = useState<Product | null>(initialProduct || null);
@@ -203,13 +216,17 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   
   // Format product images into the expected format
   const productImages = product
-    ? [
-        { id: `${product.id}_main`, url: product.productImage },
-        ...(product.additionalImages?.map((url: string, index: number) => ({
-          id: `${product.id}_${index}`,
-          url,
-        })) || []),
-      ]
+    ? product.images && product.images.length > 0
+      // If product already has an images array, use it
+      ? product.images
+      // Otherwise, create from productImage and additionalImages
+      : [
+          { id: `${product.id}_main`, url: product.productImage },
+          ...(product.additionalImages?.map((url: string, index: number) => ({
+            id: `${product.id}_${index}`,
+            url,
+          })) || []),
+        ]
     : [];
   
   // Clean up animations on unmount
@@ -237,31 +254,77 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
       }
       
       if (initialProduct) {
-        setProduct(initialProduct);
+        console.log('Using provided product data:', initialProduct);
+        
+        // Format the product data to match the expected structure
+        const formattedProduct = {
+          id: initialProduct.id,
+          productName: initialProduct.title || initialProduct.name || 'Not Available',
+          brand: initialProduct.brand || 'Not Available',
+          productImage: initialProduct.images?.[0]?.url || '',
+          additionalImages: initialProduct.images?.slice(1).map((img: any) => img.url) || [],
+          price: initialProduct.price ?? undefined,
+          description: initialProduct.description || 'Not Available',
+          images: initialProduct.images || [],
+          // Placeholder for missing fields
+          category: initialProduct.category || 'Not Available',
+          colors: initialProduct.colors || ['Not Available'],
+          sizes: initialProduct.sizes || ['Not Available'],
+          material: initialProduct.material || 'Not Available',
+          rating: initialProduct.rating ?? undefined,
+          reviews: initialProduct.reviews ?? undefined,
+          isFavorite: initialProduct.isFavorite ?? false,
+          isInCart: initialProduct.isInCart ?? false,
+        };
+        
+        console.log('Formatted product data:', formattedProduct);
+        setProduct(formattedProduct);
         setIsLoading(false);
       } else {
+        // No initial product passed; attempt to fetch from API by ID
         setIsLoading(true);
-        
+        console.log(`[ExpandedProductScreen] No initial product; fetching product ${productId} from API`);
         try {
-          // Simulate API call with a delay
-          await createDelay(500);
-          
-          // Find the product from our dummy data
-          const foundProduct = feedData.singleOutfitFullData.find(
-            item => item.id === productId
-          ) || feedData.singleOutfitFullData[0]; // Default to first product if not found
-          
-          setProduct(foundProduct);
-          setIsLoading(false);
-        } catch (error) {
-          console.error("Error fetching product:", error);
-          setIsLoading(false);
-          Alert.alert(
-            'Error', 
-            'Unable to load the product at this time. Please try again later.',
-            [{ text: 'OK', onPress: () => navigation.goBack() }]
-          );
+          // Fetch a batch of products and find the matching one
+          const apiProducts: ApiProduct[] = await fetchRandomProducts(50);
+          const match = apiProducts.find(p => p.id === productId);
+          if (match) {
+            console.log(`[ExpandedProductScreen] Found product ${productId} in API response`);
+            // Format the API product into our Product interface
+            const formatted: Product = {
+              id: match.id,
+              productName: match.name || 'Not Available',
+              brand: match.brand || 'Not Available',
+              productImage: match.images?.[0]?.url || '',
+              additionalImages: match.images?.slice(1).map(img => img.url) || [],
+              price: match.price ?? undefined,
+              description: match.name ? `${match.brand || ''}: ${match.name}` : 'Not Available',
+              images: match.images || [],
+              category: 'Not Available',
+              colors: match.brand ? [match.brand] : ['Not Available'],
+              sizes: ['Not Available'],
+              material: 'Not Available',
+              rating: undefined,
+              reviews: undefined,
+              isFavorite: false,
+              isInCart: false,
+            };
+            setProduct(formatted);
+            setIsLoading(false);
+            return;
+          } else {
+            console.warn(`[ExpandedProductScreen] Product ${productId} not found in API batch; using fallback data`);
+          }
+        } catch (err) {
+          console.error(`[ExpandedProductScreen] Error fetching products for ${productId}:`, err);
         }
+        // Fallback to sample feed data
+        console.warn('Using fallback feed data for product details');
+        await createDelay(500);
+        const foundFeed = feedData.singleOutfitFullData.find(item => item.id === productId)
+          || feedData.singleOutfitFullData[0];
+        setProduct(foundFeed);
+        setIsLoading(false);
       }
     };
     
@@ -455,7 +518,8 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
       // Simulate API call with a delay
       await createDelay(500);
       
-      // Get products from the dummy data
+      // Get products from the dummy data - in a real app, this would fetch from the API
+      // to get similar products based on the current product's category, brand, etc.
       const productsData = feedData.simpleCardComponent.slice(0, 50);
       
       // Format products with random height offsets for masonry
@@ -473,6 +537,11 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
           masonryHeightOffset: randomOffset
         };
       });
+      
+      // In a real implementation, you would fetch similar products based on product.id 
+      // or other properties like product.category, product.brand, etc.
+      // Example:
+      // const similarProductsFromApi = await fetchSimilarProductsFromApi(product.id);
       
       if (isRefresh) {
         setSimilarProducts(formattedProducts);
@@ -806,7 +875,9 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
           ]}
         >
           <View style={styles.brandRow}>
-            <Text style={[styles.brand, { color: '#FFFFFF' }]}>{product.brand || 'Brand'}</Text>
+            <Text style={[styles.brand, { color: '#FFFFFF' }]}>  
+              {product.brand || 'Not Available'}
+            </Text>
           </View>
           
           <SharedElement id={`item.${productId}.title`}>
@@ -936,8 +1007,8 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
               <Text style={[styles.subSectionTitle, { color: theme.text.primary }]}>
                 Description
               </Text>
-              <Text style={[styles.descriptionText, { color: theme.text.secondary }]}>
-                {product.description || "This premium quality product features innovative design and superior craftsmanship. Made with high-quality materials for durability and comfort, this piece will be a versatile addition to any wardrobe."}
+              <Text style={[styles.descriptionText, { color: theme.text.secondary }]}>  
+                {product.description || 'Not Available'}
               </Text>
             </View>
             

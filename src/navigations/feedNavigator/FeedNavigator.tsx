@@ -57,16 +57,16 @@ export type FeedStackParamList = {
 const Stack = createSharedElementStackNavigator<FeedStackParamList>();
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Shared element transition options
+// Shared element transition options with improved animations
 const sharedTransitionOptions = {
   animation: 'spring',
   config: {
-    mass: 1.2,
-    damping: 25,
-    stiffness: 200,
+    mass: 0.9,             // Lighter mass for quicker response
+    damping: 20,           // Lower damping for more fluidity 
+    stiffness: 180,        // Lower stiffness for smoother motion
     overshootClamping: false,
-    restDisplacementThreshold: 0.01,
-    restSpeedThreshold: 0.01,
+    restDisplacementThreshold: 0.001, // More precise settling
+    restSpeedThreshold: 0.001,        // More precise settling
   }
 };
 
@@ -77,23 +77,23 @@ const sharedElementScreenOptions = {
     open: {
       animation: 'spring' as const,
       config: {
-        mass: 1.5,
-        damping: 25,
-        stiffness: 200,
+        mass: 0.9,         // Lighter mass
+        damping: 18,       // Even less resistance for opening
+        stiffness: 230,    // Keep responsive stiffness
         overshootClamping: false,
-        restDisplacementThreshold: 0.01,
-        restSpeedThreshold: 0.01,
+        restDisplacementThreshold: 0.001, // More precise
+        restSpeedThreshold: 0.001,        // More precise
       },
     },
     close: {
       animation: 'spring' as const,
       config: {
-        mass: 1.5,
-        damping: 35,
-        stiffness: 300,
+        mass: 0.9,         // Lighter mass
+        damping: 22,       // Keep some resistance for closing
+        stiffness: 270,    // Good stiffness for return
         overshootClamping: false,
-        restDisplacementThreshold: 0.01,
-        restSpeedThreshold: 0.01,
+        restDisplacementThreshold: 0.001, // More precise
+        restSpeedThreshold: 0.001,        // More precise
       },
     },
   },
@@ -164,7 +164,7 @@ const FeedNavigator: React.FC = () => {
               id: `item.${productId}.image`,
               animation: 'move',
               resize: 'clip',
-              align: 'auto',
+              align: 'center-top',
               style: {
                 borderRadius: 12,
                 overflow: 'hidden',
@@ -172,8 +172,9 @@ const FeedNavigator: React.FC = () => {
             },
             {
               id: `item.${productId}.title`,
-              animation: 'fade',
+              animation: 'fade-in',
               resize: 'clip',
+              align: 'left-center',
             }
           ];
         }}

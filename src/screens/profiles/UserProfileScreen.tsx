@@ -83,27 +83,32 @@ const STYLE_BOARDS = [
   }
 ];
 
-// Mock outfit items for user showcase
-const USER_OUTFITS = [
-  {
-    id: '1',
-    title: 'Weekend Brunch',
-    image: 'https://images.unsplash.com/photo-1552374196-1ab2a1c593e8?q=80&w=800&auto=format',
-    likes: 18
-  },
-  {
-    id: '2',
-    title: 'Office Attire',
-    image: 'https://images.unsplash.com/photo-1487222477894-8943e31ef7b2?q=80&w=800&auto=format',
-    likes: 24
-  },
-  {
-    id: '3',
-    title: 'Evening Look',
-    image: 'https://images.unsplash.com/photo-1581044777550-4cfa60707c03?q=80&w=800&auto=format',
-    likes: 32
-  }
-];
+// We'll load saved outfits and favorite products from Firestore
+// instead of using this mock data
+// This comment is kept for reference
+
+// Define interfaces for outfits and products
+interface SavedOutfit {
+  id: string;
+  userId: string;
+  name: string;
+  imageUrl: string;
+  products: any[];
+  createdAt: any;
+}
+
+interface FavoritedProduct {
+  id: string;
+  userId: string;
+  name: string;
+  brand: string;
+  price: number | string;
+  imageUrl: string;
+  favorited: any;
+  url?: string;
+  productId?: string | null;
+  description?: string;
+}
 
 const UserProfileScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
@@ -123,6 +128,11 @@ const UserProfileScreen: React.FC = () => {
   const [selectedStyleBoard, setSelectedStyleBoard] = useState<string | null>(null);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [isPostModalVisible, setIsPostModalVisible] = useState(false);
+  
+  // New states for saved outfits and favorite products
+  const [savedOutfits, setSavedOutfits] = useState<SavedOutfit[]>([]);
+  const [favoriteProducts, setFavoriteProducts] = useState<FavoritedProduct[]>([]);
+  const [outfitsLoading, setOutfitsLoading] = useState(true);
   
   // Follow related states
   const [isFollowing, setIsFollowing] = useState(false);
@@ -232,6 +242,93 @@ const UserProfileScreen: React.FC = () => {
     }
   }, []);
 
+  // Fetch saved outfits from Firestore
+  const fetchSavedOutfits = useCallback(async (userId: string) => {
+    setOutfitsLoading(true);
+    try {
+      console.log('Fetching saved outfits for user:', userId);
+      // Query the saved_outfits collection for the current user
+      const outfitsQuery = query(
+        collection(db, "saved_outfits"),
+        where("userId", "==", userId),
+        orderBy("createdAt", "desc"),
+        limit(10) // Limit to 10 most recent outfits
+      );
+      
+      const outfitsSnapshot = await getDocs(outfitsQuery);
+      
+      if (outfitsSnapshot.empty) {
+        console.log("No saved outfits found");
+        setSavedOutfits([]);
+      } else {
+        // Map the documents to our data model
+        const outfits: SavedOutfit[] = outfitsSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            userId: data.userId,
+            name: data.name || "Saved Outfit",
+            imageUrl: data.imageUrl,
+            products: data.products || [],
+            createdAt: data.createdAt
+          };
+        });
+        
+        console.log(`Retrieved ${outfits.length} saved outfits`);
+        setSavedOutfits(outfits);
+      }
+    } catch (error) {
+      console.error("Error fetching saved outfits:", error);
+      setSavedOutfits([]);
+    } finally {
+      setOutfitsLoading(false);
+    }
+  }, []);
+
+  // Fetch favorite products from Firestore
+  const fetchFavoriteProducts = useCallback(async (userId: string) => {
+    try {
+      console.log('Fetching favorite products for user:', userId);
+      // Query the user_favorite_products collection
+      const favoritesQuery = query(
+        collection(db, "user_favorite_products"),
+        where("userId", "==", userId),
+        orderBy("favorited", "desc"),
+        limit(10) // Limit to 10 most recent favorites
+      );
+      
+      const favoritesSnapshot = await getDocs(favoritesQuery);
+      
+      if (favoritesSnapshot.empty) {
+        console.log("No favorite products found");
+        setFavoriteProducts([]);
+      } else {
+        // Map the documents to our data model
+        const favorites: FavoritedProduct[] = favoritesSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            userId: data.userId,
+            name: data.name || "Favorite Product",
+            brand: data.brand || "Unknown Brand",
+            price: data.price || 0,
+            imageUrl: data.imageUrl || data.images?.[0] || "",
+            favorited: data.favorited,
+            url: data.url,
+            productId: data.productId || null,
+            description: data.description || null
+          };
+        });
+        
+        console.log(`Retrieved ${favorites.length} favorite products`);
+        setFavoriteProducts(favorites);
+      }
+    } catch (error) {
+      console.error("Error fetching favorite products:", error);
+      setFavoriteProducts([]);
+    }
+  }, []);
+
   // Handle refresh with cache invalidation
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -250,14 +347,18 @@ const UserProfileScreen: React.FC = () => {
               
               try {
                 // Update preferences cache
-                await AsyncStorage.setItem(PREFERENCES_CACHE_KEY, JSON.stringify(prefs));
-                await AsyncStorage.setItem(PREFERENCES_CACHE_TIMESTAMP_KEY, Date.now().toString());
+                await AsyncStorage.setItem(getUserPrefsCacheKey(user.uid), JSON.stringify(prefs));
+                await AsyncStorage.setItem(getUserPrefsTimestampKey(user.uid), Date.now().toString());
                 console.log('Preferences cache updated');
               } catch (cacheError) {
                 console.warn('Error writing preferences to cache:', cacheError);
               }
             }
           }),
+          
+          // Fetch saved outfits and favorite products
+          fetchSavedOutfits(user.uid),
+          fetchFavoriteProducts(user.uid),
           
           // Refresh follow counts
           fetchFollowCounts(user.uid),
@@ -272,7 +373,7 @@ const UserProfileScreen: React.FC = () => {
       console.error('Error refreshing data:', error);
     }
     setRefreshing(false);
-  }, [fetchPosts, fetchFollowCounts, checkFollowStatus, profileUserId]);
+  }, [fetchPosts, fetchSavedOutfits, fetchFavoriteProducts, fetchFollowCounts, checkFollowStatus, profileUserId]);
 
   // Helper function to fetch and cache user preferences
   const fetchAndCachePreferences = useCallback(async (userId: string, forceRefresh = false) => {
@@ -597,6 +698,10 @@ const UserProfileScreen: React.FC = () => {
           // Fetch user posts with caching
           await fetchPosts(user.uid);
 
+          // Fetch saved outfits and favorite products
+          await fetchSavedOutfits(user.uid);
+          await fetchFavoriteProducts(user.uid);
+
           // Fetch follow counts
           await fetchFollowCounts(user.uid);
 
@@ -624,7 +729,7 @@ const UserProfileScreen: React.FC = () => {
         profileUnsubscribe();
       }
     };
-  }, [fetchPosts, fetchAndCachePreferences, fetchFollowCounts, checkFollowStatus, profileUserId]);
+  }, [fetchPosts, fetchAndCachePreferences, fetchSavedOutfits, fetchFavoriteProducts, fetchFollowCounts, checkFollowStatus, profileUserId]);
   
   // Refresh data when the screen comes into focus, but use cache if available
   useFocusEffect(
@@ -1213,31 +1318,137 @@ const UserProfileScreen: React.FC = () => {
             {/* Outfits Tab */}
             {activeTab === 'outfits' && (
               <View style={styles.sectionContainer}>
-                <View style={styles.outfitsGrid}>
-                  {USER_OUTFITS.map((outfit, index) => (
-                    <TouchableOpacity 
-                      key={outfit.id}
-                      style={[
-                        styles.outfitCard, 
-                        { 
-                          backgroundColor: cardBgColor,
-                          shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)' 
-                        }
-                      ]}
-                    >
-                      <Image source={{ uri: outfit.image }} style={styles.outfitImage} />
-                      <View style={styles.outfitOverlay}>
-                        <View style={styles.outfitDetails}>
-                          <Text style={styles.outfitTitle}>{outfit.title}</Text>
-                          <View style={styles.likesContainer}>
-                            <Icon name="heart" size={14} color="#FFFFFF" />
-                            <Text style={styles.likesCount}>{outfit.likes}</Text>
-                          </View>
+                {outfitsLoading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color={mainColor} />
+                    <Text style={[styles.loadingText, { color: subTextColor, marginTop: 8 }]}>
+                      Loading your saved outfits...
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    {/* Section Header for Saved Outfits */}
+                    <View style={styles.sectionHeader}>
+                      <Text style={[styles.sectionTitle, { color: textColor }]}>Saved Outfits</Text>
+                    </View>
+                    
+                    {/* Display Saved Outfits */}
+                    <View style={styles.outfitsGrid}>
+                      {savedOutfits.length > 0 ? (
+                        savedOutfits.map((outfit) => (
+                          <TouchableOpacity 
+                            key={outfit.id}
+                            style={[
+                              styles.outfitCard, 
+                              { 
+                                backgroundColor: cardBgColor,
+                                shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)' 
+                              }
+                            ]}
+                            onPress={() => navigation.navigate('ClosetScreen' as never)}
+                          >
+                            <Image 
+                              source={{ uri: outfit.imageUrl }} 
+                              style={styles.outfitImage} 
+                              defaultSource={require('../../assets/images/3dimage.png')}
+                            />
+                            <View style={styles.outfitOverlay}>
+                              <View style={styles.outfitDetails}>
+                                <Text style={styles.outfitTitle}>{outfit.name}</Text>
+                                <View style={styles.productsContainer}>
+                                  <Icon name="cube-outline" size={14} color="#FFFFFF" />
+                                  <Text style={styles.productsCount}>
+                                    {outfit.products?.length || 0} items
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        ))
+                      ) : (
+                        <View style={styles.emptyStateContainer}>
+                          <Icon name="shirt-outline" size={50} color={subTextColor} />
+                          <Text style={[styles.emptyStateText, { color: subTextColor }]}>
+                            No outfits saved yet
+                          </Text>
+                          <TouchableOpacity 
+                            style={[styles.emptyStateButton, { backgroundColor: mainColor }]}
+                            onPress={() => navigation.navigate('3DScreen' as never)}
+                          >
+                            <Text style={styles.emptyStateButtonText}>Create an Outfit</Text>
+                          </TouchableOpacity>
                         </View>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                      )}
+                    </View>
+                    
+                    {/* Section Header for Favorite Products */}
+                    <View style={[styles.sectionHeader, { marginTop: 24 }]}>
+                      <Text style={[styles.sectionTitle, { color: textColor }]}>Favorite Products</Text>
+                    </View>
+                    
+                    {/* Display Favorite Products */}
+                    <View style={styles.outfitsGrid}>
+                      {favoriteProducts.length > 0 ? (
+                        favoriteProducts.slice(0, 6).map((product) => (
+                          <TouchableOpacity 
+                            key={product.id}
+                            style={[
+                              styles.outfitCard, 
+                              { 
+                                backgroundColor: cardBgColor,
+                                shadowColor: isDarkMode ? mainColor : 'rgba(0,0,0,0.1)' 
+                              }
+                            ]}
+                            onPress={() => navigation.navigate('ClosetScreen' as never)}
+                          >
+                            <Image 
+                              source={{ uri: product.imageUrl }} 
+                              style={styles.outfitImage} 
+                              defaultSource={require('../../assets/images/3dimage.png')}
+                            />
+                            <View style={styles.outfitOverlay}>
+                              <View style={styles.outfitDetails}>
+                                <Text style={styles.outfitTitle}>{product.name}</Text>
+                                <View style={styles.priceContainer}>
+                                  <Icon name="pricetag-outline" size={14} color="#FFFFFF" />
+                                  <Text style={styles.priceText}>
+                                    ${typeof product.price === 'number' ? product.price.toFixed(2) : product.price}
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        ))
+                      ) : (
+                        <View style={styles.emptyStateContainer}>
+                          <Icon name="heart-outline" size={50} color={subTextColor} />
+                          <Text style={[styles.emptyStateText, { color: subTextColor }]}>
+                            No favorite products yet
+                          </Text>
+                          <TouchableOpacity 
+                            style={[styles.emptyStateButton, { backgroundColor: mainColor }]}
+                            onPress={() => navigation.navigate('OverviewScreen' as never)}
+                          >
+                            <Text style={styles.emptyStateButtonText}>Explore Products</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                    
+                    {/* View All Button */}
+                    {(savedOutfits.length > 0 || favoriteProducts.length > 0) && (
+                      <TouchableOpacity 
+                        style={[styles.viewAllButton, { borderColor: mainColor }]}
+                        onPress={() => navigation.navigate('ClosetScreen' as never)}
+                      >
+                        <Text style={[styles.viewAllButtonText, { color: mainColor }]}>
+                          View All in Closet
+                        </Text>
+                        <Icon name="arrow-forward" size={16} color={mainColor} />
+                      </TouchableOpacity>
+                    )}
+                  </>
+                )}
               </View>
             )}
             
@@ -2370,6 +2581,82 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#FFFFFF',
     marginLeft: 4,
+  },
+  productsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  productsCount: {
+    ...defaultTextStyle,
+    fontSize: 12,
+    color: '#FFFFFF',
+    marginLeft: 4,
+  },
+  priceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  priceText: {
+    ...defaultTextStyle,
+    fontSize: 12,
+    color: '#FFFFFF',
+    marginLeft: 4,
+  },
+  sectionHeader: {
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
+    ...defaultTextStyle,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  emptyStateContainer: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  emptyStateText: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptyStateButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  emptyStateButtonText: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginTop: 24,
+    alignSelf: 'center',
+  },
+  viewAllButtonText: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    fontWeight: '600',
+    marginRight: 6,
   },
   accountControls: {
     marginHorizontal: 16,

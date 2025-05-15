@@ -6,6 +6,7 @@ import AnimatedSplashScreen from './src/components/common/AnimatedSplashScreen';
 import { ThemeProvider } from './src/styles/theme/ThemeContext';
 import AppNavigator from './src/navigations/AppNavigator';
 import { appStateManager } from './src/utils/appStateManager';
+import { testApiConnectivity } from './src/services/productService';
 
 // Add global setTimeout type
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -22,6 +23,10 @@ const App: React.FC = () => {
     const initializeApp = async () => {
       try {
         console.log('App Component: Mount detected, initializing app', Date.now());
+        
+        // Test API connectivity
+        const isApiOnline = await testApiConnectivity();
+        console.log(`API connectivity test result: ${isApiOnline ? 'Connected' : 'Not connected'}`);
         
         // Initialize app state manager - AppNavigator will use this state
         await appStateManager.initialize();

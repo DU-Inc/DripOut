@@ -17,6 +17,8 @@ import AddToCartButton from '../common/CardButtons/AddToCartButton';
 import ContentAction from '../common/CardButtons/contentAction';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../../styles/theme/colors';
+import { logger } from '../../utils/logger';
+import { FadeIn } from 'react-native-reanimated';
 
 interface ProductImage {
   id: string;
@@ -62,6 +64,10 @@ interface Styles {
   pagination: ViewStyle;
   dot: ViewStyle;
   activeDot: ViewStyle;
+  noImageContainer: ViewStyle;
+  noImageText: TextStyle;
+  imageWrapper: ViewStyle;
+  productImage: ImageStyle;
 }
 
 const { width } = Dimensions.get('window');
@@ -462,6 +468,43 @@ const SimpleProductCard: React.FC<SimpleProductCardProps> = ({
   // Ensure currency is a string
   const currencySymbol = String(currency);
 
+  // Add a utility function to validate and fix image URLs
+  const getValidImageUrl = (url: string): string => {
+    try {
+      // If URL is empty or undefined, return a placeholder
+      if (!url || url.trim() === '') {
+        logger.warn('[SimpleProductCard] Empty or undefined image URL');
+        return 'https://dummyimage.com/400x600/3498db/ffffff&text=Image+Not+Available';
+      }
+      
+      // Check if URL is valid
+      try {
+        new URL(url);
+      } catch (e) {
+        // URL is invalid, try to fix it
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+          logger.warn(`[SimpleProductCard] Invalid URL format: ${url}`);
+          // Try to fix URL by prepending https
+          const fixedUrl = `https://${url.replace(/^\/\//, '')}`;
+          try {
+            new URL(fixedUrl); // Test if the fixed URL is valid
+            return fixedUrl;
+          } catch (e) {
+            logger.error(`[SimpleProductCard] Failed to fix invalid URL: ${url}`);
+            return 'https://dummyimage.com/400x600/3498db/ffffff&text=Invalid+URL';
+          }
+        }
+      }
+      
+      // Return the valid URL
+      return url;
+    } catch (error) {
+      // In case of any unexpected errors, log them and return a fallback
+      logger.error(`[SimpleProductCard] Error processing image URL: ${error}`);
+      return 'https://dummyimage.com/400x600/3498db/ffffff&text=Error';
+    }
+  };
+
   return (
     <View
       style={[
@@ -539,49 +582,49 @@ const SimpleProductCard: React.FC<SimpleProductCardProps> = ({
             </Animated.View>
           ))}
           
-          {images.length > 1 ? (
-            <View style={{ backgroundColor: theme.surface }}>  
-              <ScrollView
-                ref={scrollViewRef}
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                onMomentumScrollEnd={handleScroll}
-                style={styles.scrollView}
-              >
-                {images.map((image, index) => (
+          {images && images.length > 1 ? (
+            <ScrollView
+              horizontal={true}
+              showsHorizontalScrollIndicator={false}
+              ref={scrollViewRef}
+              style={{width: '100%'}}
+            >
+              {images.map((image, index) => (
+                <View
+                  key={index}
+                  style={styles.imageWrapper}
+                >
                   <Image
-                    key={image.id}
-                    source={{ uri: image.url }}
-                    style={[styles.image, { width: cardWidth }]}
+                    style={styles.productImage}
+                    source={{
+                      uri: getValidImageUrl(image?.url || '')
+                    }}
+                    onError={(e) => {
+                      logger.error(`[SimpleProductCard] Image failed to load: ${e.nativeEvent.error}, URL: ${image?.url || 'undefined'}`);
+                    }}
+                    defaultSource={require('../../assets/images/3dimage.png')}
                     resizeMode="cover"
                   />
-                ))}
-              </ScrollView>
-              
-              <View style={[
-                styles.pagination,
-                { backgroundColor: 'transparent' }
-              ]}>
-                {images.map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.dot,
-                      index === currentImageIndex && styles.activeDot
-                    ]}
-                  />
-                ))}
-              </View>
-            </View>
-          ) : images.length === 1 ? (
+                </View>
+              ))}
+            </ScrollView>
+          ) : images && images.length === 1 ? (
             <Image
-              source={{ uri: images[0].url }}
-              style={styles.image}
+              style={styles.productImage}
+              source={{
+                uri: getValidImageUrl(images[0]?.url || '')
+              }}
+              onError={(e) => {
+                logger.error(`[SimpleProductCard] Single image failed to load: ${e.nativeEvent.error}, URL: ${images[0]?.url || 'undefined'}`);
+              }}
+              defaultSource={require('../../assets/images/3dimage.png')}
               resizeMode="cover"
             />
           ) : (
-            <View style={[styles.image, styles.placeholderImage, { backgroundColor: theme.surface }]} />
+            <View style={[styles.productImage, styles.noImageContainer]}>
+              <Icon name="image-off" size={50} color="#cccccc" />
+              <Text style={styles.noImageText}>No image available</Text>
+            </View>
           )}
           
           <View style={[
@@ -591,7 +634,9 @@ const SimpleProductCard: React.FC<SimpleProductCardProps> = ({
             <AddToCartButton
               size={30}
               onPress={handleAddToCart}
-              productImageSource={images.length > 0 ? images[currentImageIndex].url : undefined}
+              productImageSource={images && images.length > 0 && currentImageIndex < images.length 
+                ? getValidImageUrl(images[currentImageIndex].url) 
+                : undefined}
               color={theme.primary}
               style={{ backgroundColor: 'white' }}
             />
@@ -780,6 +825,26 @@ const styles = StyleSheet.create<Styles>({
     borderRadius: 3,
     backgroundColor: 'white',
     marginHorizontal: 2,
+  },
+  noImageContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  noImageText: {
+    marginTop: 10,
+    color: '#888888',
+    fontSize: 14,
+  },
+  imageWrapper: {
+    width: DEFAULT_CARD_WIDTH,
+    height: '100%',
+    overflow: 'hidden',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
 });
 
