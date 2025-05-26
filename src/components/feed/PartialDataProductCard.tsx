@@ -24,6 +24,7 @@ import ExpandedPartialProductFeed from '../ExpandedFeed/ExpandedPartialProductFe
 interface ProductImage {
   id: string;
   url: string;
+  fallbackUrl?: string;
 }
 
 // Add interface for image loading state
@@ -714,10 +715,8 @@ const PartialDataProductCard: React.FC<PartialDataProductCardProps> = ({
               >
                 <Image
                   source={{ uri: mainImage.url }}
-                  style={styles.image}
+                  style={[styles.image, { width: cardWidth, height: cardWidth * imageAspectRatio }]}
                   resizeMode="cover"
-                  // Important: set defaultSource for faster image loading
-                  defaultSource={{ uri: mainImage.url }}
                   // Disable fade-in animation for smoother experience
                   fadeDuration={0} 
                   onLoad={() => handleImageLoad(mainImage.id)}

@@ -94,6 +94,32 @@ export const testApiConnectivity = async (): Promise<boolean> => {
   }
 };
 
+// Function to test if an image URL is accessible
+const testImageUrl = async (url: string): Promise<boolean> => {
+  try {
+    // Skip known problematic domains immediately
+    const problematicDomains = [
+      'lackofcolor.com',
+      'dummyimage.com',
+      'via.placeholder.com',
+      'placeholder.com'
+    ];
+    
+    if (problematicDomains.some(domain => url.includes(domain))) {
+      return false;
+    }
+    
+    const response = await fetch(url, {
+      method: 'HEAD'
+    });
+    return response.ok && (response.headers.get('content-type')?.startsWith('image/') || false);
+  } catch (error) {
+    return false;
+  }
+};
+
+// Validation function removed - using simpler filtering approach
+
 // Function to fetch random products from the API
 export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]> => {
   try {
@@ -133,110 +159,115 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
       }
     }
     
-    // Validate and fix image URLs
-    console.log(`[API FLOW] Starting to process and validate ${response.data.products.length} products`);
+    // Filter and validate products - no fallbacks, only valid products
+    console.log(`[API FLOW] Starting to filter and validate ${response.data.products.length} products`);
     
-    const validatedProducts = response.data.products.map((product, productIndex) => {
-      // Ensure product has an identifier and a normalized images array
+    // First pass: filter products with basic validation
+    const basicFilteredProducts = response.data.products.filter((product, productIndex) => {
+      // Ensure product has an identifier
       const pid = product.id ?? `product-${productIndex}`;
-      if (product.id !== pid) {
-        console.log(`[API FLOW] WARNING: Product at index ${productIndex} missing id, using '${pid}'`);
-      }
       product.id = pid;
-      if (!Array.isArray(product.images)) {
-        console.log(`[API FLOW] WARNING: Product ${pid} has no images array or it's not an array; defaulting to empty`);
-        product.images = [];
+      
+      // Must have images array
+      if (!Array.isArray(product.images) || product.images.length === 0) {
+        console.log(`[API FLOW] Filtering out product ${pid} - no images array`);
+        return false;
       }
-      // Normalize raw images (string URLs or objects) into {id,url}
+      
+      // Normalize images
       product.images = product.images.map((img, idx) => {
         if (typeof img === 'string') {
           return { id: `${pid}-${idx}`, url: img };
         }
         return img;
       });
-      console.log(`[API FLOW] Processing product ${productIndex + 1}/${response.data.products.length} (id=${pid})`);
       
-      // Process the images to ensure valid URLs
-      const processedImages = product.images.map((image, imageIndex) => {
-        console.log(`[API FLOW] Processing image ${imageIndex + 1}/${product.images.length} for product ${product.id}`);
-        
-        // Check if URL is valid and fix it if necessary
-        let validUrl = image.url;
-        let urlSource = 'original';
-        
-        console.log(`[API FLOW] Original image URL: "${validUrl}"`);
-        
-        // Normalize URL: ensure fully qualified via API_BASE_URL if missing protocol
-        // Defer fallback for empty or invalid later
-        if (!validUrl || validUrl === 'undefined' || validUrl === 'null') {
-          // keep for dummy fallback
-        } else if (!validUrl.match(/^https?:\/\//)) {
-          const oldUrl = validUrl;
-          // Prefix with API base URL (handles both leading slash and bare paths)
-          validUrl = validUrl.startsWith('/')
-            ? `${API_BASE_URL}${validUrl}`
-            : `${API_BASE_URL}/${validUrl}`;
-          urlSource = 'prefixed-with-base-url';
-          console.log(`[API FLOW] Prefixed API base URL: "${oldUrl}" → "${validUrl}"`);
-        }
-        
-        // If URL missing or still not a valid HTTP(S) URL, provide a fallback
-        if (!validUrl || !validUrl.match(/^https?:\/\/.+/)) {
-          const oldUrl = validUrl;
-          // Use a more reliable placeholder service
-          const colors = ['3498db', '2ecc71', 'e74c3c', 'f39c12', '9b59b6'];
-          const randIndex = Math.floor(Math.random() * colors.length);
-          const color = colors[randIndex];
-          validUrl = `https://dummyimage.com/400x600/${color}/ffffff&text=${encodeURIComponent(product.name || 'Product')}`;
-          urlSource = 'dummy-fallback';
-          console.log(`[API FLOW] Used dummy fallback: "${oldUrl}" → "${validUrl}"`);
-        }
-        
-        console.log(`[API FLOW] Final image URL (${urlSource}): "${validUrl}"`);
-        
-        return {
-          ...image,
-          url: validUrl
-        };
-      });
-      
-      // If no images were found, add a dummy image
-      if (processedImages.length === 0) {
-        console.log(`[API FLOW] No images found for product ${product.id}, adding dummy image`);
-        const colors = ['3498db', '2ecc71', 'e74c3c', 'f39c12', '9b59b6'];
-        const randIndex = Math.floor(Math.random() * colors.length);
-        const color = colors[randIndex];
-        const dummyUrl = `https://dummyimage.com/400x600/${color}/ffffff&text=${encodeURIComponent(product.name || 'Product')}`;
-        
-        processedImages.push({
-          id: `dummy-${product.id}`,
-          url: dummyUrl
-        });
-        
-        console.log(`[API FLOW] Added dummy image: "${dummyUrl}"`);
+      // Must have valid first image URL
+      const firstImage = product.images[0];
+      if (!firstImage.url || typeof firstImage.url !== 'string') {
+        console.log(`[API FLOW] Filtering out product ${pid} - invalid first image URL`);
+        return false;
       }
       
-      console.log(`[API FLOW] Finished processing ${processedImages.length} images for product ${product.id}`);
+      // Skip known problematic domains
+      const problematicDomains = [
+        'lackofcolor.com',
+        'dummyimage.com',
+        'via.placeholder.com',
+        'placeholder.com'
+      ];
       
-      return {
-        ...product,
-        images: processedImages
-      };
+      if (problematicDomains.some(domain => firstImage.url.includes(domain))) {
+        console.log(`[API FLOW] Filtering out product ${pid} - problematic domain in URL`);
+        return false;
+      }
+      
+      // Fix URL format if needed
+      if (!firstImage.url.match(/^https?:\/\//)) {
+        firstImage.url = firstImage.url.startsWith('/')
+          ? `${API_BASE_URL}${firstImage.url}`
+          : `${API_BASE_URL}/${firstImage.url}`;
+      }
+      
+      // Convert HTTP to HTTPS for better reliability
+      if (firstImage.url.startsWith('http://')) {
+        firstImage.url = firstImage.url.replace('http://', 'https://');
+      }
+      
+      return true;
     });
     
-    console.log(`[API FLOW] Returning ${validatedProducts.length} validated products to the app`);
+    console.log(`[API FLOW] After basic filtering: ${basicFilteredProducts.length}/${response.data.products.length} products remain`);
     
-    // Log a sample of what we're returning
-    if (validatedProducts.length > 0) {
-      const sample = validatedProducts[0];
-      console.log(`[API FLOW] Sample validated product (${sample.id}):`);
-      console.log(`  name: ${sample.name}`);
-      console.log(`  brand: ${sample.brand}`);
-      console.log(`  price: ${sample.price}`);
-      console.log(`  images: ${JSON.stringify(sample.images)}`);
+    // If we need more products due to filtering, fetch additional ones
+    let finalProducts = basicFilteredProducts;
+    if (basicFilteredProducts.length < limit && basicFilteredProducts.length > 0) {
+      try {
+        console.log(`[API FLOW] Need more products (${basicFilteredProducts.length}/${limit}), fetching additional batch`);
+        const additionalResponse = await axios.get<RandomProductsResponse>(`${API_BASE_URL}/random_products`, {
+          params: { limit: limit * 2 }, // Fetch more to account for filtering
+          timeout: 10000,
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        // Apply same filtering to additional products
+        const additionalFiltered = additionalResponse.data.products.filter(product => {
+          // Skip if we already have this product
+          if (finalProducts.find(p => p.id === product.id)) {
+            return false;
+          }
+          
+          // Apply same validation as above
+          if (!Array.isArray(product.images) || product.images.length === 0) {
+            return false;
+          }
+          
+          const firstImage = product.images[0];
+          if (!firstImage.url || typeof firstImage.url !== 'string') {
+            return false;
+          }
+          
+          const problematicDomains = ['lackofcolor.com', 'dummyimage.com', 'via.placeholder.com', 'placeholder.com'];
+          if (problematicDomains.some(domain => firstImage.url.includes(domain))) {
+            return false;
+          }
+          
+          return true;
+        });
+        
+        finalProducts = [...finalProducts, ...additionalFiltered].slice(0, limit);
+        console.log(`[API FLOW] After additional fetch: ${finalProducts.length} total products`);
+      } catch (error) {
+        console.log(`[API FLOW] Failed to fetch additional products, continuing with ${finalProducts.length} products`);
+      }
     }
     
-    return validatedProducts;
+    console.log(`[API FLOW] Returning ${finalProducts.length} validated products (no fallbacks)`);
+    
+    return finalProducts;
   } catch (error: any) {
     // More detailed error logging
     if (axios.isAxiosError(error)) {

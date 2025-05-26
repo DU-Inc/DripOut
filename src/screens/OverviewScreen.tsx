@@ -301,7 +301,6 @@ const OverviewScreen: React.FC = () => {
           if (!imgs) return acc;
           acc.push({
             id: product.id || `simple-${Math.random().toString(36).substring(2, 9)}`,
-            title: product.name || 'Unnamed Product',
             price: typeof product.price === 'number' ? product.price : 0,
             brand: product.brand || 'Unknown Brand',
             images: imgs
@@ -309,14 +308,15 @@ const OverviewScreen: React.FC = () => {
           return acc;
         }, []);
 
-        // Generate outfit groups
-        const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
+        // Temporarily disable outfit group generation
+        // const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
 
         if (isMountedRef.current) {
+          // Disable outfit groups and set empty array
           setProducts(formattedProducts);
           setPartialProducts(formattedPartialProducts);
           setSimpleProducts(formattedSimpleProducts);
-          setOutfitGroups(generatedOutfitGroups);
+          setOutfitGroups([]); // Set to empty array to indicate no outfit groups
           setIsLoadingOutfits(false);
         }
       } catch (error) {
@@ -811,15 +811,13 @@ const OverviewScreen: React.FC = () => {
   const renderProductItem = useCallback(({ item, i }: { item: any, i: number }) => {
     const product = item as FormattedProduct;
     
-    // Log detailed rendering information
-    logger.log(`[RENDER FLOW] Preparing to render product ${i} (${product.id})`);
-    logger.log(`[RENDER FLOW] product.name: ${product.name !== undefined ? product.name : 'undefined'}`);
-    logger.log(`[RENDER FLOW] product.images: ${product.images !== undefined ? JSON.stringify(product.images) : 'undefined'}`);
-    logger.log(`[RENDER FLOW] images count: ${product.images ? product.images.length : 0}`);
-    if (product.images && product.images.length > 0) {
-      logger.log(`[RENDER FLOW] First image URL: ${product.images[0].url}`);
-      logger.log(`[RENDER FLOW] URL starts with http? ${product.images[0].url.startsWith('http')}`);
-      logger.log(`[RENDER FLOW] URL length: ${product.images[0].url.length}`);
+    // Products are pre-validated by the service, so no need for fallback logic
+    logger.log(`[RENDER FLOW] Rendering validated product ${i} (${product.id})`);
+    
+    // Double-check that product has valid images (should always be true now)
+    if (!product.images || product.images.length === 0 || !product.images[0].url) {
+      logger.warn(`[RENDER FLOW] Unexpected: skipping product ${product.id} - no images (should have been filtered)`);
+      return null;
     }
     
     const aspectRatio = getAspectRatioForProduct(product, i);
@@ -1410,19 +1408,17 @@ const OverviewScreen: React.FC = () => {
                 if (!imgs) return acc;
                 acc.push({
                   id: product.id || `simple-${Math.random().toString(36).substring(2, 9)}`,
-                  title: product.name || 'Unnamed Product',
                   price: typeof product.price === 'number' ? product.price : 0,
                   brand: product.brand || 'Unknown Brand',
                   images: imgs
                 });
                 return acc;
               }, []);
-              // Generate outfit groups
-              const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
+              // Disable outfit groups by setting empty array
               setProducts(formattedProducts);
               setPartialProducts(formattedPartialProducts);
               setSimpleProducts(formattedSimpleProducts);
-              setOutfitGroups(generatedOutfitGroups);
+              setOutfitGroups([]); // Set to empty array to indicate no outfit groups
             }
           } catch (error) {
             console.error('Error refreshing products:', error);
@@ -1442,19 +1438,7 @@ const OverviewScreen: React.FC = () => {
           }
         }}
       >
-        {/* Outfit Groups */}
-        {renderSectionHeader('Outfit Collections')}
-        {renderOutfitGroups()}
-        
-        {/* News Section */}
-        {shouldShowNews && (
-          <>
-            {renderSectionHeader('Fashion News')}
-            {renderNewsItems()}
-          </>
-        )}
-        
-        {/* Featured Products */}
+        {/* Top Featured Products */}
         {shouldShowFeaturedProducts && (
           <>
             {renderSectionHeader('Featured Products')}
@@ -1464,19 +1448,26 @@ const OverviewScreen: React.FC = () => {
             )}
           </>
         )}
-        
-        {/* Partial Products */}
+
+        {/* News Section */}
+        {shouldShowNews && (
+          <>
+            {renderSectionHeader('Fashion News')}
+            {renderNewsItems()}
+          </>
+        )}
+
+        {/* Bottom Product Sections */}
         {shouldShowPartialProducts && currentFilter !== 'news' && (
           <>
-            {renderSectionHeader('Partner Products')}
+            {renderSectionHeader('More Products')}
             {renderPartialProducts()}
             {displayedPartialProductCount < partialProducts.length && (
               <ActivityIndicator style={styles.loadingIndicator} />
             )}
           </>
         )}
-        
-        {/* Simple Products */}
+
         {shouldShowSimpleProducts && currentFilter !== 'news' && (
           <>
             {renderSectionHeader('You Might Also Like')}
@@ -1486,6 +1477,8 @@ const OverviewScreen: React.FC = () => {
             )}
           </>
         )}
+        
+        {/* Removed duplicate product sections as they are now above */}
         
         {/* Loading footer */}
         {renderFooter()}

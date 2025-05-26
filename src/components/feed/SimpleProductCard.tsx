@@ -23,6 +23,7 @@ import { FadeIn } from 'react-native-reanimated';
 interface ProductImage {
   id: string;
   url: string;
+  fallbackUrl?: string;
 }
 
 export interface SimpleProductCardProps {
@@ -468,42 +469,7 @@ const SimpleProductCard: React.FC<SimpleProductCardProps> = ({
   // Ensure currency is a string
   const currencySymbol = String(currency);
 
-  // Add a utility function to validate and fix image URLs
-  const getValidImageUrl = (url: string): string => {
-    try {
-      // If URL is empty or undefined, return a placeholder
-      if (!url || url.trim() === '') {
-        logger.warn('[SimpleProductCard] Empty or undefined image URL');
-        return 'https://dummyimage.com/400x600/3498db/ffffff&text=Image+Not+Available';
-      }
-      
-      // Check if URL is valid
-      try {
-        new URL(url);
-      } catch (e) {
-        // URL is invalid, try to fix it
-        if (!url.startsWith('http://') && !url.startsWith('https://')) {
-          logger.warn(`[SimpleProductCard] Invalid URL format: ${url}`);
-          // Try to fix URL by prepending https
-          const fixedUrl = `https://${url.replace(/^\/\//, '')}`;
-          try {
-            new URL(fixedUrl); // Test if the fixed URL is valid
-            return fixedUrl;
-          } catch (e) {
-            logger.error(`[SimpleProductCard] Failed to fix invalid URL: ${url}`);
-            return 'https://dummyimage.com/400x600/3498db/ffffff&text=Invalid+URL';
-          }
-        }
-      }
-      
-      // Return the valid URL
-      return url;
-    } catch (error) {
-      // In case of any unexpected errors, log them and return a fallback
-      logger.error(`[SimpleProductCard] Error processing image URL: ${error}`);
-      return 'https://dummyimage.com/400x600/3498db/ffffff&text=Error';
-    }
-  };
+  // No need for URL validation - products are pre-validated
 
   return (
     <View
@@ -595,14 +561,13 @@ const SimpleProductCard: React.FC<SimpleProductCardProps> = ({
                   style={styles.imageWrapper}
                 >
                   <Image
-                    style={styles.productImage}
+                    style={[styles.productImage, { width: cardWidth, height: cardWidth * imageAspectRatio }]}
                     source={{
-                      uri: getValidImageUrl(image?.url || '')
+                      uri: image?.url || ''
                     }}
                     onError={(e) => {
                       logger.error(`[SimpleProductCard] Image failed to load: ${e.nativeEvent.error}, URL: ${image?.url || 'undefined'}`);
                     }}
-                    defaultSource={require('../../assets/images/3dimage.png')}
                     resizeMode="cover"
                   />
                 </View>
@@ -610,14 +575,13 @@ const SimpleProductCard: React.FC<SimpleProductCardProps> = ({
             </ScrollView>
           ) : images && images.length === 1 ? (
             <Image
-              style={styles.productImage}
+              style={[styles.productImage, { width: cardWidth, height: cardWidth * imageAspectRatio }]}
               source={{
-                uri: getValidImageUrl(images[0]?.url || '')
+                uri: images[0]?.url || ''
               }}
               onError={(e) => {
                 logger.error(`[SimpleProductCard] Single image failed to load: ${e.nativeEvent.error}, URL: ${images[0]?.url || 'undefined'}`);
               }}
-              defaultSource={require('../../assets/images/3dimage.png')}
               resizeMode="cover"
             />
           ) : (
@@ -635,7 +599,7 @@ const SimpleProductCard: React.FC<SimpleProductCardProps> = ({
               size={30}
               onPress={handleAddToCart}
               productImageSource={images && images.length > 0 && currentImageIndex < images.length 
-                ? getValidImageUrl(images[currentImageIndex].url) 
+                ? images[currentImageIndex].url 
                 : undefined}
               color={theme.primary}
               style={{ backgroundColor: 'white' }}
@@ -837,7 +801,7 @@ const styles = StyleSheet.create<Styles>({
     fontSize: 14,
   },
   imageWrapper: {
-    width: DEFAULT_CARD_WIDTH,
+    width: '100%',
     height: '100%',
     overflow: 'hidden',
   },

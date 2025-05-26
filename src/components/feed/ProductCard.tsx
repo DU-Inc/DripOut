@@ -34,6 +34,7 @@ import { logger } from '../../utils/logger';
 interface ProductImage {
   id: string;
   url: string;
+  fallbackUrl?: string;
 }
 
 // Add interface for image loading state
@@ -101,8 +102,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
   // Add state to track loaded images
   const [loadedImages, setLoadedImages] = useState<ImageLoadState>({});
   const [areImagesPreloaded, setAreImagesPreloaded] = useState(false);
-  // Track per-image load errors
-  const [erroredImages, setErroredImages] = useState<{[key:string]: boolean}>({});
+  // No need to track errors - products are pre-validated
 
   // Only show verbose logs in development
   const DEBUG = __DEV__;
@@ -142,16 +142,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
   // Add ref to track rendered images to prevent unnecessary rerenders
   const renderedImagesRef = useRef<{[key: string]: boolean}>({});
   
-  // Create safe fallback URL using a more reliable source
-  const getFallbackImageUrl = (index: number) => {
-    // First try a reliable online service
-    const colors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6'];
-    const color = colors[index % colors.length];
-    return `https://dummyimage.com/400x600/${color.replace('#', '')}/ffffff&text=Product+${index + 1}`;
-  };
-  
-  // Hard-coded single fallback image that will always be available (local)
-  const localFallbackImage = require('../../assets/images/3dimage.png');
+  // No fallback images - products are pre-validated
 
   // Preload all images and create cached components
   useEffect(() => {
@@ -200,9 +191,8 @@ const ProductCard: React.FC<ProductCardProps> = ({
             >
               <Image
                 source={{ uri: image.url }}
-                style={[styles.image, { width: cardWidth, borderRadius: 12 }]}
-                resizeMode="contain"
-                defaultSource={localFallbackImage}
+                style={[styles.image, { width: cardWidth, height: cardWidth * imageAspectRatio, borderRadius: 12 }]}
+                resizeMode="cover"
                 key={`preloaded-${image.id}-shared`}
                 fadeDuration={0}
                 onLoadStart={() => {/* console.log(`[ProductCard ${id}] Cached shared image ${image.id} LOAD START`) */}}
@@ -232,9 +222,8 @@ const ProductCard: React.FC<ProductCardProps> = ({
             }}>
               <Image
                 source={{ uri: image.url }}
-                style={[styles.image, { width: cardWidth, borderRadius: 12 }]}
-                resizeMode="contain"
-                defaultSource={localFallbackImage}
+                style={[styles.image, { width: cardWidth, height: cardWidth * imageAspectRatio, borderRadius: 12 }]}
+                resizeMode="cover"
                 key={`preloaded-${image.id}-normal`}
                 fadeDuration={0}
                 onLoadStart={() => {/* console.log(`[ProductCard ${id}] Cached normal image ${image.id} LOAD START`) */}}
@@ -772,9 +761,9 @@ const ProductCard: React.FC<ProductCardProps> = ({
           }}
         >
           <Image
-            source={ erroredImages[image.id] ? localFallbackImage : { uri: image.url } }
-            style={{ width: cardWidth, aspectRatio: imageAspectRatio, borderRadius: 12 }}
-            resizeMode="contain"
+            source={{ uri: image.url }}
+            style={{ width: cardWidth, height: cardWidth * imageAspectRatio, borderRadius: 12 }}
+            resizeMode="cover"
             key={`preloaded-${image.id}-shared`}
             fadeDuration={0}
             onLoadStart={() => {
@@ -785,7 +774,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
               handleImageLoad(image.id);
             }}
             onError={(e) => {
-              setErroredImages(prev => ({ ...prev, [image.id]: true }));
+              // Image load error - no fallback needed
               if (DEBUG) {
                 logger.error(`[IMAGE FLOW] FAILED! Image ${index} failed to load: ${e.nativeEvent.error}`);
                 logger.error(`[IMAGE FLOW] Failed URL: ${image.url}`);
@@ -806,9 +795,9 @@ const ProductCard: React.FC<ProductCardProps> = ({
           backgroundColor: theme.background
         }}>
           <Image
-            source={ erroredImages[image.id] ? localFallbackImage : { uri: image.url } }
-            style={{ width: cardWidth, aspectRatio: imageAspectRatio, borderRadius: 12 }}
-            resizeMode="contain"
+            source={{ uri: image.url }}
+            style={{ width: cardWidth, height: cardWidth * imageAspectRatio, borderRadius: 12 }}
+            resizeMode="cover"
             key={`preloaded-${image.id}-normal`}
             fadeDuration={0}
             onLoadStart={() => {
@@ -819,7 +808,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
               handleImageLoad(image.id);
             }}
             onError={(e) => {
-              setErroredImages(prev => ({ ...prev, [image.id]: true }));
+              // Image load error - no fallback needed
               if (DEBUG) {
                 logger.error(`[IMAGE FLOW] FAILED! Normal Image ${index} failed to load: ${e.nativeEvent.error}`);
                 logger.error(`[IMAGE FLOW] Failed URL: ${image.url}`);
@@ -970,9 +959,9 @@ const ProductCard: React.FC<ProductCardProps> = ({
                 }}
               >
                 <Image
-                  source={ erroredImages[images[0].id] ? localFallbackImage : { uri: images[0].url } }
-                  style={{ borderRadius: 12, width: '100%', aspectRatio: imageAspectRatio }}
-                  resizeMode="contain"
+                  source={{ uri: images[0].url }}
+                  style={{ borderRadius: 12, width: '100%', height: cardWidth * imageAspectRatio }}
+                  resizeMode="cover"
                   fadeDuration={0} 
                   onLoadStart={() => {
                     if (DEBUG) {
@@ -986,7 +975,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
                     handleImageLoad(images[0].id);
                   }}
                   onError={(e) => {
-                    setErroredImages(prev => ({ ...prev, [images[0].id]: true }));
+                    // Image load error - no fallback needed
                     if (DEBUG) {
                       logger.error(`[IMAGE FLOW] FAILED! Single Image failed to load`);
                       logger.error(`[IMAGE FLOW] Error details: ${e.nativeEvent.error}`);

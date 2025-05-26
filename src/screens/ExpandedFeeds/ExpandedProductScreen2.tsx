@@ -20,6 +20,7 @@ import {
   Share,
   Alert,
   LogBox,
+  Linking,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -100,6 +101,7 @@ interface Product {
   isFavorite?: boolean;
   isInCart?: boolean;
   images?: { id: string; url: string }[];
+  productUrl?: string;
 }
 
 // Stack navigation type
@@ -259,18 +261,19 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
         // Format the product data to match the expected structure
         const formattedProduct = {
           id: initialProduct.id,
-          productName: initialProduct.title || initialProduct.name || 'Not Available',
-          brand: initialProduct.brand || 'Not Available',
+          productName: initialProduct.title || initialProduct.name || initialProduct.productName || 'Product',
+          brand: initialProduct.brand && initialProduct.brand !== 'Unknown Brand' ? initialProduct.brand : undefined,
           productImage: initialProduct.images?.[0]?.url || '',
           additionalImages: initialProduct.images?.slice(1).map((img: any) => img.url) || [],
           price: initialProduct.price ?? undefined,
-          description: initialProduct.description || 'Not Available',
+          description: initialProduct.description || initialProduct.title || initialProduct.name || 'Product details',
           images: initialProduct.images || [],
+          productUrl: initialProduct.productUrl || '',
           // Placeholder for missing fields
-          category: initialProduct.category || 'Not Available',
-          colors: initialProduct.colors || ['Not Available'],
-          sizes: initialProduct.sizes || ['Not Available'],
-          material: initialProduct.material || 'Not Available',
+          category: initialProduct.category || 'Fashion',
+          colors: initialProduct.colors || ['Default'],
+          sizes: initialProduct.sizes || ['One Size'],
+          material: initialProduct.material || 'Mixed Materials',
           rating: initialProduct.rating ?? undefined,
           reviews: initialProduct.reviews ?? undefined,
           isFavorite: initialProduct.isFavorite ?? false,
@@ -293,17 +296,18 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
             // Format the API product into our Product interface
             const formatted: Product = {
               id: match.id,
-              productName: match.name || 'Not Available',
-              brand: match.brand || 'Not Available',
+              productName: match.name || 'Product',
+              brand: match.brand && match.brand !== 'Unknown Brand' ? match.brand : undefined,
               productImage: match.images?.[0]?.url || '',
               additionalImages: match.images?.slice(1).map(img => img.url) || [],
               price: match.price ?? undefined,
-              description: match.name ? `${match.brand || ''}: ${match.name}` : 'Not Available',
+              description: match.name ? `${match.brand || ''}: ${match.name}` : 'Product details',
               images: match.images || [],
-              category: 'Not Available',
-              colors: match.brand ? [match.brand] : ['Not Available'],
-              sizes: ['Not Available'],
-              material: 'Not Available',
+              productUrl: match.productUrl || '',
+              category: 'Fashion',
+              colors: match.brand ? [match.brand] : ['Default'],
+              sizes: ['One Size'],
+              material: 'Mixed Materials',
               rating: undefined,
               reviews: undefined,
               isFavorite: false,
@@ -470,6 +474,26 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
       console.error('Error sharing product:', error);
     }
   };
+
+  // Handle go to website
+  const handleGoToWebsite = async () => {
+    if (!product?.productUrl) {
+      Alert.alert('Website Not Available', 'No website URL is available for this product.');
+      return;
+    }
+    
+    try {
+      const canOpen = await Linking.canOpenURL(product.productUrl);
+      if (canOpen) {
+        await Linking.openURL(product.productUrl);
+      } else {
+        Alert.alert('Error', 'Unable to open website URL.');
+      }
+    } catch (error) {
+      console.error('Error opening website:', error);
+      Alert.alert('Error', 'Failed to open website.');
+    }
+  };
   
   // Handle size selection
   const handleSizeSelect = (sizeId: string) => {
@@ -571,30 +595,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     fetchSimilarProducts();
   };
   
-  // Content action buttons
-  const contentActions = [
-    {
-      id: 'share',
-      icon: <Icon name="share-variant" size={24} color="#FFFFFF" />,
-      label: 'Share',
-      backgroundColor: 'transparent',
-      onClick: handleShare,
-    },
-    {
-      id: 'like',
-      icon: <Icon name={isLiked ? "heart" : "heart-outline"} size={24} color="#FFFFFF" />,
-      label: 'Like',
-      backgroundColor: 'transparent',
-      onClick: handleLike,
-    },
-    {
-      id: 'cart',
-      icon: <Icon name={isInCart ? "cart" : "cart-outline"} size={24} color="#FFFFFF" />,
-      label: 'Cart',
-      backgroundColor: 'transparent',
-      onClick: handleAddToCart,
-    },
-  ];
+  // Removed old content actions - now using direct website button
   
   // Render a thumbnail for the image slider
   const renderThumbnail = ({ item, index }: { item: any; index: number }) => {
@@ -874,11 +875,13 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
             }
           ]}
         >
-          <View style={styles.brandRow}>
-            <Text style={[styles.brand, { color: '#FFFFFF' }]}>  
-              {product.brand || 'Not Available'}
-            </Text>
-          </View>
+          {product.brand && (
+            <View style={styles.brandRow}>
+              <Text style={[styles.brand, { color: '#FFFFFF' }]}>  
+                {product.brand}
+              </Text>
+            </View>
+          )}
           
           <SharedElement id={`item.${productId}.title`}>
             <Text style={[styles.title, { color: '#FFFFFF' }]} numberOfLines={2}>
@@ -892,16 +895,14 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
             </Text>
             
             <View style={styles.actionButtons}>
-              <ContentAction
-                actions={contentActions}
-                expansionMode="vertical"
-                size={32}
-                backgroundColor="rgba(0,0,0,0.3)"
-                iconColor="#FFFFFF"
-                spacing={6}
-                isActive={true}
-                isDarkMode={true}
-              />
+              <TouchableOpacity
+                style={[styles.websiteButton, { backgroundColor: 'rgba(0,0,0,0.3)' }]}
+                onPress={handleGoToWebsite}
+                disabled={!product.productUrl}
+              >
+                <Icon name="open-in-new" size={20} color="#FFFFFF" />
+                <Text style={styles.websiteButtonText}>Visit Website</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Animated.View>
@@ -1220,6 +1221,21 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'row',
+  },
+  websiteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  websiteButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
   },
   // Thumbnail styles
   thumbnailsContainer: {
