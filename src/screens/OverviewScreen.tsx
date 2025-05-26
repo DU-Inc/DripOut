@@ -227,140 +227,91 @@ const OverviewScreen: React.FC = () => {
     };
   }, []);
   
+  // Helper to format image array; returns null if no valid images
+  function formatImages(images: any, productId: string): {id: string; url: string}[] | null {
+    if (!Array.isArray(images) || images.length === 0) {
+      logger.warn(`Skipping product ${productId} due to missing images`);
+      return null;
+    }
+    return images.map((img: any, idx: number) => {
+      if (typeof img === 'string') {
+        return { id: `${productId}-${idx}`, url: img };
+      }
+      if (img && img.url) {
+        return { id: img.id || `${productId}-${idx}`, url: img.url };
+      }
+      return { id: `${productId}-${idx}`, url: '' };
+    });
+  }
+
   // Load products from API instead of feed.json
   useEffect(() => {
     const loadProductsFromAPI = async () => {
       try {
         // Fetch random products from API
         let apiProducts = await fetchRandomProducts(5); // Get a good number of products for various displays
-        
+
         if (!isMountedRef.current) return; // Don't update state if unmounted
-        
-        // Generate fallback products if API returns empty
-        if (apiProducts.length === 0) {
-          console.warn('No products returned from API, generating fallback products');
-          
-          // Create fallback products with placeholder images
-          apiProducts = Array(30).fill(0).map((_, index) => ({
-            id: `fallback-product-${index}`,
-            name: `Fallback Product ${index + 1}`,
-            brand: 'Sample Brand',
-            price: 99.99 + index,
-            currency: '$',
-            productUrl: 'https://example.com',
-            images: [
-              {
-                id: `fallback-image-${index}-1`,
-                url: `https://dummyimage.com/400x600/3498db/ffffff&text=Product+${index + 1}`
-              },
-              {
-                id: `fallback-image-${index}-2`,
-                url: `https://dummyimage.com/400x600/2ecc71/ffffff&text=Product+${index + 1}+View+2`
-              }
-            ]
-          }));
-        }
-        
+
         // Log a sample product to debug the structure
         if (apiProducts.length > 0) {
           console.log('Sample product structure:', JSON.stringify(apiProducts[0], null, 2));
           // Log the image URLs for debugging
-          console.log('Image URLs from API:', apiProducts[0].images.map(img => img.url));
+          if (Array.isArray(apiProducts[0].images)) {
+            console.log('Image URLs from API:', apiProducts[0].images.map(img => img.url || img));
+          }
         }
 
-        // Format API products as FormattedProduct for full product display with null checks
-        const formattedProducts: FormattedProduct[] = apiProducts.slice(0, 10).map((product: ExtendedProduct) => {
-          // Log the title, name, and images fields specifically
-          logger.log(`Processing product: ${product.id}`);
-          logger.log(`  Original name: ${product.name}`);
-          logger.log(`  Original images: ${JSON.stringify(product.images)}`);
-          
-          const formattedProduct = {
+        // Format API products as FormattedProduct, skipping any without images
+        const formattedProducts: FormattedProduct[] = apiProducts.slice(0, 10).reduce<FormattedProduct[]>((acc, product: ExtendedProduct) => {
+          const imgs = formatImages(product.images, product.id);
+          if (!imgs) return acc;
+          acc.push({
             id: product.id || `product-${Math.random().toString(36).substring(2, 9)}`,
-            title: product.name || 'Unnamed Product', // Use name as title
+            title: product.name || 'Unnamed Product',
             name: product.name || 'Unnamed Product',
             price: typeof product.price === 'number' ? product.price : 0,
-            images: Array.isArray(product.images)
-              ? product.images.map((img: any, idx: number) => (
-                  typeof img === 'string'
-                    ? { id: `${product.id}-${idx}`, url: img }
-                    : img && img.url
-                      ? { id: img.id || `${product.id}-${idx}`, url: img.url }
-                      : { id: `${product.id}-${idx}`, url: '' }
-                ))
-              : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }],
+            images: imgs,
             brand: product.brand || 'Unknown Brand',
             description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'} - ${product.currency || '$'}${typeof product.price === 'number' ? product.price : 0}`,
-            productUrl: product.productUrl || '', // Include URL as it might be used as identifier
-          };
-          
-          // Log the formatted product
-          logger.log(`  Formatted title: ${formattedProduct.title}`);
-          logger.log(`  Formatted name: ${formattedProduct.name}`);
-          logger.log(`  Formatted images: ${JSON.stringify(formattedProduct.images)}`);
-          
-          return formattedProduct;
-        });
-        
-        // Format API products as FormattedPartialProduct for partial product display with null checks
-        const formattedPartialProducts: FormattedPartialProduct[] = apiProducts.slice(10, 20).map((product: ExtendedProduct) => {
-          // Log the title, name, and images fields specifically
-          logger.log(`Processing partial product: ${product.id}`);
-          logger.log(`  Original name: ${product.name}`);
-          logger.log(`  Original images: ${JSON.stringify(product.images)}`);
-          
-          const formattedProduct = {
+            productUrl: product.productUrl || '',
+          });
+          return acc;
+        }, []);
+
+        // Format API products as FormattedPartialProduct, skipping any without images
+        const formattedPartialProducts: FormattedPartialProduct[] = apiProducts.slice(10, 20).reduce<FormattedPartialProduct[]>((acc, product: ExtendedProduct) => {
+          const imgs = formatImages(product.images, product.id);
+          if (!imgs) return acc;
+          acc.push({
             id: product.id || `partial-${Math.random().toString(36).substring(2, 9)}`,
-            title: product.name || 'Unnamed Product', // Use name as title
+            title: product.name || 'Unnamed Product',
             name: product.name || 'Unnamed Product',
             brand: product.brand || 'Unknown Brand',
             price: typeof product.price === 'number' ? product.price : 0,
-            images: Array.isArray(product.images)
-              ? product.images.map((img: any, idx: number) => (
-                  typeof img === 'string'
-                    ? { id: `${product.id}-${idx}`, url: img }
-                    : img && img.url
-                      ? { id: img.id || `${product.id}-${idx}`, url: img.url }
-                      : { id: `${product.id}-${idx}`, url: '' }
-                ))
-              : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }],
+            images: imgs,
             productUrl: product.productUrl || `https://example.com/product/${product.id || 'unknown'}`
-          };
-          
-          logger.log(`  Formatted partial product images: ${JSON.stringify(formattedProduct.images)}`);
-          return formattedProduct;
-        });
-        
-        // Format API products as FormattedSimpleProduct for simple product display with null checks
-        const formattedSimpleProducts: FormattedSimpleProduct[] = apiProducts.slice(20).map((product: ExtendedProduct) => {
-          // Log the title, name, and images fields specifically
-          logger.log(`Processing simple product: ${product.id}`);
-          logger.log(`  Original name: ${product.name}`);
-          logger.log(`  Original images: ${JSON.stringify(product.images)}`);
-          
-          const formattedProduct = {
+          });
+          return acc;
+        }, []);
+
+        // Format API products as FormattedSimpleProduct, skipping any without images
+        const formattedSimpleProducts: FormattedSimpleProduct[] = apiProducts.slice(20).reduce<FormattedSimpleProduct[]>((acc, product: ExtendedProduct) => {
+          const imgs = formatImages(product.images, product.id);
+          if (!imgs) return acc;
+          acc.push({
             id: product.id || `simple-${Math.random().toString(36).substring(2, 9)}`,
-            title: product.name || 'Unnamed Product', // Use name as title
+            title: product.name || 'Unnamed Product',
             price: typeof product.price === 'number' ? product.price : 0,
             brand: product.brand || 'Unknown Brand',
-            images: Array.isArray(product.images)
-              ? product.images.map((img: any, idx: number) => (
-                  typeof img === 'string'
-                    ? { id: `${product.id}-${idx}`, url: img }
-                    : img && img.url
-                      ? { id: img.id || `${product.id}-${idx}`, url: img.url }
-                      : { id: `${product.id}-${idx}`, url: '' }
-                ))
-              : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }]
-          };
-          
-          logger.log(`  Formatted simple product images: ${JSON.stringify(formattedProduct.images)}`);
-          return formattedProduct;
-        });
-        
+            images: imgs
+          });
+          return acc;
+        }, []);
+
         // Generate outfit groups
         const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
-        
+
         if (isMountedRef.current) {
           setProducts(formattedProducts);
           setPartialProducts(formattedPartialProducts);
@@ -373,7 +324,7 @@ const OverviewScreen: React.FC = () => {
         setIsLoadingOutfits(false);
       }
     };
-    
+
     loadProductsFromAPI();
   }, []);
   
@@ -1416,118 +1367,69 @@ const OverviewScreen: React.FC = () => {
           <RefreshControl
             refreshing={isLoadingOutfits}
             onRefresh={async () => {
-              // Set loading state
-              setIsLoadingOutfits(true);
-              
-              try {
-                // Fetch new random products from API
-                const apiProducts = await fetchRandomProducts(30);
-                
-                if (apiProducts.length > 0) {
-                  // Format API products as FormattedProduct for full product display
-                  const formattedProducts: FormattedProduct[] = apiProducts.slice(0, 10).map((product: ExtendedProduct) => {
-                    // Log the title, name, and images fields specifically
-                    logger.log(`Processing product: ${product.id}`);
-                    logger.log(`  Original name: ${product.name}`);
-                    logger.log(`  Original images: ${JSON.stringify(product.images)}`);
-                    
-                    const formattedProduct = {
-                      id: product.id || `product-${Math.random().toString(36).substring(2, 9)}`,
-                      title: product.name || 'Unnamed Product', // Use name as title
-                      name: product.name || 'Unnamed Product',
-                      price: typeof product.price === 'number' ? product.price : 0,
-                      images: Array.isArray(product.images)
-                        ? product.images.map((img: any, idx: number) => (
-                            typeof img === 'string'
-                              ? { id: `${product.id}-${idx}`, url: img }
-                              : img && img.url
-                                ? { id: img.id || `${product.id}-${idx}`, url: img.url }
-                                : { id: `${product.id}-${idx}`, url: '' }
-                          ))
-                        : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }],
-                      brand: product.brand || 'Unknown Brand',
-                      description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'} - ${product.currency || '$'}${typeof product.price === 'number' ? product.price : 0}`,
-                      productUrl: product.productUrl || '', // Include URL as it might be used as identifier
-                    };
-                    
-                    // Log the formatted product
-                    logger.log(`  Formatted title: ${formattedProduct.title}`);
-                    logger.log(`  Formatted name: ${formattedProduct.name}`);
-                    logger.log(`  Formatted images: ${JSON.stringify(formattedProduct.images)}`);
-                    
-                    return formattedProduct;
-                  });
-                  
-                  // Format API products as FormattedPartialProduct for partial product display
-                  const formattedPartialProducts: FormattedPartialProduct[] = apiProducts.slice(10, 20).map((product: ExtendedProduct) => {
-                    // Log the title, name, and images fields specifically
-                    logger.log(`Processing partial product: ${product.id}`);
-                    logger.log(`  Original name: ${product.name}`);
-                    logger.log(`  Original images: ${JSON.stringify(product.images)}`);
-                    
-                    const formattedProduct = {
-                      id: product.id || `partial-${Math.random().toString(36).substring(2, 9)}`,
-                      title: product.name || 'Unnamed Product', // Use name as title
-                      name: product.name || 'Unnamed Product',
-                      brand: product.brand || 'Unknown Brand',
-                      price: typeof product.price === 'number' ? product.price : 0,
-                      images: Array.isArray(product.images)
-                        ? product.images.map((img: any, idx: number) => (
-                            typeof img === 'string'
-                              ? { id: `${product.id}-${idx}`, url: img }
-                              : img && img.url
-                                ? { id: img.id || `${product.id}-${idx}`, url: img.url }
-                                : { id: `${product.id}-${idx}`, url: '' }
-                          ))
-                        : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }],
-                      productUrl: product.productUrl || `https://example.com/product/${product.id || 'unknown'}`
-                    };
-                    
-                    logger.log(`  Formatted partial product images: ${JSON.stringify(formattedProduct.images)}`);
-                    return formattedProduct;
-                  });
-                  
-                  // Format API products as FormattedSimpleProduct for simple product display
-                  const formattedSimpleProducts: FormattedSimpleProduct[] = apiProducts.slice(20).map((product: ExtendedProduct) => {
-                    // Log the title, name, and images fields specifically
-                    logger.log(`Processing simple product: ${product.id}`);
-                    logger.log(`  Original name: ${product.name}`);
-                    logger.log(`  Original images: ${JSON.stringify(product.images)}`);
-                    
-                    const formattedProduct = {
-                      id: product.id || `simple-${Math.random().toString(36).substring(2, 9)}`,
-                      title: product.name || 'Unnamed Product', // Use name as title
-                      price: typeof product.price === 'number' ? product.price : 0,
-                      brand: product.brand || 'Unknown Brand',
-                      images: Array.isArray(product.images)
-                        ? product.images.map((img: any, idx: number) => (
-                            typeof img === 'string'
-                              ? { id: `${product.id}-${idx}`, url: img }
-                              : img && img.url
-                                ? { id: img.id || `${product.id}-${idx}`, url: img.url }
-                                : { id: `${product.id}-${idx}`, url: '' }
-                          ))
-                        : [{ id: 'default', url: 'https://dummyimage.com/400x600/3498db/ffffff&text=Product' }]
-                    };
-                    
-                    logger.log(`  Formatted simple product images: ${JSON.stringify(formattedProduct.images)}`);
-                    return formattedProduct;
-                  });
-                  
-                  // Generate outfit groups
-                  const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
-                  
-                  setProducts(formattedProducts);
-                  setPartialProducts(formattedPartialProducts);
-                  setSimpleProducts(formattedSimpleProducts);
-                  setOutfitGroups(generatedOutfitGroups);
-                }
-              } catch (error) {
-                console.error('Error refreshing products:', error);
-              } finally {
-                setIsLoadingOutfits(false);
-              }
-            }}
+          // Set loading state
+          setIsLoadingOutfits(true);
+          try {
+            // Fetch new random products from API
+            const apiProducts = await fetchRandomProducts(30);
+            if (apiProducts.length > 0) {
+              // Format API products as FormattedProduct, skipping any without images
+              const formattedProducts: FormattedProduct[] = apiProducts.slice(0, 10).reduce<FormattedProduct[]>((acc, product: ExtendedProduct) => {
+                const imgs = formatImages(product.images, product.id);
+                if (!imgs) return acc;
+                acc.push({
+                  id: product.id || `product-${Math.random().toString(36).substring(2, 9)}`,
+                  title: product.name || 'Unnamed Product',
+                  name: product.name || 'Unnamed Product',
+                  price: typeof product.price === 'number' ? product.price : 0,
+                  images: imgs,
+                  brand: product.brand || 'Unknown Brand',
+                  description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'} - ${product.currency || '$'}${typeof product.price === 'number' ? product.price : 0}`,
+                  productUrl: product.productUrl || '',
+                });
+                return acc;
+              }, []);
+              // Format API products as FormattedPartialProduct, skipping any without images
+              const formattedPartialProducts: FormattedPartialProduct[] = apiProducts.slice(10, 20).reduce<FormattedPartialProduct[]>((acc, product: ExtendedProduct) => {
+                const imgs = formatImages(product.images, product.id);
+                if (!imgs) return acc;
+                acc.push({
+                  id: product.id || `partial-${Math.random().toString(36).substring(2, 9)}`,
+                  title: product.name || 'Unnamed Product',
+                  name: product.name || 'Unnamed Product',
+                  brand: product.brand || 'Unknown Brand',
+                  price: typeof product.price === 'number' ? product.price : 0,
+                  images: imgs,
+                  productUrl: product.productUrl || `https://example.com/product/${product.id || 'unknown'}`
+                });
+                return acc;
+              }, []);
+              // Format API products as FormattedSimpleProduct, skipping any without images
+              const formattedSimpleProducts: FormattedSimpleProduct[] = apiProducts.slice(20).reduce<FormattedSimpleProduct[]>((acc, product: ExtendedProduct) => {
+                const imgs = formatImages(product.images, product.id);
+                if (!imgs) return acc;
+                acc.push({
+                  id: product.id || `simple-${Math.random().toString(36).substring(2, 9)}`,
+                  title: product.name || 'Unnamed Product',
+                  price: typeof product.price === 'number' ? product.price : 0,
+                  brand: product.brand || 'Unknown Brand',
+                  images: imgs
+                });
+                return acc;
+              }, []);
+              // Generate outfit groups
+              const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
+              setProducts(formattedProducts);
+              setPartialProducts(formattedPartialProducts);
+              setSimpleProducts(formattedSimpleProducts);
+              setOutfitGroups(generatedOutfitGroups);
+            }
+          } catch (error) {
+            console.error('Error refreshing products:', error);
+          } finally {
+            setIsLoadingOutfits(false);
+          }
+        }}
             colors={[accentColor]}
             tintColor={accentColor}
           />

@@ -1,3 +1,33 @@
+import PantsIcon from '../assets/icons/pants.svg';
+import jewelryIcon from '../assets/icons/jewelry.svg';
+import watchIcon from '../assets/icons/watch.svg';
+// Fallback stock silhouette avatar URL (Gravatar “mp” default)
+const DEFAULT_AVATAR_URL = 'https://www.gravatar.com/avatar/?d=mp&f=y';
+
+
+/**
+ * Resolve avatar source: use provided URL; otherwise generate a single-letter avatar.
+ * @param avatarUrl URL string from user profile
+ * @param displayName Optional display name (for initial)
+ * @param username Fallback username (for initial)
+ */
+const getAvatarSource = (
+  avatarUrl?: string,
+  displayName?: string,
+  username?: string
+): { uri: string } => {
+  if (avatarUrl) {
+    return { uri: avatarUrl };
+  }
+  const initial = displayName
+    ? displayName.charAt(0).toUpperCase()
+    : username
+    ? username.charAt(0).toUpperCase()
+    : '';
+  return initial
+    ? { uri: `https://ui-avatars.com/api/?name=${initial}&background=0D8ABC&color=fff&bold=true&size=128` }
+    : { uri: DEFAULT_AVATAR_URL };
+};
 // src/screens/SocialScreen.tsx
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
@@ -1032,15 +1062,18 @@ const SocialScreen: React.FC = () => {
                 }
               }}
             >
-              <Image 
-                source={{ uri: item.userAvatar || `https://i.pravatar.cc/150?u=${item.id}` }} 
-                style={[
-                  styles.profileImage, 
-                  { 
-                    borderColor: isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'
-                  }
-                ]} 
-              />
+              <Image
+   source={getAvatarSource(item.userAvatar, item.userDisplayName, item.username)}
+   style={[
+     styles.profileImage,
+     {
+       borderWidth: 1,
+       borderColor: isDarkMode
+         ? 'rgba(255,255,255,0.2)'
+         : 'rgba(0,0,0,0.1)'
+     }
+   ]}
+ />
             </TouchableOpacity>
             <View style={styles.userTextInfo}>
               <TouchableOpacity 
@@ -1930,11 +1963,9 @@ const SocialScreen: React.FC = () => {
                         }
                       }}
                     >
-                      <Image 
-                        source={{ 
-                          uri: item.otherUserAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.otherUserName)}&background=random` 
-                        }} 
-                        style={styles.messageAvatar} 
+                      <Image
+                        source={getAvatarSource(item.otherUserAvatar, undefined, item.otherUserName)}
+                        style={styles.messageAvatar}
                       />
                       <View style={styles.messageContent}>
                         <View style={styles.messageTop}>
