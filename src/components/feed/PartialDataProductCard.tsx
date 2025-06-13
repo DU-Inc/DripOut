@@ -720,7 +720,36 @@ const PartialDataProductCard: React.FC<PartialDataProductCardProps> = ({
                   // Disable fade-in animation for smoother experience
                   fadeDuration={0} 
                   onLoad={() => handleImageLoad(mainImage.id)}
-                  onError={(e) => console.error(`[PartialDataProductCard ${id}] Image failed to load: ${e.nativeEvent.error}, URL: ${mainImage.url}`)}
+                  onError={(error) => {
+                    const errorMessage = error.nativeEvent?.error || 'Unknown error';
+                    console.error(`[PartialDataProductCard ${id}] === IMAGE LOAD ERROR ===`);
+                    console.error(`  Product ID: ${id}`);
+                    console.error(`  Product Name: ${name || 'Unknown'}`);
+                    console.error(`  Brand: ${brand || 'Unknown'}`);
+                    console.error(`  Image URL: ${mainImage.url}`);
+                    console.error(`  Error Message: ${errorMessage}`);
+                    console.error(`  Full Error Object:`, error);
+                    console.error(`  nativeEvent:`, error.nativeEvent);
+                    console.error(`  URL Length: ${mainImage.url?.length || 0}`);
+                    try {
+                      if (mainImage.url && mainImage.url.startsWith('http')) {
+                        // Extract domain manually since React Native doesn't support URL.hostname
+                        const urlMatch = mainImage.url.match(/^https?:\/\/([^\/]+)/);
+                        const domain = urlMatch ? urlMatch[1] : 'Could not extract domain';
+                        const protocol = mainImage.url.startsWith('https') ? 'https:' : 'http:';
+                        
+                        console.error(`  URL Domain: ${domain}`);
+                        console.error(`  URL Protocol: ${protocol}`);
+                      } else {
+                        console.error(`  URL Domain: Invalid URL - does not start with http`);
+                        console.error(`  URL Protocol: Invalid URL - does not start with http`);
+                      }
+                    } catch (urlError) {
+                      console.error(`  URL Domain: Error parsing URL - ${urlError}`);
+                      console.error(`  URL Protocol: Error parsing URL - ${urlError}`);
+                    }
+                    console.error(`=== END IMAGE LOAD ERROR ===`);
+                  }}
                 />
               </TouchableOpacity>
             ) : (

@@ -16,6 +16,8 @@ export interface Product {
   currency: string;
   images: ProductImage[];
   productUrl: string;
+  // Add url field that comes from server
+  url?: string;
 }
 
 // Define interface for API response
@@ -144,6 +146,16 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
     if (response.data.products.length > 0) {
       const sampleProduct = response.data.products[0];
       console.log(`[API FLOW] First product from API (${sampleProduct.id}):`);
+      console.log(`[API FLOW] === COMPLETE API RESPONSE DEBUG ===`);
+      console.log(`[API FLOW] Sample product JSON:`, JSON.stringify(sampleProduct, null, 2));
+      console.log(`[API FLOW] Sample product keys:`, Object.keys(sampleProduct));
+      const debugProduct = sampleProduct as any; // Cast to any for debugging
+      console.log(`[API FLOW] productUrl field:`, debugProduct.productUrl);
+      console.log(`[API FLOW] url field:`, debugProduct.url);
+      console.log(`[API FLOW] link field:`, debugProduct.link);
+      console.log(`[API FLOW] website field:`, debugProduct.website);
+      console.log(`[API FLOW] source field:`, debugProduct.source);
+      console.log(`[API FLOW] === END API RESPONSE DEBUG ===`);
       console.log(`  Raw response data: ${JSON.stringify(sampleProduct)}`);
       console.log(`  Has images array? ${sampleProduct.images !== undefined}`);
       
@@ -168,6 +180,13 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
       const pid = product.id ?? `product-${productIndex}`;
       product.id = pid;
       
+      // Map server's 'url' field to 'productUrl' field that the client expects
+      const rawProduct = product as any;
+      if (rawProduct.url && !rawProduct.productUrl) {
+        rawProduct.productUrl = rawProduct.url;
+        console.log(`[API FLOW] Mapped url to productUrl for product ${pid}: ${rawProduct.url}`);
+      }
+      
       // Must have images array
       if (!Array.isArray(product.images) || product.images.length === 0) {
         console.log(`[API FLOW] Filtering out product ${pid} - no images array`);
@@ -189,12 +208,12 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
         return false;
       }
       
-      // Skip known problematic domains
+      // Skip known problematic domains and URLs
       const problematicDomains = [
         'lackofcolor.com',
         'dummyimage.com',
         'via.placeholder.com',
-        'placeholder.com'
+        'placeholder.com',
       ];
       
       if (problematicDomains.some(domain => firstImage.url.includes(domain))) {
@@ -240,6 +259,12 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
             return false;
           }
           
+          // Map server's 'url' field to 'productUrl' field that the client expects
+          const rawProduct = product as any;
+          if (rawProduct.url && !rawProduct.productUrl) {
+            rawProduct.productUrl = rawProduct.url;
+          }
+          
           // Apply same validation as above
           if (!Array.isArray(product.images) || product.images.length === 0) {
             return false;
@@ -250,7 +275,13 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
             return false;
           }
           
-          const problematicDomains = ['lackofcolor.com', 'dummyimage.com', 'via.placeholder.com', 'placeholder.com'];
+          const problematicDomains = [
+            'lackofcolor.com', 
+            'dummyimage.com', 
+            'via.placeholder.com', 
+            'placeholder.com',
+            'cdn-images.farfetch-contents.com'
+          ];
           if (problematicDomains.some(domain => firstImage.url.includes(domain))) {
             return false;
           }

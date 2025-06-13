@@ -59,17 +59,45 @@ const normalize = (size: number) => {
   return Math.round(scale * size);
 };
 
-// Function to handle CAPTCHA verification
+// Function to handle CAPTCHA verification with retry logic
 const handlePhoneAuth = async (phoneNumber: string): Promise<FirebaseAuthTypes.ConfirmationResult> => {
-  try {
-    // Phone authentication with reCAPTCHA verification handled by Firebase
-    // Firebase handles CAPTCHA invisibly by default in React Native
-    const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
-    return confirmation;
-  } catch (error: any) {
-    console.error('Error in phone auth with CAPTCHA:', error);
-    throw error;
+  console.log(`Attempting phone verification for: ${phoneNumber}`);
+  
+  let attempts = 0;
+  const maxAttempts = 3;
+  const baseDelay = 1000; // 1 second base delay
+  
+  while (attempts < maxAttempts) {
+    try {
+      attempts++;
+      console.log(`Phone auth attempt ${attempts}/${maxAttempts}`);
+      
+      // Phone authentication with reCAPTCHA verification handled by Firebase
+      // Firebase handles CAPTCHA invisibly by default in React Native
+      const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
+      
+      console.log('Phone auth successful');
+      return confirmation;
+      
+    } catch (error: any) {
+      console.error(`Phone auth attempt ${attempts} failed:`, error);
+      
+      // If this is an internal error and we have attempts left, retry
+      if (error.code === 'auth/internal-error' && attempts < maxAttempts) {
+        const delay = baseDelay * attempts; // Exponential backoff
+        console.log(`Retrying phone auth in ${delay}ms...`);
+        await new Promise<void>(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // If we've exhausted retries or it's a different error, throw
+      console.error('Phone auth failed after all attempts:', error);
+      throw error;
+    }
   }
+  
+  // This should never be reached, but just in case
+  throw new Error('Phone authentication failed: Maximum retry attempts exceeded');
 };
 
 const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {

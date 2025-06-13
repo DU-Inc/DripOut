@@ -38,17 +38,20 @@ import { SharedElement } from 'react-navigation-shared-element';
 import feedData from '../../data/feed.json';
 // Import API product fetcher to retrieve product by ID if initial data is missing
 import { fetchRandomProducts, Product as ApiProduct } from '../../services/productService';
+// Import save service for favorites functionality
+import { toggleSavePost, hasUserSavedPost } from '../../services/saveService';
+import { auth } from '../../Config/firebaseconfig';
 
 // --- Constants ------------------
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const MAX_HEADER = 300;
+const MAX_HEADER = SCREEN_HEIGHT * 0.65;
 const MIN_HEADER = Platform.OS === 'ios' ? 90 : 70;
 const TAB_BAR_HEIGHT = 50;
 const NUM_COLUMNS = 2; // Number of columns in the masonry grid
 const ITEM_SPACING = 8; // Spacing between masonry items
 const LOAD_MORE_COUNT = 10; // Number of items to load when scrolling
-const STATUSBAR_HEIGHT = StatusBar.currentHeight || 0;
-const PRODUCT_IMAGE_HEIGHT = SCREEN_HEIGHT * 0.55;
+const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 44 : (StatusBar.currentHeight || 24); // iOS standard status bar is 44pt
+const PRODUCT_IMAGE_HEIGHT = SCREEN_HEIGHT * 0.65;
 
 // --- Interfaces ----------------------
 // For strongly typed route params
@@ -175,11 +178,12 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   console.log('[ExpandedProductScreen] Product ID:', productId);
   console.log('[ExpandedProductScreen] Initial Image Index:', initialImageIndex);
   
-  // State for product data and UI
-  const [isLoading, setIsLoading] = useState(!initialProduct);
-  const [product, setProduct] = useState<Product | null>(initialProduct || null);
+  // State for product data and UI - start with no loading if we have initial product
+  const [isLoading, setIsLoading] = useState(false); // Always start as not loading for faster UI
+  const [product, setProduct] = useState<Product | null>(null);
   const [isLiked, setIsLiked] = useState(false);
   const [isInCart, setIsInCart] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(initialImageIndex);
   const [similarProducts, setSimilarProducts] = useState<FormattedSimpleProduct[]>([]);
@@ -244,92 +248,96 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     };
   }, []);
   
-  // Load product data
+  // Process product data immediately on mount
   useEffect(() => {
+    if (initialProduct) {
+      // Process product data synchronously for immediate display
+      console.log('Processing provided product data:', initialProduct);
+      
+      // Format the product data to match the expected structure
+      const formattedProduct = {
+        id: initialProduct.id,
+        productName: initialProduct.title || initialProduct.name || initialProduct.productName || 'Product',
+        brand: initialProduct.brand && initialProduct.brand !== 'Unknown Brand' ? initialProduct.brand : undefined,
+        productImage: initialProduct.images?.[0]?.url || '',
+        additionalImages: initialProduct.images?.slice(1).map((img: any) => img.url) || [],
+        price: initialProduct.price ?? undefined,
+        description: initialProduct.description || initialProduct.title || initialProduct.name || 'Product details',
+        images: initialProduct.images || [],
+        productUrl: initialProduct.productUrl || '',
+        // Placeholder for missing fields
+        category: initialProduct.category || 'Fashion',
+        colors: initialProduct.colors || ['Default'],
+        sizes: initialProduct.sizes || ['One Size'],
+        material: initialProduct.material || 'Mixed Materials',
+        rating: initialProduct.rating ?? undefined,
+        reviews: initialProduct.reviews ?? undefined,
+        isFavorite: initialProduct.isFavorite ?? false,
+        isInCart: initialProduct.isInCart ?? false,
+      };
+      
+      console.log('Formatted product data:', formattedProduct);
+      console.log('Product URL in formatted product:', formattedProduct.productUrl);
+      
+      // Set product immediately for instant UI display
+      setProduct(formattedProduct);
+      return;
+    }
+    
+    // Fallback: Load from API if no initial product
     const loadProduct = async () => {
-      if (!productId && !initialProduct) {
+      if (!productId) {
         console.error('No product ID or initial product provided');
-        setIsLoading(false);
         Alert.alert('Error', 'No product information provided.');
         navigation.goBack();
         return;
       }
       
-      if (initialProduct) {
-        console.log('Using provided product data:', initialProduct);
-        
-        // Format the product data to match the expected structure
-        const formattedProduct = {
-          id: initialProduct.id,
-          productName: initialProduct.title || initialProduct.name || initialProduct.productName || 'Product',
-          brand: initialProduct.brand && initialProduct.brand !== 'Unknown Brand' ? initialProduct.brand : undefined,
-          productImage: initialProduct.images?.[0]?.url || '',
-          additionalImages: initialProduct.images?.slice(1).map((img: any) => img.url) || [],
-          price: initialProduct.price ?? undefined,
-          description: initialProduct.description || initialProduct.title || initialProduct.name || 'Product details',
-          images: initialProduct.images || [],
-          productUrl: initialProduct.productUrl || '',
-          // Placeholder for missing fields
-          category: initialProduct.category || 'Fashion',
-          colors: initialProduct.colors || ['Default'],
-          sizes: initialProduct.sizes || ['One Size'],
-          material: initialProduct.material || 'Mixed Materials',
-          rating: initialProduct.rating ?? undefined,
-          reviews: initialProduct.reviews ?? undefined,
-          isFavorite: initialProduct.isFavorite ?? false,
-          isInCart: initialProduct.isInCart ?? false,
-        };
-        
-        console.log('Formatted product data:', formattedProduct);
-        setProduct(formattedProduct);
-        setIsLoading(false);
-      } else {
-        // No initial product passed; attempt to fetch from API by ID
-        setIsLoading(true);
-        console.log(`[ExpandedProductScreen] No initial product; fetching product ${productId} from API`);
-        try {
-          // Fetch a batch of products and find the matching one
-          const apiProducts: ApiProduct[] = await fetchRandomProducts(50);
-          const match = apiProducts.find(p => p.id === productId);
-          if (match) {
-            console.log(`[ExpandedProductScreen] Found product ${productId} in API response`);
-            // Format the API product into our Product interface
-            const formatted: Product = {
-              id: match.id,
-              productName: match.name || 'Product',
-              brand: match.brand && match.brand !== 'Unknown Brand' ? match.brand : undefined,
-              productImage: match.images?.[0]?.url || '',
-              additionalImages: match.images?.slice(1).map(img => img.url) || [],
-              price: match.price ?? undefined,
-              description: match.name ? `${match.brand || ''}: ${match.name}` : 'Product details',
-              images: match.images || [],
-              productUrl: match.productUrl || '',
-              category: 'Fashion',
-              colors: match.brand ? [match.brand] : ['Default'],
-              sizes: ['One Size'],
-              material: 'Mixed Materials',
-              rating: undefined,
-              reviews: undefined,
-              isFavorite: false,
-              isInCart: false,
-            };
-            setProduct(formatted);
-            setIsLoading(false);
-            return;
-          } else {
-            console.warn(`[ExpandedProductScreen] Product ${productId} not found in API batch; using fallback data`);
-          }
-        } catch (err) {
-          console.error(`[ExpandedProductScreen] Error fetching products for ${productId}:`, err);
+      setIsLoading(true);
+      console.log(`[ExpandedProductScreen] Fetching product ${productId} from API`);
+      try {
+        // Fetch a batch of products and find the matching one
+        const apiProducts: ApiProduct[] = await fetchRandomProducts(50);
+        const match = apiProducts.find(p => p.id === productId);
+        if (match) {
+          console.log(`[ExpandedProductScreen] Found product ${productId} in API response`);
+          // Format the API product into our Product interface
+          const formatted: Product = {
+            id: match.id,
+            productName: match.name || 'Product',
+            brand: match.brand && match.brand !== 'Unknown Brand' ? match.brand : undefined,
+            productImage: match.images?.[0]?.url || '',
+            additionalImages: match.images?.slice(1).map(img => img.url) || [],
+            price: match.price ?? undefined,
+            description: match.name ? `${match.brand || ''}: ${match.name}` : 'Product details',
+            images: match.images || [],
+            productUrl: match.productUrl || '',
+            category: 'Fashion',
+            colors: match.brand ? [match.brand] : ['Default'],
+            sizes: ['One Size'],
+            material: 'Mixed Materials',
+            rating: undefined,
+            reviews: undefined,
+            isFavorite: false,
+            isInCart: false,
+          };
+          setProduct(formatted);
+          setIsLoading(false);
+          return;
+        } else {
+          console.warn(`[ExpandedProductScreen] Product ${productId} not found in API batch; using fallback data`);
         }
-        // Fallback to sample feed data
-        console.warn('Using fallback feed data for product details');
-        await createDelay(500);
-        const foundFeed = feedData.singleOutfitFullData.find(item => item.id === productId)
-          || feedData.singleOutfitFullData[0];
-        setProduct(foundFeed);
-        setIsLoading(false);
+      } catch (err) {
+        console.error(`[ExpandedProductScreen] Error fetching products for ${productId}:`, err);
       }
+      
+      // Fallback to sample feed data
+      console.warn('Using fallback feed data for product details');
+      await createDelay(500);
+      const foundFeed = feedData.singleOutfitFullData.find(item => item.id === productId)
+        || feedData.singleOutfitFullData[0];
+      setProduct(foundFeed);
+      setIsLoading(false);
     };
     
     loadProduct();
@@ -340,80 +348,48 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     fetchSimilarProducts();
   }, []);
   
-  // Complete transition after a short delay
-  useEffect(() => {
-    const transitionTimer = setTimeout(() => {
-      completeTransition();
-    }, 300);
-    
-    return () => clearTimeout(transitionTimer);
-  }, []);
-  
-  // Run entrance animations when product loads
+  // Complete transition immediately when product is available for seamless experience
   useEffect(() => {
     if (product && !isLoading) {
-      // Start all animations together
-      const animationsSequence = Animated.stagger(100, [
-        // 1. Nav buttons slide-in and fade-in
-        Animated.parallel([
-          Animated.timing(navButtonsOpacity, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(navButtonsTranslateY, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-        ]),
-        
-        // 2. Content reveal slide-up and fade-in
-        Animated.parallel([
-          Animated.timing(contentOpacity, {
-            toValue: 1,
-            duration: 250,
-            useNativeDriver: true,
-          }),
-          Animated.timing(contentTranslateY, {
-            toValue: 0,
-            duration: 250,
-            useNativeDriver: true,
-          }),
-        ]),
-      ]);
-      
-      // Track and start the animation sequence
-      activeAnimations.current.push(animationsSequence);
-      animationsSequence.start(({ finished }) => {
-        if (finished) {
-          const index = activeAnimations.current.indexOf(animationsSequence);
-          if (index > -1) {
-            activeAnimations.current.splice(index, 1);
-          }
-        }
-      });
+      // Complete transition immediately when product data is available
+      completeTransition();
     }
-  }, [product, isLoading, contentOpacity, contentTranslateY, navButtonsOpacity, navButtonsTranslateY, activeAnimations]);
+  }, [product, isLoading]);
   
-  // Complete the shared element transition
+  // Run entrance animations when product loads - immediate for seamless transition
+  useEffect(() => {
+    if (product && !isLoading) {
+      // Set all animation values immediately for seamless transition
+      navButtonsOpacity.setValue(1);
+      navButtonsTranslateY.setValue(0);
+      contentOpacity.setValue(1);
+      contentTranslateY.setValue(0);
+    }
+  }, [product, isLoading, contentOpacity, contentTranslateY, navButtonsOpacity, navButtonsTranslateY]);
+  
+  // Check if product is saved when product loads
+  useEffect(() => {
+    const checkSaveStatus = async () => {
+      const currentUser = auth().currentUser;
+      if (product && currentUser) {
+        try {
+          const savedStatus = await hasUserSavedPost(currentUser.uid, product.id);
+          setIsSaved(savedStatus);
+        } catch (error) {
+          console.error('Error checking save status:', error);
+        }
+      }
+    };
+    
+    checkSaveStatus();
+  }, [product]);
+  
+  // Complete the shared element transition - immediate for seamless experience
   const completeTransition = () => {
-    // Animate shared element opacity to 0 (hiding it)
-    Animated.timing(sharedElementOpacity, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true
-    }).start(() => {
-      // Once shared element is hidden, fade in main content
-      Animated.timing(mainContentOpacity, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true
-      }).start(() => {
-        // Enable interactions after transition
-        setIsTransitionActive(false);
-      });
-    });
+    // Set values immediately for seamless transition
+    sharedElementOpacity.setValue(0);
+    mainContentOpacity.setValue(1);
+    setIsTransitionActive(false);
   };
   
   // Handle section layout
@@ -431,18 +407,24 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     }
   };
   
-  // Handle back button
+  // Handle back button - improved exit animation
   const handleBack = () => {
-    // Run exit animations
+    // Run exit animations with smoother timing
     Animated.parallel([
       Animated.timing(contentOpacity, {
         toValue: 0,
-        duration: 150,
+        duration: 200, // Increased for smoother exit
         useNativeDriver: true,
       }),
       Animated.timing(navButtonsOpacity, {
         toValue: 0,
-        duration: 100,
+        duration: 150, // Increased for smoother exit
+        useNativeDriver: true,
+      }),
+      // Add content slide down animation
+      Animated.timing(contentTranslateY, {
+        toValue: 30,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -451,42 +433,56 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     });
   };
   
-  // Handle like/unlike
-  const handleLike = () => {
-    setIsLiked(!isLiked);
-  };
-  
   // Handle add to cart
   const handleAddToCart = () => {
     setIsInCart(!isInCart);
   };
-  
-  // Handle share
-  const handleShare = async () => {
-    if (!product) return;
-    
+
+  // Handle save to favorites
+  const handleSave = async () => {
+    const currentUser = auth().currentUser;
+    if (!product || !currentUser) {
+      console.log('No product or user available for saving');
+      return;
+    }
+
     try {
-      await Share.share({
-        message: `Check out this product: ${product.productName}`,
-        url: `https://yourapp.com/products/${product.id}`,
-      });
+      const newSavedStatus = await toggleSavePost(currentUser.uid, product.id);
+      setIsSaved(newSavedStatus);
     } catch (error) {
-      console.error('Error sharing product:', error);
+      console.error('Error toggling save status:', error);
     }
   };
 
   // Handle go to website
   const handleGoToWebsite = async () => {
-    if (!product?.productUrl) {
+    console.log('handleGoToWebsite called');
+    console.log('product?.productUrl:', product?.productUrl);
+    
+    if (!product?.productUrl || product.productUrl.trim() === '') {
+      console.log('No productUrl available');
       Alert.alert('Website Not Available', 'No website URL is available for this product.');
       return;
     }
     
+    let urlToOpen = product.productUrl;
+    
+    // Ensure URL has protocol
+    if (!urlToOpen.match(/^https?:\/\//)) {
+      urlToOpen = 'https://' + urlToOpen;
+    }
+    
+    console.log('Attempting to open URL:', urlToOpen);
+    
     try {
-      const canOpen = await Linking.canOpenURL(product.productUrl);
+      const canOpen = await Linking.canOpenURL(urlToOpen);
+      console.log('Can open URL:', canOpen);
+      
       if (canOpen) {
-        await Linking.openURL(product.productUrl);
+        await Linking.openURL(urlToOpen);
+        console.log('URL opened successfully');
       } else {
+        console.log('Cannot open URL');
         Alert.alert('Error', 'Unable to open website URL.');
       }
     } catch (error) {
@@ -735,6 +731,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   
   // Render loading state
   if (isLoading || !product) {
+    console.log('product.productUrl =>', product?.productUrl);
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.primary} />
@@ -785,7 +782,39 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
             }}>
               <Image 
                 source={{ uri: productImages[currentImageIndex]?.url }} 
-                style={styles.headerImage} 
+                style={styles.headerImage}
+                defaultSource={{ uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' }}
+                onError={(error) => {
+                  const errorMessage = error.nativeEvent?.error || 'Unknown error';
+                  const currentImage = productImages[currentImageIndex];
+                  console.error(`[ExpandedProductScreen2] === HEADER IMAGE LOAD ERROR ===`);
+                  console.error(`  Product ID: ${product?.id}`);
+                  console.error(`  Product Name: ${product?.productName}`);
+                  console.error(`  Header Image Index: ${currentImageIndex}`);
+                  console.error(`  Header Image URL: ${currentImage?.url}`);
+                  console.error(`  Error Message: ${errorMessage}`);
+                  console.error(`  Full Error Object:`, error);
+                  console.error(`  nativeEvent:`, error.nativeEvent);
+                  console.error(`  URL Length: ${currentImage?.url?.length || 0}`);
+                  try {
+                    if (currentImage?.url && currentImage.url.startsWith('http')) {
+                      // Extract domain manually since React Native doesn't support URL.hostname
+                      const urlMatch = currentImage.url.match(/^https?:\/\/([^\/]+)/);
+                      const domain = urlMatch ? urlMatch[1] : 'Could not extract domain';
+                      const protocol = currentImage.url.startsWith('https') ? 'https:' : 'http:';
+                      
+                      console.error(`  URL Domain: ${domain}`);
+                      console.error(`  URL Protocol: ${protocol}`);
+                    } else {
+                      console.error(`  URL Domain: Invalid URL - does not start with http or is undefined`);
+                      console.error(`  URL Protocol: Invalid URL - does not start with http or is undefined`);
+                    }
+                  } catch (urlError) {
+                    console.error(`  URL Domain: Error parsing URL - ${urlError}`);
+                    console.error(`  URL Protocol: Error parsing URL - ${urlError}`);
+                  }
+                  console.error(`=== END HEADER IMAGE LOAD ERROR ===`);
+                }}
               />
             </Animated.View>
           </SharedElement>
@@ -819,6 +848,37 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
                     source={image?.url ? { uri: image.url } : undefined}
                     style={styles.productImage}
                     resizeMode="cover"
+                    defaultSource={{ uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' }}
+                    onError={(error) => {
+                      const errorMessage = error.nativeEvent?.error || 'Unknown error';
+                      console.error(`[ExpandedProductScreen2] === IMAGE LOAD ERROR ===`);
+                      console.error(`  Product ID: ${product?.id}`);
+                      console.error(`  Product Name: ${product?.productName}`);
+                      console.error(`  Image Index: ${index}`);
+                      console.error(`  Image URL: ${image?.url}`);
+                      console.error(`  Error Message: ${errorMessage}`);
+                      console.error(`  Full Error Object:`, error);
+                      console.error(`  nativeEvent:`, error.nativeEvent);
+                      console.error(`  URL Length: ${image?.url?.length || 0}`);
+                      try {
+                        if (image?.url && image.url.startsWith('http')) {
+                          // Extract domain manually since React Native doesn't support URL.hostname
+                          const urlMatch = image.url.match(/^https?:\/\/([^\/]+)/);
+                          const domain = urlMatch ? urlMatch[1] : 'Could not extract domain';
+                          const protocol = image.url.startsWith('https') ? 'https:' : 'http:';
+                          
+                          console.error(`  URL Domain: ${domain}`);
+                          console.error(`  URL Protocol: ${protocol}`);
+                        } else {
+                          console.error(`  URL Domain: Invalid URL - does not start with http or is undefined`);
+                          console.error(`  URL Protocol: Invalid URL - does not start with http or is undefined`);
+                        }
+                      } catch (urlError) {
+                        console.error(`  URL Domain: Error parsing URL - ${urlError}`);
+                        console.error(`  URL Protocol: Error parsing URL - ${urlError}`);
+                      }
+                      console.error(`=== END IMAGE LOAD ERROR ===`);
+                    }}
                   />
                 </View>
               ))}
@@ -846,6 +906,8 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
               onPress={handleBack} 
               style={styles.navButton}
               disabled={isTransitionActive}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} // Increase tap area
+              activeOpacity={0.7} // Visual feedback on press
             >
               <Icon name="arrow-left" size={24} color="#FFFFFF" />
             </TouchableOpacity>
@@ -898,7 +960,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
               <TouchableOpacity
                 style={[styles.websiteButton, { backgroundColor: 'rgba(0,0,0,0.3)' }]}
                 onPress={handleGoToWebsite}
-                disabled={!product.productUrl}
+                disabled={!product?.productUrl}
               >
                 <Icon name="open-in-new" size={20} color="#FFFFFF" />
                 <Text style={styles.websiteButtonText}>Visit Website</Text>
@@ -1023,6 +1085,26 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
                 {isInCart ? "Added to Cart" : "Add to Cart"}
               </Text>
             </TouchableOpacity>
+
+            {/* Save to Favorites Button */}
+            <TouchableOpacity
+              style={[styles.saveToFavoritesButton, { 
+                backgroundColor: isSaved ? theme.primary : 'transparent',
+                borderColor: theme.primary 
+              }]}
+              onPress={handleSave}
+            >
+              <Icon 
+                name={isSaved ? "heart" : "heart-outline"} 
+                size={20} 
+                color={isSaved ? "#FFFFFF" : theme.primary} 
+              />
+              <Text style={[styles.saveToFavoritesText, { 
+                color: isSaved ? "#FFFFFF" : theme.primary 
+              }]}>
+                {isSaved ? "Saved to Closet" : "Save to Closet"}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
         
@@ -1093,7 +1175,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
 
 // Define shared elements for transition
 ExpandedProductScreen2.sharedElements = (route: any) => {
-  const { productId, initialImageIndex = 0, product } = route.params;
+  const { productId } = route.params;
   
   return [
     {
@@ -1140,6 +1222,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     borderBottomLeftRadius: 25,
     borderBottomRightRadius: 25,
+    overflow: 'hidden', // Prevent content from overflowing during transition
   },
   headerImage: { 
     width: '100%', 
@@ -1155,7 +1238,7 @@ const styles = StyleSheet.create({
   },
   navBar: {
     position: 'absolute',
-    top: STATUSBAR_HEIGHT + 10, 
+    top: STATUSBAR_HEIGHT + 50, // Increased from 10 to 50 for better accessibility
     left: 0,
     right: 0,
     height: 56,
@@ -1166,16 +1249,20 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   navButton: { 
-    padding: 12, 
-    borderRadius: 40,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    padding: 14, // Increased from 12 for easier tapping
+    borderRadius: 44, // Adjusted for new padding
+    backgroundColor: 'rgba(0,0,0,0.6)', // Darker for better visibility
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
-    elevation: 5,
+    borderColor: 'rgba(255,255,255,0.4)', // More visible border
+    elevation: 8, // Increased shadow for better prominence
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 3 }, // Larger shadow
+    shadowOpacity: 0.4,
+    shadowRadius: 5,
+    minWidth: 44, // Ensure minimum tap target size
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   navBarTitle: {
     color: '#FFFFFF',
@@ -1355,6 +1442,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
   },
+  saveToFavoritesButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 15,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    marginTop: 12,
+    borderWidth: 2,
+  },
+  saveToFavoritesText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
   // Similar products styles
   similarProductsContainer: {
     width: '100%',
@@ -1398,6 +1500,7 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#000', // Add background to prevent flashing
   },
   productImage: {
     width: SCREEN_WIDTH,

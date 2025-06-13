@@ -628,6 +628,7 @@ const OverviewScreen: React.FC = () => {
     }
   }, []);
 
+
   // Handle product card press - update to use URL as an alternative identifier if ID not found
   const handleProductPress = useCallback((productId: string, currentImageIndex = 0) => {
     // Find the product data to pass - first try by ID
@@ -676,6 +677,14 @@ const OverviewScreen: React.FC = () => {
       productUrl: rawProduct.productUrl || '', // Include URL as it might be used as identifier
       // Add any other fields needed by ExpandedProductScreen
     };
+    
+    // Debug logging for URL mapping
+    console.log('[OverviewScreen] Product navigation debug:');
+    console.log('  Product ID:', productId);
+    console.log('  Product URL available:', !!rawProduct.productUrl);
+    if (!rawProduct.productUrl) {
+      console.log('  Raw URL from server:', (rawProduct as any).url);
+    }
     
     // Get the ref for this specific card
     const cardRef = productRefs.current[productId];

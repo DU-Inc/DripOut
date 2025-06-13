@@ -8,10 +8,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Animated,
-  GestureResponderEvent,
-  Platform,
-  InteractionManager,
-  ImageBackground,
 } from 'react-native';
 // import Swiper from 'react-native-swiper'; // Remove Swiper import
 import AddToCartButton from '../common/CardButtons/AddToCartButton';
@@ -19,7 +15,6 @@ import ContentAction from '../common/CardButtons/contentAction';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../../styles/theme/colors';
 import { SharedElement } from 'react-navigation-shared-element';
-import { logger } from '../../utils/logger';
 
 // Add type declaration at the top of file (after imports)
 // declare const setTimeout: (callback: (...args: any[]) => void, ms: number) => number;
@@ -37,10 +32,7 @@ interface ProductImage {
   fallbackUrl?: string;
 }
 
-// Add interface for image loading state
-interface ImageLoadState {
-  [key: string]: boolean;
-}
+// Simplified image loading - no need for complex state tracking
 
 export interface ProductCardProps {
   id: string;
@@ -68,8 +60,7 @@ const CARD_MIN_HEIGHT = 230; // Minimum card height to prevent overlap
 const NUM_HEARTS = 10; // Number of hearts in the animation
 const DOUBLE_TAP_DELAY = 450; // Increased from 300ms to 600ms for easier double tapping
 
-// Add a cache for preloaded image components to prevent remounting
-const imageCache = new Map<string, React.ReactNode>();
+// Removed image cache - using React Native's built-in image handling
 
 const ProductCard: React.FC<ProductCardProps> = ({
   id,
@@ -93,19 +84,14 @@ const ProductCard: React.FC<ProductCardProps> = ({
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
   const [isLiked, setIsLiked] = useState(false);
-  const [isAnimatingHearts, setIsAnimatingHearts] = useState(false);
+  const [, setIsAnimatingHearts] = useState(false);
   const lastTapRef = useRef(0);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollStartTimeRef = useRef(0);
   const singleTapTimeoutRef = useRef<number | null>(null);
   
-  // Add state to track loaded images
-  const [loadedImages, setLoadedImages] = useState<ImageLoadState>({});
-  const [areImagesPreloaded, setAreImagesPreloaded] = useState(false);
-  // No need to track errors - products are pre-validated
-
-  // Only show verbose logs in development
-  const DEBUG = __DEV__;
+  // Simplified image loading state
+  const [, setImageLoadError] = useState<boolean>(false);
   
   // Animation value for overlay
   const overlayOpacity = useRef(new Animated.Value(0)).current;
@@ -139,136 +125,10 @@ const ProductCard: React.FC<ProductCardProps> = ({
   // Current animation for immediate cancellation
   const currentAnimation = useRef<Animated.CompositeAnimation | null>(null);
 
-  // Add ref to track rendered images to prevent unnecessary rerenders
-  const renderedImagesRef = useRef<{[key: string]: boolean}>({});
-  
-  // No fallback images - products are pre-validated
-
-  // Preload all images and create cached components
+  // Reset image error state when images change
   useEffect(() => {
-    if (DEBUG) {
-      logger.log(`[IMAGE FLOW] ProductCard ${id} mounted/updated, images count:${images.length}`);
-    
-      // Log each image in detail
-      images.forEach((img, index) => {
-        logger.log(`[IMAGE FLOW] ProductCard ${id} Image ${index + 1}:`);
-        logger.log(`  ID: ${img.id}`);
-        logger.log(`  URL: ${img.url}`);
-        logger.log(`  URL type: ${typeof img.url}`);
-        logger.log(`  URL length: ${img.url?.length || 0}`);
-        logger.log(`  URL starts with http: ${img.url?.startsWith('http')}`);
-      });
-    }
-    
-    const preloadImages = async () => {
-      // console.log(`[ProductCard ${id}] Starting image preloading for ${images.length} images`);
-      // Initialize loading state for all images
-      const initialLoadState: ImageLoadState = {};
-      
-      // Prepare image cache entries
-      images.forEach((image, index) => {
-        initialLoadState[image.id] = false;
-        
-        // Create a unique key for the image in this product
-        const cacheKeyShared = `product-${id}-image-${image.id}-shared`;
-        const cacheKeyNormal = `product-${id}-image-${image.id}-normal`;
-        
-        // Only create cache entry if not already cached
-        if (!imageCache.has(cacheKeyShared)) {
-          // console.log(`[ProductCard ${id}] Pre-creating cached component for image ${image.id} (shared)`);
-          
-          // Create shared element version
-          imageCache.set(cacheKeyShared, (
-            <SharedElement 
-              id={`item.${id}.image`} 
-              style={{
-                overflow: 'hidden', 
-                width: '100%', 
-                height: '100%', 
-                borderRadius: 12,
-                backgroundColor: theme.background
-              }}
-            >
-              <Image
-                source={{ uri: image.url }}
-                style={[styles.image, { width: cardWidth, height: cardWidth * imageAspectRatio, borderRadius: 12 }]}
-                resizeMode="cover"
-                key={`preloaded-${image.id}-shared`}
-                fadeDuration={0}
-                onLoadStart={() => {/* console.log(`[ProductCard ${id}] Cached shared image ${image.id} LOAD START`) */}}
-                onLoad={() => {
-                  // console.log(`[ProductCard ${id}] Cached shared image ${image.id} LOADED`);
-                  handleImageLoad(image.id);
-                }}
-                onError={(e) => {
-                  console.error(`[ProductCard ${id}] Cached shared image ${image.id} failed to load: ${e.nativeEvent.error}, URL: ${image.url}`);
-                }}
-              />
-            </SharedElement>
-          ));
-        }
-        
-        // Create normal version
-        if (!imageCache.has(cacheKeyNormal)) {
-          // console.log(`[ProductCard ${id}] Pre-creating cached component for image ${image.id} (normal)`);
-          
-          imageCache.set(cacheKeyNormal, (
-            <View style={{
-              overflow: 'hidden', 
-              width: '100%', 
-              height: '100%', 
-              borderRadius: 12,
-              backgroundColor: theme.background
-            }}>
-              <Image
-                source={{ uri: image.url }}
-                style={[styles.image, { width: cardWidth, height: cardWidth * imageAspectRatio, borderRadius: 12 }]}
-                resizeMode="cover"
-                key={`preloaded-${image.id}-normal`}
-                fadeDuration={0}
-                onLoadStart={() => {/* console.log(`[ProductCard ${id}] Cached normal image ${image.id} LOAD START`) */}}
-                onLoad={() => {
-                  // console.log(`[ProductCard ${id}] Cached normal image ${image.id} LOADED`);
-                  handleImageLoad(image.id);
-                }}
-                onError={(e) => {
-                  console.error(`[ProductCard ${id}] Cached normal image ${image.id} failed to load: ${e.nativeEvent.error}, URL: ${image.url}`);
-                }}
-              />
-            </View>
-          ));
-        }
-      });
-      
-      setLoadedImages(initialLoadState);
-      
-      // Mark preloading as complete after a short delay to allow rendering
-      setAreImagesPreloaded(true);
-    };
-    
-    preloadImages();
-
-    return () => {
-      // console.log(`[ProductCard ${id}] Component unmounting`);
-      
-      // Optionally clean up image cache for this product when unmounting
-      images.forEach(image => {
-        const cacheKeyShared = `product-${id}-image-${image.id}-shared`;
-        const cacheKeyNormal = `product-${id}-image-${image.id}-normal`;
-        
-        imageCache.delete(cacheKeyShared);
-        imageCache.delete(cacheKeyNormal);
-      });
-    };
-  }, [images, id, cardWidth, theme.background]);
-  
-  // Update rendered images ref when current index changes
-  useEffect(() => {
-    if (images[currentImageIndex]) {
-      const imageId = images[currentImageIndex].id;
-      renderedImagesRef.current[imageId] = true;
-    }
-  }, [currentImageIndex, images]);
+    setImageLoadError(false);
+  }, [images]);
 
   // Clear timeout on unmount
   useEffect(() => {
@@ -336,13 +196,56 @@ const ProductCard: React.FC<ProductCardProps> = ({
     });
   };
 
-  // Handle image load
-  const handleImageLoad = (imageId: string) => {
-    // console.log(`[ProductCard ${id}] handleImageLoad called for image id:${imageId}, previously loaded:${!!loadedImages[imageId]}`);
-    setLoadedImages(prev => ({
-      ...prev,
-      [imageId]: true
-    }));
+  // Handle image load success
+  const handleImageLoad = () => {
+    setImageLoadError(false);
+  };
+
+  // Handle image load error with detailed logging
+  const handleImageError = (error: any, imageUrl?: string, imageIndex?: number) => {
+    const errorMessage = error.nativeEvent?.error || 'Unknown error';
+    const url = imageUrl || (images[currentImageIndex]?.url) || 'Unknown URL';
+    
+    console.error(`[ProductCard ${id}] === IMAGE LOAD ERROR ===`);
+    console.error(`  Product ID: ${id}`);
+    console.error(`  Product Name: ${name}`);
+    console.error(`  Image Index: ${imageIndex !== undefined ? imageIndex : currentImageIndex}`);
+    console.error(`  Image URL: ${url}`);
+    console.error(`  Error Message: ${errorMessage}`);
+    console.error(`  Full Error Object:`, error);
+    console.error(`  Error Type: ${typeof error}`);
+    console.error(`  nativeEvent:`, error.nativeEvent);
+    
+    // HTTP Response details if available
+    if (error.nativeEvent?.responseCode) {
+      console.error(`  HTTP Response Code: ${error.nativeEvent.responseCode}`);
+    }
+    if (error.nativeEvent?.httpResponseHeaders) {
+      console.error(`  HTTP Headers:`, error.nativeEvent.httpResponseHeaders);
+    }
+    
+    console.error(`  URL Length: ${url.length}`);
+    // Parse URL safely for React Native
+    try {
+      if (url && url.startsWith('http')) {
+        // Extract domain manually since React Native doesn't support URL.hostname
+        const urlMatch = url.match(/^https?:\/\/([^\/]+)/);
+        const domain = urlMatch ? urlMatch[1] : 'Could not extract domain';
+        const protocol = url.startsWith('https') ? 'https:' : 'http:';
+        
+        console.error(`  URL Domain: ${domain}`);
+        console.error(`  URL Protocol: ${protocol}`);
+      } else {
+        console.error(`  URL Domain: Invalid URL - does not start with http`);
+        console.error(`  URL Protocol: Invalid URL - does not start with http`);
+      }
+    } catch (urlError) {
+      console.error(`  URL Domain: Error parsing URL - ${urlError}`);
+      console.error(`  URL Protocol: Error parsing URL - ${urlError}`);
+    }
+    console.error(`=== END IMAGE LOAD ERROR ===`);
+    
+    setImageLoadError(true);
   };
 
   // Double tap handler
@@ -385,7 +288,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
     
     // Reset all heart animations
-    heartAnimations.forEach((anim, i) => {
+    heartAnimations.forEach((anim) => {
       anim.y.setValue(cardWidth * 0.8); // Start from bottom
       anim.opacity.setValue(0);
       anim.scale.setValue(0.3);
@@ -400,9 +303,9 @@ const ProductCard: React.FC<ProductCardProps> = ({
     });
     
     // Create animations for each heart
-    const animations = heartAnimations.map((anim, i) => {
+    const animations = heartAnimations.map((anim, index) => {
       // Stagger the animations
-      const delay = i * 50;
+      const delay = index * 50;
       
       // Create animation sequence for this heart
       return Animated.sequence([
@@ -494,7 +397,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
     
     // Reset all heart animations
-    heartAnimations.forEach((anim, i) => {
+    heartAnimations.forEach((anim) => {
       anim.y.setValue(-(cardWidth * 0.2)); // Start from above
       anim.opacity.setValue(0);
       anim.scale.setValue(0.5);
@@ -509,9 +412,9 @@ const ProductCard: React.FC<ProductCardProps> = ({
     });
     
     // Create animations for each heart
-    const animations = heartAnimations.map((anim, i) => {
+    const animations = heartAnimations.map((anim, index) => {
       // Stagger the animations
-      const delay = i * 50;
+      const delay = index * 50;
       
       // Create animation sequence for this heart
       return Animated.sequence([
@@ -726,105 +629,54 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
-  // Render image component with placeholder - use cached components
-  const renderImage = (image: ProductImage, index: number, isCurrentImage: boolean) => {
-    if (DEBUG) {
-      logger.log(`[ProductCard ${id}] Rendering image [${index}] id:${image.id}, isCurrentImage:${isCurrentImage}, isLoaded:${!!loadedImages[image.id]}`);
-      logger.log(`[ProductCard ${id}] Image URL:`, image.url);
-    }
-    
-    // Track that this image has been rendered at least once
-    renderedImagesRef.current[image.id] = true;
-    
-    // Create cache keys for both versions of this image
-    const cacheKeyShared = `product-${id}-image-${image.id}-shared`;
-    const cacheKeyNormal = `product-${id}-image-${image.id}-normal`;
-    
-    // Add default styling for the image container
-    const imageContainerStyle = {
+  // Simplified image rendering - no caching, direct rendering
+  const renderImage = (image: ProductImage, _index: number, isCurrentImage: boolean) => {
+    const imageStyle = {
       width: cardWidth,
-      height: '100%' as const,
-      backgroundColor: theme.surface
+      height: cardWidth * imageAspectRatio,
+      borderRadius: 12
     };
 
-    // Always use SharedElement for current image to enable transitions
+    const containerStyle = {
+      overflow: 'hidden' as const,
+      flex: 1,
+      borderRadius: 12,
+      backgroundColor: theme.background
+    };
+
+    // Use SharedElement for current image to enable transitions
     if (isCurrentImage) {
       return (
         <SharedElement 
           id={`item.${id}.image`}
-          style={{
-            overflow: 'hidden',
-            width: '100%',
-            height: '100%',
-            borderRadius: 12,
-            backgroundColor: theme.background
-          }}
+          style={containerStyle}
         >
           <Image
             source={{ uri: image.url }}
-            style={{ width: cardWidth, height: cardWidth * imageAspectRatio, borderRadius: 12 }}
+            style={imageStyle}
             resizeMode="cover"
-            key={`preloaded-${image.id}-shared`}
-            fadeDuration={0}
-            onLoadStart={() => {
-              if (DEBUG) logger.log(`[IMAGE FLOW] Image ${index} loading STARTED: ${image.url}`);
-            }}
-            onLoad={() => {
-              if (DEBUG) logger.log(`[IMAGE FLOW] SUCCESS! Image ${index} LOADED: ${image.url}`);
-              handleImageLoad(image.id);
-            }}
-            onError={(e) => {
-              // Image load error - no fallback needed
-              if (DEBUG) {
-                logger.error(`[IMAGE FLOW] FAILED! Image ${index} failed to load: ${e.nativeEvent.error}`);
-                logger.error(`[IMAGE FLOW] Failed URL: ${image.url}`);
-                logger.error(`[IMAGE FLOW] URL Host: ${image.url.split('/')[2]}`);
-              }
-            }}
+            onLoad={handleImageLoad}
+            onError={(error) => handleImageError(error, image.url, _index)}
           />
         </SharedElement>
       );
-    } else {
-      // For non-current images, use normal view
-      return (
-        <View style={{
-          overflow: 'hidden', 
-          width: '100%', 
-          height: '100%', 
-          borderRadius: 12,
-          backgroundColor: theme.background
-        }}>
-          <Image
-            source={{ uri: image.url }}
-            style={{ width: cardWidth, height: cardWidth * imageAspectRatio, borderRadius: 12 }}
-            resizeMode="cover"
-            key={`preloaded-${image.id}-normal`}
-            fadeDuration={0}
-            onLoadStart={() => {
-              if (DEBUG) logger.log(`[IMAGE FLOW] Normal Image ${index} loading STARTED: ${image.url}`);
-            }}
-            onLoad={() => {
-              if (DEBUG) logger.log(`[IMAGE FLOW] SUCCESS! Normal Image ${index} LOADED: ${image.url}`);
-              handleImageLoad(image.id);
-            }}
-            onError={(e) => {
-              // Image load error - no fallback needed
-              if (DEBUG) {
-                logger.error(`[IMAGE FLOW] FAILED! Normal Image ${index} failed to load: ${e.nativeEvent.error}`);
-                logger.error(`[IMAGE FLOW] Failed URL: ${image.url}`);
-                logger.error(`[IMAGE FLOW] URL Host: ${image.url.split('/')[2]}`);
-              }
-            }}
-          />
-        </View>
-      );
     }
+
+    // Regular image for non-current images
+    return (
+      <View style={containerStyle}>
+        <Image
+          source={{ uri: image.url }}
+          style={imageStyle}
+          resizeMode="cover"
+          onLoad={handleImageLoad}
+          onError={(error) => handleImageError(error, image.url, _index)}
+        />
+      </View>
+    );
   };
 
-  // Add effect to track currentImageIndex changes
-  useEffect(() => {
-    // console.log(`[ProductCard ${id}] Current image index changed to: ${currentImageIndex}`);
-  }, [currentImageIndex]);
+  // Removed unnecessary effect for tracking image index changes
 
   return (
     <View
@@ -962,29 +814,8 @@ const ProductCard: React.FC<ProductCardProps> = ({
                   source={{ uri: images[0].url }}
                   style={{ borderRadius: 12, width: '100%', height: cardWidth * imageAspectRatio }}
                   resizeMode="cover"
-                  fadeDuration={0} 
-                  onLoadStart={() => {
-                    if (DEBUG) {
-                      logger.log(`[IMAGE FLOW] Single Image loading STARTED: ${images[0].url}`);
-                      logger.log(`[IMAGE FLOW] URL host: ${images[0].url.split('/')[2]}`);
-                      logger.log(`[IMAGE FLOW] URL path: ${images[0].url.split('/').slice(3).join('/')}`);
-                    }
-                  }}
-                  onLoad={() => {
-                    if (DEBUG) logger.log(`[IMAGE FLOW] SUCCESS! Single Image LOADED: ${images[0].url}`);
-                    handleImageLoad(images[0].id);
-                  }}
-                  onError={(e) => {
-                    // Image load error - no fallback needed
-                    if (DEBUG) {
-                      logger.error(`[IMAGE FLOW] FAILED! Single Image failed to load`);
-                      logger.error(`[IMAGE FLOW] Error details: ${e.nativeEvent.error}`);
-                      logger.error(`[IMAGE FLOW] Failed URL: ${images[0].url}`);
-                      logger.error(`[IMAGE FLOW] URL length: ${images[0].url.length}`);
-                      logger.error(`[IMAGE FLOW] URL host: ${images[0].url.split('/')[2]}`);
-                      logger.error(`[IMAGE FLOW] Network state: ${typeof navigator !== 'undefined' && navigator.onLine ? 'Online' : 'Offline'}`);
-                    }
-                  }}
+                  onLoad={handleImageLoad}
+                  onError={(error) => handleImageError(error, images[0].url, 0)}
                 />
               </SharedElement>
             </TouchableOpacity>
