@@ -1,15 +1,4 @@
 import { db, auth } from '../Config/firebaseconfig';
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  serverTimestamp 
-} from 'firebase/firestore';
 
 /**
  * Interface for Saved post
@@ -29,14 +18,12 @@ export interface SavedPost {
  */
 export const hasUserSavedPost = async (userId: string, postId: string): Promise<boolean> => {
   try {
-    const savedCollection = collection(db, 'saved_posts');
-    const savedQuery = query(
-      savedCollection,
-      where('userId', '==', userId),
-      where('postId', '==', postId)
-    );
+    const querySnapshot = await db
+      .collection('saved_posts')
+      .where('userId', '==', userId)
+      .where('postId', '==', postId)
+      .get();
 
-    const querySnapshot = await getDocs(savedQuery);
     return !querySnapshot.empty;
   } catch (error) {
     console.error('Error checking if user has saved post:', error);
@@ -61,13 +48,13 @@ export const savePost = async (userId: string, postId: string): Promise<void> =>
 
     // Create a unique ID for the saved post document
     const savedDocId = `${userId}_${postId}`;
-    const savedRef = doc(db, 'saved_posts', savedDocId);
+    const savedRef = db.collection('saved_posts').doc(savedDocId);
 
     // Create the saved post document
-    await setDoc(savedRef, {
+    await savedRef.set({
       userId,
       postId,
-      createdAt: serverTimestamp()
+      createdAt: new Date()
     });
 
     console.log(`User ${userId} saved post ${postId}`);
@@ -87,10 +74,10 @@ export const unsavePost = async (userId: string, postId: string): Promise<void> 
   try {
     // Create a unique ID for the saved post document
     const savedDocId = `${userId}_${postId}`;
-    const savedRef = doc(db, 'saved_posts', savedDocId);
+    const savedRef = db.collection('saved_posts').doc(savedDocId);
 
     // Delete the saved post document
-    await deleteDoc(savedRef);
+    await savedRef.delete();
 
     console.log(`User ${userId} unsaved post ${postId}`);
   } catch (error) {
@@ -129,13 +116,11 @@ export const toggleSavePost = async (userId: string, postId: string): Promise<bo
  */
 export const getSavedPostsByUser = async (userId: string): Promise<string[]> => {
   try {
-    const savedCollection = collection(db, 'saved_posts');
-    const savedQuery = query(
-      savedCollection,
-      where('userId', '==', userId)
-    );
+    const querySnapshot = await db
+      .collection('saved_posts')
+      .where('userId', '==', userId)
+      .get();
 
-    const querySnapshot = await getDocs(savedQuery);
     return querySnapshot.docs.map(doc => doc.data().postId);
   } catch (error) {
     console.error('Error getting saved posts by user:', error);

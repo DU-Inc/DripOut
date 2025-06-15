@@ -1,24 +1,6 @@
 import { db } from '../Config/firebaseconfig';
 import { auth } from '../Config/firebaseconfig';
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  addDoc,
-  deleteDoc, 
-  query, 
-  where, 
-  orderBy, 
-  limit as limitQuery,
-  updateDoc,
-  serverTimestamp,
-  Timestamp,
-  onSnapshot,
-  DocumentSnapshot,
-  QuerySnapshot
-} from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 
 /**
  * Interface for Message document
@@ -87,15 +69,15 @@ export const sendMessage = async (receiverId: string, text: string): Promise<str
 
     // Create or update the conversation document
     const conversationId = getConversationId(senderId, receiverId);
-    const conversationRef = doc(db, 'conversations', conversationId);
-    const conversationSnap = await getDoc(conversationRef);
+    const conversationRef = db.collection('conversations').doc(conversationId);
+    const conversationSnap = await conversationRef.get();
     
-    const timestamp = serverTimestamp();
+    const timestamp = firestore.FieldValue.serverTimestamp();
     
     // Check if conversation already exists
-    if (conversationSnap.exists()) {
+    if (conversationSnap.exists) {
       // Update existing conversation
-      await updateDoc(conversationRef, {
+      await conversationRef.update({
         lastMessage: text,
         lastMessageTime: timestamp,
         lastMessageSenderId: senderId,
@@ -105,7 +87,7 @@ export const sendMessage = async (receiverId: string, text: string): Promise<str
       });
     } else {
       // Create new conversation
-      await setDoc(conversationRef, {
+      await conversationRef.set({
         participants: [senderId, receiverId],
         lastMessage: text,
         lastMessageTime: timestamp,
@@ -120,8 +102,7 @@ export const sendMessage = async (receiverId: string, text: string): Promise<str
     }
 
     // Add the message document
-    const messagesRef = collection(db, 'messages');
-    const messageDoc = await addDoc(messagesRef, {
+    const messageDoc = await db.collection('messages').add({
       senderId,
       receiverId,
       participants: [senderId, receiverId], // Add participants array for querying
@@ -154,19 +135,16 @@ export const getMessages = async (otherUserId: string, messageLimit = 100): Prom
     }
 
     const userId = currentUser.uid;
-    const messagesRef = collection(db, 'messages');
     
     // Simple query with just a time filter to avoid index requirements
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
-    const messagesQuery = query(
-      messagesRef,
-      where('createdAt', '>', Timestamp.fromDate(thirtyDaysAgo)),
-      limitQuery(200) // Get more messages to filter from
-    );
-
-    const querySnapshot = await getDocs(messagesQuery);
+    const querySnapshot = await db
+      .collection('messages')
+      .where('createdAt', '>', firestore.Timestamp.fromDate(thirtyDaysAgo))
+      .limit(200) // Get more messages to filter from
+      .get();
     
     // Filter messages to only include those between these two users
     const allMessages = querySnapshot.docs.map(doc => ({
@@ -190,7 +168,7 @@ export const getMessages = async (otherUserId: string, messageLimit = 100): Prom
     // Mark messages as read if they were sent to the current user
     filteredMessages.forEach(async (message) => {
       if (message.receiverId === userId && !message.read && message.id) {
-        await updateDoc(doc(messagesRef, message.id), { read: true });
+        await db.collection('messages').doc(message.id).update({ read: true });
       }
     });
 
@@ -214,15 +192,12 @@ export const getConversations = async (): Promise<ConversationWithDetails[]> => 
     }
 
     const userId = currentUser.uid;
-    const conversationsRef = collection(db, 'conversations');
     
     // Query for conversations that include the current user
-    const conversationsQuery = query(
-      conversationsRef,
-      where('participants', 'array-contains', userId)
-    );
-
-    const querySnapshot = await getDocs(conversationsQuery);
+    const querySnapshot = await db
+      .collection('conversations')
+      .where('participants', 'array-contains', userId)
+      .get();
     
     // Process conversations to include user details
     const conversations: ConversationWithDetails[] = [];
@@ -234,9 +209,8 @@ export const getConversations = async (): Promise<ConversationWithDetails[]> => 
       // Skip self-conversations or conversations with undefined otherUserId
       if (otherUserId && otherUserId !== userId) {
         // Get other user's profile details
-        const userDocRef = doc(db, 'users', otherUserId);
-        const userDoc = await getDoc(userDocRef);
-        const userData = userDoc.data() || {};
+        const userDoc = await db.collection('users').doc(otherUserId).get();
+        const userData = userDoc.exists ? userDoc.data() : {};
         
         // Format timestamp
         let timeAgo = 'Just now';
@@ -306,10 +280,10 @@ export const markConversationAsRead = async (otherUserId: string): Promise<void>
     
     // Update the conversation document to reset unread count
     const conversationId = getConversationId(userId, otherUserId);
-    const conversationRef = doc(db, 'conversations', conversationId);
+    const conversationRef = db.collection('conversations').doc(conversationId);
     
     try {
-      await updateDoc(conversationRef, {
+      await conversationRef.update({
         [`unreadCount.${userId}`]: 0
       });
       console.log(`Reset unread count for conversation ${conversationId}`);
@@ -319,20 +293,17 @@ export const markConversationAsRead = async (otherUserId: string): Promise<void>
     }
     
     // Mark all unread messages as read
-    const messagesRef = collection(db, 'messages');
-    const unreadMessagesQuery = query(
-      messagesRef,
-      where('senderId', '==', otherUserId),
-      where('receiverId', '==', userId),
-      where('read', '==', false)
-    );
-    
-    const querySnapshot = await getDocs(unreadMessagesQuery);
+    const querySnapshot = await db
+      .collection('messages')
+      .where('senderId', '==', otherUserId)
+      .where('receiverId', '==', userId)
+      .where('read', '==', false)
+      .get();
     console.log(`Found ${querySnapshot.size} unread messages to mark as read`);
     
     // Update each message individually instead of using batch
     const updatePromises = querySnapshot.docs.map(docSnapshot => {
-      return updateDoc(doc(messagesRef, docSnapshot.id), { read: true })
+      return db.collection('messages').doc(docSnapshot.id).update({ read: true })
         .catch(error => {
           console.error(`Failed to mark message ${docSnapshot.id} as read:`, error);
           return Promise.resolve(); // Continue with other updates even if one fails
@@ -364,18 +335,16 @@ export const subscribeToMessages = (
   }
 
   const userId = currentUser.uid;
-  const messagesRef = collection(db, 'messages');
   
   // Simple query with just a time filter to avoid index issues
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   
   // Use a simple query that doesn't require complex indexes
-  const messagesQuery = query(
-    messagesRef,
-    where('createdAt', '>', Timestamp.fromDate(thirtyDaysAgo)),
-    limitQuery(200) // Limit to recent messages
-  );
+  const messagesQuery = db
+    .collection('messages')
+    .where('createdAt', '>', firestore.Timestamp.fromDate(thirtyDaysAgo))
+    .limit(200); // Limit to recent messages
   
   // Filter function to include only messages between these two users
   const filterMessagesBetweenUsers = (messages: Message[]) => {
@@ -386,7 +355,7 @@ export const subscribeToMessages = (
   };
   
   // Set up the listener
-  const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+  const unsubscribe = messagesQuery.onSnapshot((snapshot) => {
     const allMessages = snapshot.docs
       .map(doc => ({
         id: doc.id,
@@ -410,7 +379,7 @@ export const subscribeToMessages = (
         const message = change.doc.data() as Message;
         if (message.receiverId === userId && !message.read) {
           try {
-            await updateDoc(doc(messagesRef, change.doc.id), { read: true });
+            await db.collection('messages').doc(change.doc.id).update({ read: true });
           } catch (error) {
             console.error(`Failed to mark message ${change.doc.id} as read:`, error);
           }
@@ -439,16 +408,14 @@ export const subscribeToConversations = (
   }
 
   const userId = currentUser.uid;
-  const conversationsRef = collection(db, 'conversations');
   
   // Query for conversations that include the current user
-  const conversationsQuery = query(
-    conversationsRef,
-    where('participants', 'array-contains', userId)
-  );
+  const conversationsQuery = db
+    .collection('conversations')
+    .where('participants', 'array-contains', userId);
   
   // Set up the listener
-  const unsubscribe = onSnapshot(conversationsQuery, async (snapshot) => {
+  const unsubscribe = conversationsQuery.onSnapshot(async (snapshot) => {
     try {
       // Process conversations to include user details
       const conversations: ConversationWithDetails[] = [];
@@ -461,9 +428,8 @@ export const subscribeToConversations = (
         if (otherUserId && otherUserId !== userId) {
           // Get other user's profile details
           try {
-            const userDocRef = doc(db, 'users', otherUserId);
-            const userDoc = await getDoc(userDocRef);
-            const userData = userDoc.data() || {};
+            const userDoc = await db.collection('users').doc(otherUserId).get();
+            const userData = userDoc.exists ? userDoc.data() : {};
             
             // Format timestamp
             let timeAgo = 'Just now';
@@ -539,10 +505,10 @@ export const deleteMessage = async (messageId: string): Promise<void> => {
     const userId = currentUser.uid;
     
     // Verify the user is the sender
-    const messageRef = doc(db, 'messages', messageId);
-    const messageSnap = await getDoc(messageRef);
+    const messageRef = db.collection('messages').doc(messageId);
+    const messageSnap = await messageRef.get();
     
-    if (!messageSnap.exists()) {
+    if (!messageSnap.exists) {
       throw new Error('Message not found');
     }
     
@@ -553,7 +519,7 @@ export const deleteMessage = async (messageId: string): Promise<void> => {
     }
     
     // Delete the message
-    await deleteDoc(messageRef);
+    await messageRef.delete();
     console.log(`Deleted message: ${messageId}`);
   } catch (error) {
     console.error('Error deleting message:', error);

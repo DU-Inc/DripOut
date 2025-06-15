@@ -47,7 +47,7 @@ const API_ENDPOINTS = {
 };
 
 // Local development API URL
-const LOCAL_DEV_URL = 'http://192.168.1.231:8082';
+const LOCAL_DEV_URL = 'http://192.168.1.251:8082';
 
 // Set the API endpoint directly to your local development URL
 let API_BASE_URL = LOCAL_DEV_URL;

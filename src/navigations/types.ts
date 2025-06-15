@@ -18,6 +18,7 @@ export type AuthStackParamList = {
     email?: string;
     identifierType?: 'email' | 'phone';
   };
+  ResetAuth: undefined;
   Onboarding: {
     progress?: {[key: string]: boolean};
     resuming?: boolean;

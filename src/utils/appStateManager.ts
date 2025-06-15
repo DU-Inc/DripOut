@@ -2,7 +2,6 @@ import { AppState, AppStateStatus } from 'react-native';
 import { authCache } from './authCacheManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '../Config/firebaseconfig';
-import { getDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../Config/firebaseconfig';
 import { getUserPreferences } from '../services/firestoreService';
 import { AppState as RNAppState } from 'react-native';
@@ -207,8 +206,8 @@ class AppStateManager {
         
         // Force check their onboarding status directly from Firestore
         try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          const onboardingCompleted = userDoc.exists() && userDoc.data().onboardingCompleted === true;
+          const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+          const onboardingCompleted = userDoc.exists && userDoc.data()?.onboardingCompleted === true;
           console.log(`AppStateManager: 🔍 Direct Firestore check - User onboarding completed: ${onboardingCompleted}`);
           
           // Update onboarding state based on direct check
@@ -216,9 +215,9 @@ class AppStateManager {
           await AsyncStorage.setItem('onboardingCompleted', onboardingCompleted ? 'true' : 'false');
           
           // NEW: Check for incomplete onboarding steps
-          if (!onboardingCompleted && userDoc.exists()) {
+          if (!onboardingCompleted && userDoc.exists) {
             // Get completed steps from Firestore
-            const onboardingSteps = userDoc.data().onboardingSteps || {};
+            const onboardingSteps = userDoc.data()?.onboardingSteps || {};
             const completedSteps = onboardingSteps.completedSteps || [];
             
             // Save to AsyncStorage for step tracker
@@ -452,11 +451,11 @@ class AppStateManager {
             this._isAuthenticated = true;
             
             // Check onboarding status
-            const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-            if (userDoc.exists()) {
+            const userDoc = await db.collection('users').doc(currentUser.uid).get();
+            if (userDoc.exists) {
               const data = userDoc.data();
-              const onboardingCompleted = data.onboardingCompleted === true;
-              const onboardingSkipped = data.onboardingSkipped === true;
+              const onboardingCompleted = data?.onboardingCompleted === true;
+              const onboardingSkipped = data?.onboardingSkipped === true;
               await AsyncStorage.setItem('onboardingCompleted', onboardingCompleted ? 'true' : 'false');
               this._isOnboarding = !onboardingCompleted;
               
@@ -526,9 +525,9 @@ class AppStateManager {
       }
       
       // 1. Get the user document from Firestore to check onboarding status
-      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      const userDoc = await db.collection('users').doc(currentUser.uid).get();
       
-      if (!userDoc.exists()) {
+      if (!userDoc.exists) {
         console.log('AppStateManager: No user document found');
         return;
       }
@@ -657,16 +656,16 @@ class AppStateManager {
       }
       
       // Force check from Firestore
-      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      const userDoc = await db.collection('users').doc(currentUser.uid).get();
       let onboardingCompleted = false;
       let onboardingStarted = false;
       let onboardingSkipped = false;
       
-      if (userDoc.exists()) {
+      if (userDoc.exists) {
         const data = userDoc.data();
-        onboardingCompleted = data.onboardingCompleted === true;
-        onboardingSkipped = data.onboardingSkipped === true;
-        onboardingStarted = data.onboardingStarted === true;
+        onboardingCompleted = data?.onboardingCompleted === true;
+        onboardingSkipped = data?.onboardingSkipped === true;
+        onboardingStarted = data?.onboardingStarted === true;
         console.log('AppStateManager: Got onboarding status from Firestore:', 
           'completed:', onboardingCompleted, 
           'started:', onboardingStarted, 
@@ -1111,9 +1110,9 @@ export const checkNeedsOnboarding = async (): Promise<boolean> => {
     }
     
     // Check if onboarding is completed in user document
-    const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+    const userDoc = await db.collection('users').doc(currentUser.uid).get();
     
-    if (!userDoc.exists()) {
+    if (!userDoc.exists) {
       console.log("appStateManager: User document doesn't exist, onboarding needed");
       return true;
     }
@@ -1148,7 +1147,7 @@ export const markOnboardingStarted = async (): Promise<void> => {
     }
     
     // Update user document to mark onboarding as started
-    await updateDoc(doc(db, 'users', currentUser.uid), {
+    await db.collection('users').doc(currentUser.uid).update({
       onboardingStarted: true,
       onboardingStartedAt: new Date(),
     });
@@ -1242,15 +1241,15 @@ export const markOnboardingCompleted = async (): Promise<void> => {
     if (!finalCompletedSteps.includes(4)) finalCompletedSteps.push(4);
     
     // Get the current onboarding steps status to preserve any other step data
-    const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+    const userDoc = await db.collection('users').doc(currentUser.uid).get();
     let existingSteps = {};
     
-    if (userDoc.exists() && userDoc.data().onboardingSteps) {
-      existingSteps = userDoc.data().onboardingSteps;
+    if (userDoc.exists && userDoc.data()?.onboardingSteps) {
+      existingSteps = userDoc.data()?.onboardingSteps;
     }
     
     // Update user document with all onboarding fields
-    await updateDoc(doc(db, 'users', currentUser.uid), {
+    await db.collection('users').doc(currentUser.uid).update({
       onboardingStarted: true,
       // Only mark as completed if ALL required data is present
       onboardingCompleted: hasAllRequiredData,
@@ -1304,15 +1303,15 @@ export const markOnboardingSkipped = async (): Promise<void> => {
     }
     
     // Get the current onboarding steps status to preserve any completed steps
-    const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+    const userDoc = await db.collection('users').doc(currentUser.uid).get();
     let existingSteps = { viewedSteps: [], completedSteps: [] };
     
-    if (userDoc.exists() && userDoc.data().onboardingSteps) {
-      existingSteps = userDoc.data().onboardingSteps;
+    if (userDoc.exists && userDoc.data()?.onboardingSteps) {
+      existingSteps = userDoc.data()?.onboardingSteps;
     }
     
     // Update user document with all onboarding fields
-    await updateDoc(doc(db, 'users', currentUser.uid), {
+    await db.collection('users').doc(currentUser.uid).update({
       onboardingStarted: true,
       onboardingSkipped: true,
       onboardingSkippedAt: new Date(),

@@ -19,7 +19,7 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { db, auth } from '../Config/firebaseconfig';
-import { doc, getDoc } from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 import { useTheme } from '../styles/themeprovider';
 import { followUser, unfollowUser, isUserFollowing, getFollowCounts } from '../services/followService';
 import { getPostsByUser, Post } from '../services/postService';
@@ -250,10 +250,9 @@ const UserDetailScreen: React.FC = () => {
         }
         
         // Fetch user document from Firestore
-        const userDocRef = doc(db, 'users', userId);
-        const userDoc = await getDoc(userDocRef);
+        const userDoc = await db.collection('users').doc(userId).get();
         
-        if (userDoc.exists()) {
+        if (userDoc.exists) {
           const data = userDoc.data();
           console.log('Fetched user data:', data);
           

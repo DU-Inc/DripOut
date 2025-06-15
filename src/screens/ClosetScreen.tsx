@@ -21,17 +21,7 @@ import Icon from "react-native-vector-icons/Ionicons";
 import FeatherIcon from "react-native-vector-icons/Feather";
 import { useTheme } from "../styles/themeprovider";
 import { db, auth } from "../Config/firebaseconfig";
-import { 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  getDocs, 
-  doc, 
-  getDoc,
-  deleteDoc
-} from "firebase/firestore";
+import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from "@react-navigation/native";
 import { Linking } from 'react-native';
 
@@ -471,13 +461,11 @@ const ClosetScreen: React.FC = () => {
   const fetchSavedOutfits = async (userId: string) => {
     try {
       // Query the saved_outfits collection for the current user
-      const outfitsQuery = query(
-        collection(db, "saved_outfits"),
-        where("userId", "==", userId),
-        orderBy("createdAt", "desc")
-      );
-      
-      const outfitsSnapshot = await getDocs(outfitsQuery);
+      const outfitsSnapshot = await db
+        .collection("saved_outfits")
+        .where("userId", "==", userId)
+        .orderBy("createdAt", "desc")
+        .get();
       
       if (outfitsSnapshot.empty) {
         console.log("No saved outfits found");
@@ -513,13 +501,11 @@ const ClosetScreen: React.FC = () => {
   const fetchFavoriteProducts = async (userId: string) => {
     try {
       // Query the user_favorite_products collection
-      const favoritesQuery = query(
-        collection(db, "user_favorite_products"),
-        where("userId", "==", userId),
-        orderBy("favorited", "desc")
-      );
-      
-      const favoritesSnapshot = await getDocs(favoritesQuery);
+      const favoritesSnapshot = await db
+        .collection("user_favorite_products")
+        .where("userId", "==", userId)
+        .orderBy("favorited", "desc")
+        .get();
       
       if (favoritesSnapshot.empty) {
         console.log("No favorite products found");
@@ -686,13 +672,11 @@ const ClosetScreen: React.FC = () => {
   const fetchOwnedProducts = async (userId: string) => {
     try {
       // Query the user_owned_products collection
-      const ownedQuery = query(
-        collection(db, "user_owned_products"),
-        where("userId", "==", userId),
-        orderBy("addedAt", "desc")
-      );
-      
-      const ownedSnapshot = await getDocs(ownedQuery);
+      const ownedSnapshot = await db
+        .collection("user_owned_products")
+        .where("userId", "==", userId)
+        .orderBy("addedAt", "desc")
+        .get();
       
       if (ownedSnapshot.empty) {
         console.log("No owned products found");

@@ -34,7 +34,7 @@ import {
 import { takePhotoWithCamera, selectImageFromLibrary, ImageAsset } from "../services/imagePickerService";
 import { uploadImageAndGetURL } from "../services/storageService";
 import { db, auth } from "../Config/firebaseconfig";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import firestore from '@react-native-firebase/firestore';
 import storage from '@react-native-firebase/storage';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import ThreeDBox from "../components/3DComponents/ThreeDBox"; 
@@ -572,7 +572,6 @@ const ThreeDScreen: React.FC = () => {
       const outfitName = `Outfit ${date.toLocaleDateString()}`;
       
       // Create a document in the saved_outfits collection
-      const outfitRef = collection(db, "saved_outfits");
       console.log('Creating document with data:', {
         userId: currentUser.uid,
         name: outfitName,
@@ -581,12 +580,12 @@ const ThreeDScreen: React.FC = () => {
         products: tryOnBucket.length,
       });
       
-      await addDoc(outfitRef, {
+      await db.collection("saved_outfits").add({
         userId: currentUser.uid,
         name: outfitName,
         imageUrl: tryOnImage,
         products: tryOnBucket,
-        createdAt: serverTimestamp()
+        createdAt: firestore.FieldValue.serverTimestamp()
       });
       
       console.log('Outfit saved successfully!');

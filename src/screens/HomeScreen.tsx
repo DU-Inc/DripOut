@@ -20,6 +20,9 @@ import {
   RefreshControl,
   ImageBackground,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../types/NavigationTypes';
 // import { useNavigation } from '@react-navigation/native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 // import { auth } from '../Config/firebaseconfig';
@@ -175,6 +178,7 @@ interface Story {
 }
 
 const HomeScreen: React.FC = () => {
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const { isDarkMode } = useTheme();
   // const navigation = useNavigation();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -960,6 +964,12 @@ const HomeScreen: React.FC = () => {
             </View>
             
             <View style={styles.headerActions}>
+              <TouchableOpacity 
+                style={styles.headerButton}
+                onPress={() => navigation.navigate('ResetAuth')}
+              >
+                <Icon name="refresh-circle-outline" size={24} color={textColor} />
+              </TouchableOpacity>
               <TouchableOpacity style={styles.headerButton}>
                 <Icon name="notifications-outline" size={24} color={textColor} />
               </TouchableOpacity>

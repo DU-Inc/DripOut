@@ -16,7 +16,7 @@ const getAvatarSource = (
   displayName?: string,
   username?: string
 ): { uri: string } => {
-  if (avatarUrl) {
+  if (avatarUrl && avatarUrl.trim()) {
     return { uri: avatarUrl };
   }
   const initial = displayName
@@ -57,10 +57,12 @@ import {
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../types/NavigationTypes';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { RootStackParamList, MainTabParamList } from '../types/NavigationTypes';
 
-import { auth } from '../Config/firebaseconfig';
-import { Timestamp } from 'firebase/firestore';
+import { auth, Timestamp } from '../Config/firebaseconfig';
+import firestore from '@react-native-firebase/firestore';
+// React Native Firebase automatically handles timestamps
 import { followUser, unfollowUser, isUserFollowing } from '../services/followService';
 import { isRealUserId } from '../utils/userUtils';
 import { toggleLikePost, hasUserLikedPost } from '../services/likeService';
@@ -1040,7 +1042,8 @@ const SocialScreen: React.FC = () => {
                 if (currentUser && isRealUserId && item.userId === currentUser.uid) {
                   // If it's the current user, navigate to ProfileTab
                   console.log('This is the current user, navigating to ProfileTab');
-                  navigation.navigate('ProfileTab');
+                  // Navigate to profile within the same tab group
+                  (navigation as any).jumpTo('ProfileTab');
                 } else {
                   // Check if this is a mock/unknown user or a real user
                   const isMockOrUnknown = item.userId && 
@@ -1062,18 +1065,46 @@ const SocialScreen: React.FC = () => {
                 }
               }}
             >
-              <Image
-   source={getAvatarSource(item.userAvatar, item.userDisplayName, item.username)}
-   style={[
-     styles.profileImage,
-     {
-       borderWidth: 1,
-       borderColor: isDarkMode
-         ? 'rgba(255,255,255,0.2)'
-         : 'rgba(0,0,0,0.1)'
-     }
-   ]}
- />
+              {item.userAvatar && item.userAvatar.trim() ? (
+                <Image
+                  source={{ uri: item.userAvatar }}
+                  style={[
+                    styles.profileImage,
+                    {
+                      borderWidth: 1,
+                      borderColor: isDarkMode
+                        ? 'rgba(255,255,255,0.2)'
+                        : 'rgba(0,0,0,0.1)'
+                    }
+                  ]}
+                />
+              ) : (
+                <View style={[
+                  styles.profileImage,
+                  {
+                    backgroundColor: '#0D8ABC',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: isDarkMode
+                      ? 'rgba(255,255,255,0.2)'
+                      : 'rgba(0,0,0,0.1)'
+                  }
+                ]}>
+                  <Text style={[
+                    styles.defaultProfileText,
+                    {
+                      color: '#FFFFFF',
+                      fontSize: 16,
+                      fontWeight: 'bold'
+                    }
+                  ]}>
+                    {item.userDisplayName ? 
+                      item.userDisplayName.charAt(0).toUpperCase() : 
+                      item.username.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
             <View style={styles.userTextInfo}>
               <TouchableOpacity 
@@ -1096,7 +1127,8 @@ const SocialScreen: React.FC = () => {
                 if (currentUser && isRealUserId && item.userId === currentUser.uid) {
                     // If it's the current user, navigate to ProfileTab
                     console.log('This is the current user, navigating to ProfileTab');
-                    navigation.navigate('ProfileTab');
+                    // Navigate to profile within the same tab group
+                    (navigation as any).jumpTo('ProfileTab');
                   } else {
                     // Check if this is a mock/unknown user or a real user
                     const isMockOrUnknown = item.userId && 
@@ -2308,6 +2340,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
+    backgroundColor: '#007AFF', // Add background color for shadow optimization
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 8,
@@ -2965,6 +2998,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 10,
+  },
+  defaultProfileText: {
+    ...defaultTextStyle,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

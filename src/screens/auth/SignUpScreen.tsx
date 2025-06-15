@@ -71,6 +71,7 @@ const TransitionBlocker = ({ isVisible }: { isVisible: boolean }) => {
 
 // Add this import near the top with other imports
 import { appStateManager } from '../../utils/appStateManager';
+import { authGuard } from '../../services/authGuard';
 
 // Import our new email verification service
 import { sendVerificationCode, verifyEmailCode, isUsernameTaken, completeSignup, SignupErrorTypes, validateEmailFormat, isEmailAlreadyInUse } from '../../services/auth/signupService';
@@ -2265,6 +2266,7 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
       // End signup success flow and set authenticated state
       appStateManager.setSignupInProgress(false);
       appStateManager.setAuthenticated(true);
+      authGuard.resetFailedChecks();
       
       // Ensure onboarding flag is false
       appStateManager.setOnboarding(false);
@@ -2291,6 +2293,7 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
       
       // User has successfully signed up - set authenticated state
       appStateManager.setAuthenticated(true);
+      authGuard.resetFailedChecks();
       
       // Set onboarding flag to true
       appStateManager.setOnboarding(true);
@@ -2314,6 +2317,7 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
       
       // User has successfully signed up - set authenticated state
       appStateManager.setAuthenticated(true);
+      authGuard.resetFailedChecks();
       
       // Ensure onboarding flag is false
       appStateManager.setOnboarding(false);

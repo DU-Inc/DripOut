@@ -58,6 +58,12 @@ target 'DripOutApp' do
         config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = "NO"
         config.build_settings['CLANG_WARN_DOCUMENTATION_COMMENTS'] = "NO"
         config.build_settings['GCC_WARN_UNDECLARED_SELECTOR'] = "NO"
+        config.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '11.0'
+        
+        if target.respond_to?(:product_type) && target.product_type == "com.apple.product-type.bundle"
+          config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+        end
       end
     end
     
@@ -74,6 +80,41 @@ target 'DripOutApp' do
     # Allow non-modular includes in framework modules (GitHub issue fix)
     installer.pods_project.build_configurations.each do |config|
       config.build_settings["CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES"] = "YES"
+      
+      # Fix for BoringSSL-GRPC compilation issues
+      config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
+      config.build_settings['COMPILER_INDEX_STORE_ENABLE'] = 'NO'
+      
+      # Remove the problematic -G flag
+      if config.build_settings['OTHER_CFLAGS'].is_a?(Array)
+        config.build_settings['OTHER_CFLAGS'] = config.build_settings['OTHER_CFLAGS'].reject { |flag| flag == '-G' }
+      end
+    end
+
+    # Patch for BoringSSL-GRPC '-G' flag issue
+    installer.pods_project.targets.each do |target|
+      if target.name == 'BoringSSL-GRPC'
+        target.source_build_phase.files.each do |file|
+          if file.settings && file.settings['COMPILER_FLAGS']
+            flags = file.settings['COMPILER_FLAGS'].split
+            flags.reject! { |flag| flag == '-G' }
+            file.settings['COMPILER_FLAGS'] = flags.join(' ')
+          end
+        end
+      end
+    end
+
+    # New code to modify the 'BoringSSL-GRPC' target's compiler flags
+    installer.pods_project.targets.each do |target|
+      if target.name == 'BoringSSL-GRPC'
+        target.source_build_phase.files.each do |file|
+          if file.settings && file.settings['COMPILER_FLAGS']
+            flags = file.settings['COMPILER_FLAGS'].split
+            flags.reject! { |flag| flag == '-GCC_WARN_INHIBIT_ALL_WARNINGS' }
+            file.settings['COMPILER_FLAGS'] = flags.join(' ')
+          end
+        end
+      end
     end
   end
 end

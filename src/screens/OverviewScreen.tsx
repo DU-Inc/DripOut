@@ -21,12 +21,10 @@ import {
   ImageBackground,
   Pressable,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useTheme } from "../styles/theme/ThemeContext";
 import Icon from 'react-native-vector-icons/Ionicons';
-import ProductCard, { ProductCardProps } from '../components/feed/ProductCard';
-import SimpleProductCard, { SimpleProductCardProps } from '../components/feed/SimpleProductCard';
-import PartialDataProductCard, { PartialDataProductCardProps } from '../components/feed/PartialDataProductCard';
+import UnifiedProductCard, { UnifiedProductCardProps } from '../components/feed/UnifiedProductCard';
 import OutfitGroupComponent from '../components/feed/OutfitGroupComponent';
 import MasonryList from '@react-native-seoul/masonry-list';
 import { colors } from '../styles/theme/colors';
@@ -56,21 +54,10 @@ declare function clearTimeout(id: number): void;
 // Define type for the navigation prop
 type OverviewScreenNavigationProp = StackNavigationProp<FeedStackParamList, 'Overview'>;
 
-// Define a type for the formatted product data
-interface FormattedProduct extends Omit<ProductCardProps, 'cardWidth' | 'cardStyle' | 'isDarkMode'> {
-  brand?: string; // Add optional fields if they exist in feedData
-  description?: string;
-  title?: string; // Add title property to fix type errors
-  productUrl?: string; // Add productUrl for alternative identification
-}
-
-// Define a type for the formatted simple product data
-interface FormattedSimpleProduct extends Omit<SimpleProductCardProps, 'cardWidth' | 'cardStyle' | 'isDarkMode'> {
-}
-
-// Define a type for the formatted partial data product
-interface FormattedPartialProduct extends Omit<PartialDataProductCardProps, 'cardWidth' | 'cardStyle' | 'isDarkMode'> {
-  productUrl: string;
+// Define a unified type for all product data using the new UnifiedProductCard
+interface FormattedProduct extends Omit<UnifiedProductCardProps, 'cardWidth' | 'cardStyle' | 'isDarkMode'> {
+  description?: string; // Keep for potential future use
+  title?: string; // For backward compatibility
 }
 
 // Define types for outfit group components
@@ -100,16 +87,16 @@ const defaultTextStyle = {
   letterSpacing: 0.1,
 };
 
-// Sample filter options
-const FILTER_OPTIONS = [
-  { id: 'all', label: 'All' },
-  { id: 'trending', label: 'Trending' },
-  { id: 'new', label: 'New Arrivals' },
-  { id: 'popular', label: 'Popular' },
-  { id: 'recommended', label: 'For You' },
-  { id: 'sale', label: 'On Sale' },
-  { id: 'news', label: 'Fashion News' }, // Add News filter
-];
+// Sample filter options - REMOVED FOR MVP
+// const FILTER_OPTIONS = [
+//   { id: 'all', label: 'All' },
+//   { id: 'trending', label: 'Trending' },
+//   { id: 'new', label: 'New Arrivals' },
+//   { id: 'popular', label: 'Popular' },
+//   { id: 'recommended', label: 'For You' },
+//   { id: 'sale', label: 'On Sale' },
+//   { id: 'news', label: 'Fashion News' }, // Add News filter
+// ];
 
 const NUM_COLUMNS = 2; // Number of columns in the grid
 const ITEM_SPACING = 6; // Consistent spacing between items
@@ -161,10 +148,10 @@ const OverviewScreen: React.FC = () => {
     extrapolate: 'clamp'
   }));
   
-  // Product state arrays
-  const [products, setProducts] = useState<FormattedProduct[]>([]); // Full products
-  const [partialProducts, setPartialProducts] = useState<FormattedPartialProduct[]>([]); // Partial data products
-  const [simpleProducts, setSimpleProducts] = useState<FormattedSimpleProduct[]>([]); // Simple products
+  // Unified product state with different sections
+  const [trendingProducts, setTrendingProducts] = useState<FormattedProduct[]>([]);
+  const [newDropsProducts, setNewDropsProducts] = useState<FormattedProduct[]>([]);
+  const [editorsPicksProducts, setEditorsPicksProducts] = useState<FormattedProduct[]>([]);
   
   // News state
   const [newsArticles, setNewsArticles] = useState<Article[]>([]); 
@@ -177,18 +164,16 @@ const OverviewScreen: React.FC = () => {
   const [isLoadingOutfits, setIsLoadingOutfits] = useState(true);
   
   // Display counters for lazy loading
-  const [displayedProductCount, setDisplayedProductCount] = useState(INITIAL_LOAD_COUNT);
-  const [displayedPartialProductCount, setDisplayedPartialProductCount] = useState(0); // Start at 0
-  const [displayedSimpleProductCount, setDisplayedSimpleProductCount] = useState(0); // Start at 0
+  const [displayedTrendingCount, setDisplayedTrendingCount] = useState(INITIAL_LOAD_COUNT);
+  const [displayedNewDropsCount, setDisplayedNewDropsCount] = useState(0);
+  const [displayedEditorsPicksCount, setDisplayedEditorsPicksCount] = useState(0);
   const [displayedNewsCount, setDisplayedNewsCount] = useState(10); 
   
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [currentFilter, setCurrentFilter] = useState('all');
+  // const [currentFilter, setCurrentFilter] = useState('all'); // REMOVED FOR MVP
   
-  // Track which product card has an active/expanded content action menu
-  const [activeActionCardId, setActiveActionCardId] = useState<string | null>(null);
-  const [activeSimpleActionCardId, setActiveSimpleActionCardId] = useState<string | null>(null);
-  const [activePartialActionCardId, setActivePartialActionCardId] = useState<string | null>(null);
+  // Track which card has an active state (simplified)
+  const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activeNewsCardId, setActiveNewsCardId] = useState<string | null>(null);
   const [activeOutfitActionCardId, setActiveOutfitActionCardId] = useState<string | null>(null);
   
@@ -262,60 +247,57 @@ const OverviewScreen: React.FC = () => {
           }
         }
 
-        // Format API products as FormattedProduct, skipping any without images
-        const formattedProducts: FormattedProduct[] = apiProducts.slice(0, 10).reduce<FormattedProduct[]>((acc, product: ExtendedProduct) => {
+        // Helper function to format products for unified card
+        const formatProductForUnifiedCard = (product: ExtendedProduct, idPrefix: string, cardType: 'full' | 'simple' | 'partial' = 'full'): FormattedProduct | null => {
           const imgs = formatImages(product.images, product.id);
-          if (!imgs) return acc;
-          acc.push({
-            id: product.id || `product-${Math.random().toString(36).substring(2, 9)}`,
-            title: product.name || 'Unnamed Product',
+          if (!imgs) return null;
+          
+          return {
+            id: product.id || `${idPrefix}-${Math.random().toString(36).substring(2, 9)}`,
             name: product.name || 'Unnamed Product',
-            price: typeof product.price === 'number' ? product.price : 0,
-            images: imgs,
             brand: product.brand || 'Unknown Brand',
-            description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'} - ${product.currency || '$'}${typeof product.price === 'number' ? product.price : 0}`,
+            price: typeof product.price === 'number' ? product.price : 0,
+            currency: product.currency || '$',
+            images: imgs,
             productUrl: product.productUrl || '',
-          });
-          return acc;
-        }, []);
+            cardType,
+            title: product.name || 'Unnamed Product', // For backward compatibility
+            description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'}`,
+          };
+        };
 
-        // Format API products as FormattedPartialProduct, skipping any without images
-        const formattedPartialProducts: FormattedPartialProduct[] = apiProducts.slice(10, 20).reduce<FormattedPartialProduct[]>((acc, product: ExtendedProduct) => {
-          const imgs = formatImages(product.images, product.id);
-          if (!imgs) return acc;
-          acc.push({
-            id: product.id || `partial-${Math.random().toString(36).substring(2, 9)}`,
-            title: product.name || 'Unnamed Product',
-            name: product.name || 'Unnamed Product',
-            brand: product.brand || 'Unknown Brand',
-            price: typeof product.price === 'number' ? product.price : 0,
-            images: imgs,
-            productUrl: product.productUrl || `https://example.com/product/${product.id || 'unknown'}`
-          });
-          return acc;
-        }, []);
+        // Distribute products across different sections
+        const trendingProducts: FormattedProduct[] = [];
+        const newDropsProducts: FormattedProduct[] = [];
+        const editorsPicksProducts: FormattedProduct[] = [];
 
-        // Format API products as FormattedSimpleProduct, skipping any without images
-        const formattedSimpleProducts: FormattedSimpleProduct[] = apiProducts.slice(20).reduce<FormattedSimpleProduct[]>((acc, product: ExtendedProduct) => {
-          const imgs = formatImages(product.images, product.id);
-          if (!imgs) return acc;
-          acc.push({
-            id: product.id || `simple-${Math.random().toString(36).substring(2, 9)}`,
-            price: typeof product.price === 'number' ? product.price : 0,
-            brand: product.brand || 'Unknown Brand',
-            images: imgs
-          });
-          return acc;
-        }, []);
+        // Distribute products across sections (same API, different presentation)
+        apiProducts.forEach((product, index) => {
+          let formattedProduct: FormattedProduct | null = null;
+          
+          if (index < 10) {
+            // First 10 go to trending (full cards)
+            formattedProduct = formatProductForUnifiedCard(product, 'trending', 'full');
+            if (formattedProduct) trendingProducts.push(formattedProduct);
+          } else if (index < 20) {
+            // Next 10 go to new drops (some with partial data)
+            formattedProduct = formatProductForUnifiedCard(product, 'newdrops', 'partial');
+            if (formattedProduct) newDropsProducts.push(formattedProduct);
+          } else {
+            // Rest go to editor's picks (simple cards)
+            formattedProduct = formatProductForUnifiedCard(product, 'editors', 'simple');
+            if (formattedProduct) editorsPicksProducts.push(formattedProduct);
+          }
+        });
 
         // Temporarily disable outfit group generation
         // const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
 
         if (isMountedRef.current) {
-          // Disable outfit groups and set empty array
-          setProducts(formattedProducts);
-          setPartialProducts(formattedPartialProducts);
-          setSimpleProducts(formattedSimpleProducts);
+          // Set the different product sections
+          setTrendingProducts(trendingProducts);
+          setNewDropsProducts(newDropsProducts);
+          setEditorsPicksProducts(editorsPicksProducts);
           setOutfitGroups([]); // Set to empty array to indicate no outfit groups
           setIsLoadingOutfits(false);
         }
@@ -551,99 +533,32 @@ const OverviewScreen: React.FC = () => {
     });
   }, [fetchNews]);
   
-  // Handle action button expand/collapse for regular products - memoized to reduce rerenders
-  const handleContentActionExpandChange = useCallback((productId: string, isExpanded: boolean) => {
-    if (isExpanded) {
-      // If expanding, set this card as active
-      setActiveActionCardId(productId);
-      // Close any active simple or partial card
-      setActiveSimpleActionCardId(null);
-      setActivePartialActionCardId(null);
-      setActiveNewsCardId(null);
-    } else {
-      // If collapsing, clear active card
-      setActiveActionCardId(null);
-    }
+  // Simplified action handlers for the new unified card design
+  const handleSave = useCallback((id: string) => {
+    handleAction('save', id);
   }, []);
 
-  // Handle action button expand/collapse for simple products
-  const handleSimpleContentActionExpandChange = useCallback((productId: string, isExpanded: boolean) => {
-    if (isExpanded) {
-      // If expanding, set this card as active
-      setActiveSimpleActionCardId(productId);
-      // Close any active regular or partial card
-      setActiveActionCardId(null);
-      setActivePartialActionCardId(null);
-      setActiveNewsCardId(null);
-    } else {
-      // If collapsing, clear active card
-      setActiveSimpleActionCardId(null);
-    }
-  }, []);
-
-  // Handle action button expand/collapse for partial data products
-  const handlePartialContentActionExpandChange = useCallback((productId: string, isExpanded: boolean) => {
-    if (isExpanded) {
-      // If expanding, set this card as active
-      setActivePartialActionCardId(productId);
-      // Close any active regular or simple card
-      setActiveActionCardId(null);
-      setActiveSimpleActionCardId(null);
-      setActiveNewsCardId(null);
-    } else {
-      // If collapsing, clear active card
-      setActivePartialActionCardId(null);
-    }
-  }, []);
-
-  // Handle action button expand/collapse for news articles
-  const handleNewsContentActionExpandChange = useCallback((articleId: string, isExpanded: boolean) => {
-    if (isExpanded) {
-      // If expanding, set this card as active
-      setActiveNewsCardId(articleId);
-      // Close any other active cards
-      setActiveActionCardId(null);
-      setActiveSimpleActionCardId(null);
-      setActivePartialActionCardId(null);
-      setActiveOutfitActionCardId(null);
-    } else {
-      // If collapsing, clear active card
-      setActiveNewsCardId(null);
-    }
-  }, []);
-
-  // Handle action button expand/collapse for outfit groups
-  const handleOutfitContentActionExpandChange = useCallback((outfitId: string, isExpanded: boolean) => {
-    if (isExpanded) {
-      // If expanding, set this outfit as active
-      setActiveOutfitActionCardId(outfitId);
-      // Close any other active cards
-      setActiveActionCardId(null);
-      setActiveSimpleActionCardId(null);
-      setActivePartialActionCardId(null);
-      setActiveNewsCardId(null);
-    } else {
-      // If collapsing, clear active outfit
-      setActiveOutfitActionCardId(null);
-    }
+  const handleAddToCart = useCallback((id: string) => {
+    handleAction('cart', id);
   }, []);
 
 
-  // Handle product card press - update to use URL as an alternative identifier if ID not found
+  // Handle product card press - search across all product sections
   const handleProductPress = useCallback((productId: string, currentImageIndex = 0) => {
-    // Find the product data to pass - first try by ID
-    let rawProduct = products.find(p => p.id === productId);
+    // Find the product data across all sections
+    const allProducts = [...trendingProducts, ...newDropsProducts, ...editorsPicksProducts];
+    let rawProduct = allProducts.find(p => p.id === productId);
     
     // If not found by ID, try to find by other possible identifiers
     if (!rawProduct) {
       logger.warn(`Product with ID ${productId} not found directly - trying alternative methods`);
       
       // Try to find by partial ID match (in case of composite IDs)
-      rawProduct = products.find(p => p.id.includes(productId) || productId.includes(p.id));
+      rawProduct = allProducts.find(p => p.id.includes(productId) || productId.includes(p.id));
       
       if (!rawProduct) {
         // Try to find by URL if available
-        rawProduct = products.find(p => 
+        rawProduct = allProducts.find(p => 
           p.productUrl === productId || 
           (p.images && p.images.length > 0 && p.images[0].url === productId)
         );
@@ -651,7 +566,7 @@ const OverviewScreen: React.FC = () => {
         if (!rawProduct) {
           // Last resort: just use the first product as a fallback to avoid crashes
           logger.error(`Could not find product with ID or URL ${productId} - using fallback`);
-          rawProduct = products[0];
+          rawProduct = allProducts[0];
           
           if (!rawProduct) {
             logger.error('No products available to use as fallback');
@@ -718,248 +633,149 @@ const OverviewScreen: React.FC = () => {
         initialImageIndex: currentImageIndex
       });
     }
-  }, [navigation, products]);
+  }, [navigation, trendingProducts, newDropsProducts, editorsPicksProducts]);
   
-  // More efficient way to close expanded menus without interfering with scrolling
-  const handleCardPress = useCallback((productId: string, isSimple: boolean = false, isPartial: boolean = false) => {
-    // Close any open action menu
-    if (activeActionCardId) setActiveActionCardId(null);
-    if (activeSimpleActionCardId) setActiveSimpleActionCardId(null);
-    if (activePartialActionCardId) setActivePartialActionCardId(null);
-    if (activeNewsCardId) setActiveNewsCardId(null);
+  // Simplified card press handler
+  const handleCardPress = useCallback((productId: string) => {
+    // Close any open action menus
+    setActiveCardId(null);
+    setActiveNewsCardId(null);
     
-    // Only navigate for regular product cards
-    if (!isSimple && !isPartial) {
-      logger.log(`Card pressed for product: ${productId}`);
-      handleProductPress(productId);
-    }
-  }, [activeActionCardId, activeSimpleActionCardId, activePartialActionCardId, activeNewsCardId, handleProductPress]);
+    logger.log(`Card pressed for product: ${productId}`);
+    handleProductPress(productId);
+  }, [handleProductPress]);
   
   // Handle news card press
   const handleNewsCardPress = useCallback((articleId: string) => {
     // Close any open action menu
-    if (activeActionCardId) setActiveActionCardId(null);
-    if (activeSimpleActionCardId) setActiveSimpleActionCardId(null);
-    if (activePartialActionCardId) setActivePartialActionCardId(null);
-    if (activeNewsCardId) setActiveNewsCardId(null);
+    setActiveCardId(null);
+    setActiveNewsCardId(null);
     
     // Navigate to expanded news screen
     navigation.navigate('ExpandedNewsScreen', { articleId });
-  }, [navigation, activeActionCardId, activeSimpleActionCardId, activePartialActionCardId, activeNewsCardId]);
+  }, [navigation]);
   
-  // Handle add to cart
-  const handleAddToCart = useCallback((productId: string) => {
-    // Add to cart logic
-    logger.log('Add to cart:', productId);
+  // Consolidated action handlers to reduce callbacks
+  const handleAction = useCallback((action: string, id: string) => {
+    switch (action) {
+      case 'cart':
+        logger.log('Add to cart:', id);
+        break;
+      case 'save':
+        logger.log('Save/Bookmark:', id);
+        break;
+      case 'like':
+        logger.log('Like:', id);
+        break;
+      case 'dislike':
+        logger.log('Dislike:', id);
+        break;
+      case 'share':
+        logger.log('Share:', id);
+        break;
+      case 'bookmark':
+        logger.log('Bookmark:', id);
+        break;
+    }
   }, []);
-  
-  // Handle like, dislike, share actions
-  const handleLike = useCallback((id: string) => {
-    // Like logic
-    logger.log('Like:', id);
+
+  // Handle content action expand/collapse for different card types
+  const handleContentActionExpandChange = useCallback((cardType: string, cardId: string, isExpanded: boolean) => {
+    switch (cardType) {
+      case 'news':
+        setActiveNewsCardId(isExpanded ? cardId : null);
+        break;
+      case 'outfit':
+        setActiveOutfitActionCardId(isExpanded ? cardId : null);
+        break;
+      case 'product':
+      default:
+        setActiveCardId(isExpanded ? cardId : null);
+        break;
+    }
   }, []);
+
   
-  const handleDislike = useCallback((id: string) => {
-    // Dislike logic
-    logger.log('Dislike:', id);
-  }, []);
-  
-  const handleShare = useCallback((id: string) => {
-    // Share logic
-    logger.log('Share:', id);
-  }, []);
-  
-  const handleBookmark = useCallback((id: string) => {
-    // Bookmark logic
-    logger.log('Bookmark:', id);
-  }, []);
-  
-  // Render filter item
-  const renderFilterItem = useCallback((filter: typeof FILTER_OPTIONS[0]) => {
-    const isActive = filter.id === currentFilter;
-    return (
-      <TouchableOpacity
-        key={filter.id}
-        style={[
-          styles.filterItem,
-          isActive && styles.activeFilterItem, { borderBottomColor: isActive ? accentColor : 'transparent' }
-        ]}
-        onPress={() => setCurrentFilter(filter.id)}
-      >
-        <Text style={[
-          styles.filterText,
-          { color: isActive ? themeColors.text.primary : subTextColor }
-        ]}>
-          {String(filter.label)}
-        </Text>
-      </TouchableOpacity>
-    );
-  }, [currentFilter, accentColor, themeColors.text.primary, subTextColor]);
+  // Render filter item - REMOVED FOR MVP
+  // const renderFilterItem = useCallback((filter: typeof FILTER_OPTIONS[0]) => {
+  //   const isActive = filter.id === currentFilter;
+  //   return (
+  //     <TouchableOpacity
+  //       key={filter.id}
+  //       style={[
+  //         styles.filterItem,
+  //         isActive && styles.activeFilterItem, { borderBottomColor: isActive ? accentColor : 'transparent' }
+  //       ]}
+  //       onPress={() => setCurrentFilter(filter.id)}
+  //     >
+  //       <Text style={[
+  //         styles.filterText,
+  //         { color: isActive ? themeColors.text.primary : subTextColor }
+  //       ]}>
+  //         {String(filter.label)}
+  //       </Text>
+  //     </TouchableOpacity>
+  //   );
+  // }, [currentFilter, accentColor, themeColors.text.primary, subTextColor]);
 
   // Calculate card width based on screen width, columns and spacing
   const calculatedItemWidth = (SCREEN_WIDTH - (ITEM_SPACING * (NUM_COLUMNS + 1))) / NUM_COLUMNS;
 
-  // Get pseudo-random aspect ratio for a product
-  const getAspectRatioForProduct = useCallback((product: any, index: number) => {
-    // Generate a pseudo-random variation based on multiple factors
-    const charSum = product.id.split('').reduce((sum: number, char: string) => sum + char.charCodeAt(0), 0);
-    const nameLengthFactor = product.name ? product.name.length % 5 : 0;
-    const priceFactor = Math.floor(product.price) % 3;
-    
-    // Complex seed that uses multiple properties to create seemingly random but reproducible variation
-    const seed = (index * 13) + charSum + (nameLengthFactor * 7) + (priceFactor * 11);
-    
-    // Using modulo 20 to select one of 20 variations
-    const variationIndex = seed % 20;
-    
-    // Generate aspect ratio between 1.0 and 1.6 with 20 even steps
-    return 1.0 + (variationIndex * 0.03);
-  }, []);
+  // Get pseudo-random aspect ratio for a product - simplified for performance
+  const getAspectRatioForProduct = (product: any, index: number) => {
+    // Simplified calculation to reduce processing
+    const seed = (product.id.length + index * 7) % 20;
+    return 1.0 + (seed * 0.03);
+  };
 
-  // Render product item for MasonryList
-  const renderProductItem = useCallback(({ item, i }: { item: any, i: number }) => {
+  // Unified product item renderer
+  const renderUnifiedProductItem = useCallback(({ item, i }: { item: any, i: number }) => {
     const product = item as FormattedProduct;
     
-    // Products are pre-validated by the service, so no need for fallback logic
-    logger.log(`[RENDER FLOW] Rendering validated product ${i} (${product.id})`);
-    
-    // Double-check that product has valid images (should always be true now)
+    // Double-check that product has valid images
     if (!product.images || product.images.length === 0 || !product.images[0].url) {
-      logger.warn(`[RENDER FLOW] Unexpected: skipping product ${product.id} - no images (should have been filtered)`);
+      logger.warn(`Skipping product ${product.id} - no images`);
       return null;
     }
     
     const aspectRatio = getAspectRatioForProduct(product, i);
-    
-    // Check if this card's content action is active
-    const isContentActionActive = activeActionCardId === product.id;
     
     // Create a ref for this product card if it doesn't exist
     if (!productRefs.current[product.id]) {
       productRefs.current[product.id] = React.createRef<View>();
     }
     
-    // Ensure name is a string
-    const productName = product.name ? String(product.name) : "";
-    
-    // Log right before rendering
-    logger.log(`[RENDER FLOW] About to render ProductCard for ${product.id}`);
-    if (product.images && product.images.length > 0) {
-      logger.log(`[RENDER FLOW] Final image URL check: ${product.images[0].url}`);
-    }
-    
     return (
       <View 
-        key={`product-item-${product.id}-${i}`}
+        key={`unified-product-${product.id}-${i}`}
         ref={productRefs.current[product.id]}
         style={{
           margin: ITEM_SPACING / 2,
           marginBottom: ITEM_SPACING,
-          position: 'relative', // Position relative for overlay
         }}
       >
-        <ProductCard
-          id={product.id}
-          name={productName}
-          price={product.price}
-          images={product.images}
-          onCardPress={() => handleCardPress(product.id)}
-          onCartPress={() => handleAddToCart(product.id)}
-          onLikePress={() => handleLike(product.id)}
-          onDislikePress={() => handleDislike(product.id)}
-          onSharePress={() => handleShare(product.id)}
-          isDarkMode={currentIsDarkMode}
-          cardWidth={calculatedItemWidth}
-          imageAspectRatio={aspectRatio} // Pass the calculated aspect ratio
-          cardStyle={{ margin: 0 }}
-          // Pass props to control action menu state
-          isContentActionActive={isContentActionActive}
-          onContentActionExpandChange={(isExpanded) => 
-            handleContentActionExpandChange(product.id, isExpanded)}
-        />
-      </View>
-    );
-  }, [activeActionCardId, currentIsDarkMode, calculatedItemWidth, getAspectRatioForProduct, handleCardPress, handleAddToCart, handleLike, handleDislike, handleShare, handleContentActionExpandChange]);
-
-  // Render partial data product item for MasonryList
-  const renderPartialProductItem = useCallback(({ item, i }: { item: any, i: number }) => {
-    const product = item as FormattedPartialProduct;
-    const aspectRatio = getAspectRatioForProduct(product, i);
-    
-    // Check if this card's content action is active
-    const isContentActionActive = activePartialActionCardId === product.id;
-    
-    return (
-      <View 
-        key={`partial-product-${product.id}-${i}`}
-        style={{
-        margin: ITEM_SPACING / 2,
-        marginBottom: ITEM_SPACING,
-        position: 'relative', // Position relative for overlay
-      }}>
-        <PartialDataProductCard
+        <UnifiedProductCard
           id={product.id}
           name={product.name}
           brand={product.brand}
           price={product.price}
+          currency={product.currency}
           images={product.images}
           productUrl={product.productUrl}
-          onCardPress={() => handleCardPress(product.id, false, true)}
-          onCartPress={() => handleAddToCart(product.id)}
-          onLikePress={() => handleLike(product.id)}
-          onDislikePress={() => handleDislike(product.id)}
-          onSharePress={() => handleShare(product.id)}
+          onCardPress={() => handleCardPress(product.id)}
+          onAddToCart={() => handleAddToCart(product.id)}
+          onSave={() => handleSave(product.id)}
           isDarkMode={currentIsDarkMode}
           cardWidth={calculatedItemWidth}
-          imageAspectRatio={aspectRatio} // Pass the calculated aspect ratio
+          imageAspectRatio={aspectRatio}
+          cardType={product.cardType}
           cardStyle={{ margin: 0 }}
-          // Pass props to control action menu state
-          isContentActionActive={isContentActionActive}
-          onContentActionExpandChange={(isExpanded) => 
-            handlePartialContentActionExpandChange(product.id, isExpanded)}
         />
       </View>
     );
-  }, [activePartialActionCardId, currentIsDarkMode, calculatedItemWidth, getAspectRatioForProduct, handleCardPress, handleAddToCart, handleLike, handleDislike, handleShare, handlePartialContentActionExpandChange]);
+  }, [currentIsDarkMode, calculatedItemWidth, getAspectRatioForProduct, handleCardPress, handleAddToCart, handleSave]);
 
-  // Render simple product item for MasonryList
-  const renderSimpleProductItem = useCallback(({ item, i }: { item: any, i: number }) => {
-    const product = item as FormattedSimpleProduct;
-    const aspectRatio = getAspectRatioForProduct(product, i);
-    
-    // Check if this card's content action is active
-    const isContentActionActive = activeSimpleActionCardId === product.id;
-    
-    return (
-      <View 
-        key={`simple-product-${product.id}-${i}`}
-        style={{
-        margin: ITEM_SPACING / 2,
-        marginBottom: ITEM_SPACING,
-        position: 'relative', // Position relative for overlay
-      }}>
-        <SimpleProductCard
-          id={product.id}
-          price={product.price}
-          brand={product.brand}
-          images={product.images}
-          onCardPress={() => handleCardPress(product.id, true)}
-          onCartPress={() => handleAddToCart(product.id)}
-          onLikePress={() => handleLike(product.id)}
-          onDislikePress={() => handleDislike(product.id)}
-          onSharePress={() => handleShare(product.id)}
-          isDarkMode={currentIsDarkMode}
-          cardWidth={calculatedItemWidth}
-          imageAspectRatio={aspectRatio} // Pass the calculated aspect ratio
-          cardStyle={{ margin: 0 }}
-          // Pass props to control action menu state
-          isContentActionActive={isContentActionActive}
-          onContentActionExpandChange={(isExpanded) => 
-            handleSimpleContentActionExpandChange(product.id, isExpanded)}
-        />
-      </View>
-    );
-  }, [activeSimpleActionCardId, currentIsDarkMode, calculatedItemWidth, getAspectRatioForProduct, handleCardPress, handleAddToCart, handleLike, handleDislike, handleShare, handleSimpleContentActionExpandChange]);
+
   
   // Render news items with proper grid layout and spacing
   const renderNewsItems = useCallback(() => {
@@ -1030,14 +846,14 @@ const OverviewScreen: React.FC = () => {
               <NewsCard
                 article={article}
                 mode="list"
-                onLike={handleLike}
-                onDislike={handleDislike}
-                onShare={handleShare}
-                onBookmark={handleBookmark}
+                onLike={(id) => handleAction('like', id)}
+                onDislike={(id) => handleAction('dislike', id)}
+                onShare={(id) => handleAction('share', id)}
+                onBookmark={(id) => handleAction('bookmark', id)}
                 isDarkMode={currentIsDarkMode}
                 isContentActionActive={isContentActionActive}
                 onContentActionExpandChange={(isExpanded) => 
-                  handleNewsContentActionExpandChange(article.id, isExpanded)}
+                  handleContentActionExpandChange('news', article.id, isExpanded)}
               />
             </View>
           );
@@ -1053,14 +869,14 @@ const OverviewScreen: React.FC = () => {
                 <NewsCard
                   article={article}
                   mode="grid"
-                  onLike={handleLike}
-                  onDislike={handleDislike}
-                  onShare={handleShare}
-                  onBookmark={handleBookmark}
+                  onLike={(id) => handleAction('like', id)}
+                  onDislike={(id) => handleAction('dislike', id)}
+                  onShare={(id) => handleAction('share', id)}
+                  onBookmark={(id) => handleAction('bookmark', id)}
                   isDarkMode={currentIsDarkMode}
                   isContentActionActive={isContentActionActive}
                   onContentActionExpandChange={(isExpanded) => 
-                    handleNewsContentActionExpandChange(article.id, isExpanded)}
+                    handleContentActionExpandChange('news', article.id, isExpanded)}
                 />
               </View>
             );
@@ -1080,69 +896,42 @@ const OverviewScreen: React.FC = () => {
         )}
       </View>
     );
-  }, [isLoadingNews, newsError, newsArticles, displayedNewsCount, activeNewsCardId, accentColor, themeColors.text.secondary, currentIsDarkMode, fetchNews, handleLike, handleDislike, handleShare, handleBookmark, handleNewsContentActionExpandChange]);
+  }, [isLoadingNews, newsError, newsArticles, displayedNewsCount, activeNewsCardId, accentColor, themeColors.text.secondary, currentIsDarkMode, fetchNews, handleAction, handleContentActionExpandChange]);
   
   // Handle scrolling to dismiss active content action and implement infinite scroll
   const handleScroll = useCallback((event: any) => {
-    // Clear active cards on scroll
-    if (activeActionCardId) setActiveActionCardId(null);
-    if (activeSimpleActionCardId) setActiveSimpleActionCardId(null);
-    if (activePartialActionCardId) setActivePartialActionCardId(null);
-    if (activeNewsCardId) setActiveNewsCardId(null);
-    if (activeOutfitActionCardId) setActiveOutfitActionCardId(null);
+    // Clear active cards on scroll - simplified
+    setActiveCardId(null);
+    setActiveNewsCardId(null);
     
     // Process regular scroll event
     Animated.event(
       [{ nativeEvent: { contentOffset: { y: scrollY } } }],
       { useNativeDriver: false }
     )(event);
-  }, [scrollY, activeActionCardId, activeSimpleActionCardId, activePartialActionCardId, activeNewsCardId, activeOutfitActionCardId]);
+  }, [scrollY]);
   
-  // Handle loading more items
+  // Handle loading more items - updated for new sections
   const handleLoadMore = useCallback(() => {
     if (isLoadingMore || !isMountedRef.current) return;
     
     setIsLoadingMore(true);
     
-    // First, load more outfit groups if there are more to show
-    if (displayedOutfitCount < outfitGroups.length) {
-      setDisplayedOutfitCount(prev => Math.min(
-        prev + 3, // Load 3 outfits at a time
-        outfitGroups.length
-      ));
+    // Progressive loading: Trending -> News -> New Drops -> Editor's Picks
+    if (displayedTrendingCount < trendingProducts.length) {
+      setDisplayedTrendingCount(prev => Math.min(prev + LOAD_MORE_COUNT, trendingProducts.length));
     }
-    // Then load news if there are more news articles to show
     else if (displayedNewsCount < newsArticles.length) {
-      // Load news first
-      setDisplayedNewsCount(prev => Math.min(
-        prev + 2, // Load 2 news at a time
-        newsArticles.length
-      ));
+      setDisplayedNewsCount(prev => Math.min(prev + 5, newsArticles.length));
     }
-    else if (displayedProductCount < products.length) {
-      // All news is loaded, now load full products
-      setDisplayedProductCount(prev => Math.min(
-        prev + LOAD_MORE_COUNT,
-        products.length
-      ));
-    } 
-    else if (displayedPartialProductCount < partialProducts.length) {
-      // All full products are loaded, now load partial products
-      setDisplayedPartialProductCount(prev => Math.min(
-        prev + LOAD_MORE_COUNT,
-        partialProducts.length
-      ));
+    else if (displayedNewDropsCount < newDropsProducts.length) {
+      setDisplayedNewDropsCount(prev => Math.min(prev + LOAD_MORE_COUNT, newDropsProducts.length));
     }
-    else if (displayedSimpleProductCount < simpleProducts.length) {
-      // All news, full and partial products are loaded, finally load simple products
-      setDisplayedSimpleProductCount(prev => Math.min(
-        prev + LOAD_MORE_COUNT,
-        simpleProducts.length
-      ));
+    else if (displayedEditorsPicksCount < editorsPicksProducts.length) {
+      setDisplayedEditorsPicksCount(prev => Math.min(prev + LOAD_MORE_COUNT, editorsPicksProducts.length));
     }
     
-    // Clear loading state after a slight delay to prevent rapid loading
-    // Use timer ref to avoid callback accumulation
+    // Clear loading state after a slight delay
     if (loadMoreTimerRef.current) {
       clearTimeout(loadMoreTimerRef.current);
     }
@@ -1153,29 +942,11 @@ const OverviewScreen: React.FC = () => {
       }
       loadMoreTimerRef.current = null;
     }, 500);
-  }, [isLoadingMore, displayedOutfitCount, outfitGroups.length, displayedNewsCount, newsArticles.length, displayedProductCount, products.length, displayedPartialProductCount, partialProducts.length, displayedSimpleProductCount, simpleProducts.length]);
+  }, [isLoadingMore, displayedTrendingCount, trendingProducts.length, displayedNewsCount, newsArticles.length, displayedNewDropsCount, newDropsProducts.length, displayedEditorsPicksCount, editorsPicksProducts.length]);
   
-  // Slice the data arrays to only show the currently loaded items
-  const visibleProducts = products.slice(0, displayedProductCount);
-  const visiblePartialProducts = partialProducts.slice(0, displayedPartialProductCount);
-  const visibleSimpleProducts = simpleProducts.slice(0, displayedSimpleProductCount);
   
-  // Determine if we should show Fashion News section
-  const shouldShowNews = currentFilter === 'all' || currentFilter === 'news';
-  
-  // Determine if we should show Featured Products section
-  // Only show if we're not in news-only filter mode
-  const shouldShowFeaturedProducts = currentFilter === 'all' || currentFilter !== 'news';
-  
-  // Determine if we should show Partial Products section
-  // Only show it if we've loaded ALL featured products
-  const shouldShowPartialProducts = displayedProductCount >= products.length;
-  
-  // Determine if we should show Simple Products section
-  // Only show it if we've loaded ALL partial products
-  const shouldShowSimpleProducts = 
-    displayedProductCount >= products.length && 
-    displayedPartialProductCount >= partialProducts.length;
+  // Always show all sections in MVP - no filtering
+  const shouldShowNews = true;
   
   // Function to render section header
   const renderSectionHeader = useCallback((title: string) => (
@@ -1185,6 +956,30 @@ const OverviewScreen: React.FC = () => {
       </Text>
     </View>
   ), [bgColor, themeColors.text.primary]);
+
+  // Unified function to render any product section
+  const renderProductSection = useCallback((products: FormattedProduct[], displayedCount: number) => {
+    const visibleProducts = products.slice(0, displayedCount);
+    
+    return (
+      <MasonryList
+        data={visibleProducts}
+        numColumns={NUM_COLUMNS}
+        renderItem={renderUnifiedProductItem}
+        keyExtractor={(item): string => item.id}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={false} // Disable scrolling - parent ScrollView handles scrolling
+        contentContainerStyle={styles.masonryContentContainer}
+        ListEmptyComponent={
+          <View style={styles.emptyContent}>
+            <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+              Loading products...
+            </Text>
+          </View>
+        }
+      />
+    );
+  }, [renderUnifiedProductItem, themeColors.text.secondary]);
 
   // Render outfit groups section
   const renderOutfitGroups = useCallback(() => {
@@ -1221,17 +1016,17 @@ const OverviewScreen: React.FC = () => {
             key={group.id}
             products={group.products}
             title={group.title}
-            onCartPress={(productId) => handleAddToCart(productId)}
+            onCartPress={(productId) => handleAction('cart', productId)}
             onCardPress={(productId) => handleCardPress(productId)}
-            onLikePress={(id) => handleLike(id)}
-            onDislikePress={(id) => handleDislike(id)}
-            onSharePress={(id) => handleShare(id)}
-            onBookmarkPress={(id) => handleBookmark(id)}
+            onLikePress={(id) => handleAction('like', id)}
+            onDislikePress={(id) => handleAction('dislike', id)}
+            onSharePress={(id) => handleAction('share', id)}
+            onBookmarkPress={(id) => handleAction('bookmark', id)}
             isDarkMode={currentIsDarkMode}
             outfitId={group.id}
             isContentActionActive={activeOutfitActionCardId === group.id}
             onContentActionExpandChange={(isExpanded: boolean) => 
-              handleOutfitContentActionExpandChange(group.id, isExpanded)}
+              handleContentActionExpandChange('outfit', group.id, isExpanded)}
           />
         ))}
         
@@ -1248,7 +1043,7 @@ const OverviewScreen: React.FC = () => {
         )}
       </View>
     );
-  }, [outfitGroups, displayedOutfitCount, isLoadingOutfits, themeColors.text.secondary, accentColor, currentIsDarkMode, handleAddToCart, handleCardPress, handleLike, handleDislike, handleShare, handleBookmark, handleOutfitContentActionExpandChange]);
+  }, [outfitGroups, displayedOutfitCount, isLoadingOutfits, themeColors.text.secondary, accentColor, currentIsDarkMode, handleAction, handleCardPress, handleContentActionExpandChange]);
 
   // Render loading indicator
   const renderFooter = useCallback(() => {
@@ -1261,101 +1056,66 @@ const OverviewScreen: React.FC = () => {
     );
   }, [isLoadingMore, accentColor]);
   
-  // Render featured products list
-  const renderFeaturedProducts = useCallback(() => {
-    // Only show the number of products that should be displayed
-    const visibleProducts = products.slice(0, displayedProductCount);
-    
-    return (
-      <MasonryList
-        data={visibleProducts}
-        numColumns={NUM_COLUMNS}
-        renderItem={renderProductItem}
-        keyExtractor={(item): string => item.id}
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={false} // Disable scrolling - parent ScrollView handles scrolling
-        contentContainerStyle={styles.masonryContentContainer}
-        ListEmptyComponent={
-          <View style={styles.emptyContent}>
-            <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
-              Loading products...
-            </Text>
-          </View>
-        }
-      />
-    );
-  }, [displayedProductCount, products, renderProductItem, themeColors.text.secondary]);
 
-  // Render partial products list
-  const renderPartialProducts = useCallback(() => {
-    // Only show the number of partial products that should be displayed
-    const visiblePartialProducts = partialProducts.slice(0, displayedPartialProductCount);
-    
-    return (
-      <MasonryList
-        data={visiblePartialProducts}
-        numColumns={NUM_COLUMNS}
-        renderItem={renderPartialProductItem}
-        keyExtractor={(item): string => item.id}
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={false} // Disable scrolling - parent ScrollView handles scrolling
-        contentContainerStyle={styles.masonryContentContainer}
-        ListEmptyComponent={
-          <View style={styles.emptyContent}>
-            <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
-              Loading partner products...
-            </Text>
-          </View>
-        }
-      />
-    );
-  }, [displayedPartialProductCount, partialProducts, renderPartialProductItem, themeColors.text.secondary]);
 
-  // Render simple products list
-  const renderSimpleProducts = useCallback(() => {
-    // Only show the number of simple products that should be displayed
-    const visibleSimpleProducts = simpleProducts.slice(0, displayedSimpleProductCount);
-    
-    return (
-      <MasonryList
-        data={visibleSimpleProducts}
-        numColumns={NUM_COLUMNS}
-        renderItem={renderSimpleProductItem}
-        keyExtractor={(item): string => item.id}
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={false} // Disable scrolling - parent ScrollView handles scrolling
-        contentContainerStyle={styles.masonryContentContainer}
-        ListEmptyComponent={
-          <View style={styles.emptyContent}>
-            <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
-              Loading suggestions...
-            </Text>
-          </View>
-        }
-      />
-    );
-  }, [displayedSimpleProductCount, simpleProducts, renderSimpleProductItem, themeColors.text.secondary]);
   
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
       <StatusBar barStyle={currentIsDarkMode ? "light-content" : "dark-content"} />
       
-      {/* Header with app title */}
-      <Animated.View 
-        style={[
-          styles.header, 
-          { 
-            height: headerHeightRef.current,
-            opacity: headerOpacityRef.current,
-            backgroundColor: bgColor // Ensure header background matches
-          }
-        ]}
-      >
-        <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>DripOut</Text>
+      {/* Header */}
+      <Animated.View style={[
+        styles.header,
+        {
+          height: headerHeightRef.current,
+          opacity: headerOpacityRef.current,
+          backgroundColor: bgColor,
+        }
+      ]}>
+        <View style={styles.headerContent}>
+          <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>
+            DripOut
+          </Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity 
+              style={styles.headerButton}
+              onPress={() => {
+                navigation.dispatch(
+                  CommonActions.reset({
+                    index: 0,
+                    routes: [
+                      { name: 'Auth', params: { screen: 'ResetAuth' } }
+                    ],
+                  })
+                );
+              }}
+            >
+              <Icon 
+                name="refresh-circle-outline" 
+                size={24} 
+                color={themeColors.text.primary} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerButton}>
+              <Icon 
+                name="notifications-outline" 
+                size={24} 
+                color={themeColors.text.primary} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerButton}>
+              <Icon 
+                name="search-outline" 
+                size={24} 
+                color={themeColors.text.primary} 
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
       </Animated.View>
       
-      {/* Filter tabs */}
-      <View style={[styles.filterContainer, { borderBottomColor: themeColors.border }]}>
+      {/* Filter tabs - REMOVED FOR MVP */}
+      {/* <View style={[styles.filterContainer, { borderBottomColor: themeColors.border }]}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1363,7 +1123,7 @@ const OverviewScreen: React.FC = () => {
         >
           {FILTER_OPTIONS.map(renderFilterItem)}
         </ScrollView>
-      </View>
+      </View> */}
       
       {/* Main content with scrolling sections */}
       <ScrollView
@@ -1377,57 +1137,53 @@ const OverviewScreen: React.FC = () => {
           // Set loading state
           setIsLoadingOutfits(true);
           try {
-            // Fetch new random products from API
+            // Fetch new random products from API  
             const apiProducts = await fetchRandomProducts(30);
             if (apiProducts.length > 0) {
-              // Format API products as FormattedProduct, skipping any without images
-              const formattedProducts: FormattedProduct[] = apiProducts.slice(0, 10).reduce<FormattedProduct[]>((acc, product: ExtendedProduct) => {
+              // Helper function to format products for unified card (same as in initial load)
+              const formatProductForUnifiedCard = (product: ExtendedProduct, idPrefix: string, cardType: 'full' | 'simple' | 'partial' = 'full'): FormattedProduct | null => {
                 const imgs = formatImages(product.images, product.id);
-                if (!imgs) return acc;
-                acc.push({
-                  id: product.id || `product-${Math.random().toString(36).substring(2, 9)}`,
-                  title: product.name || 'Unnamed Product',
+                if (!imgs) return null;
+                
+                return {
+                  id: product.id || `${idPrefix}-${Math.random().toString(36).substring(2, 9)}`,
                   name: product.name || 'Unnamed Product',
-                  price: typeof product.price === 'number' ? product.price : 0,
-                  images: imgs,
                   brand: product.brand || 'Unknown Brand',
-                  description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'} - ${product.currency || '$'}${typeof product.price === 'number' ? product.price : 0}`,
+                  price: typeof product.price === 'number' ? product.price : 0,
+                  currency: product.currency || '$',
+                  images: imgs,
                   productUrl: product.productUrl || '',
-                });
-                return acc;
-              }, []);
-              // Format API products as FormattedPartialProduct, skipping any without images
-              const formattedPartialProducts: FormattedPartialProduct[] = apiProducts.slice(10, 20).reduce<FormattedPartialProduct[]>((acc, product: ExtendedProduct) => {
-                const imgs = formatImages(product.images, product.id);
-                if (!imgs) return acc;
-                acc.push({
-                  id: product.id || `partial-${Math.random().toString(36).substring(2, 9)}`,
+                  cardType,
                   title: product.name || 'Unnamed Product',
-                  name: product.name || 'Unnamed Product',
-                  brand: product.brand || 'Unknown Brand',
-                  price: typeof product.price === 'number' ? product.price : 0,
-                  images: imgs,
-                  productUrl: product.productUrl || `https://example.com/product/${product.id || 'unknown'}`
-                });
-                return acc;
-              }, []);
-              // Format API products as FormattedSimpleProduct, skipping any without images
-              const formattedSimpleProducts: FormattedSimpleProduct[] = apiProducts.slice(20).reduce<FormattedSimpleProduct[]>((acc, product: ExtendedProduct) => {
-                const imgs = formatImages(product.images, product.id);
-                if (!imgs) return acc;
-                acc.push({
-                  id: product.id || `simple-${Math.random().toString(36).substring(2, 9)}`,
-                  price: typeof product.price === 'number' ? product.price : 0,
-                  brand: product.brand || 'Unknown Brand',
-                  images: imgs
-                });
-                return acc;
-              }, []);
-              // Disable outfit groups by setting empty array
-              setProducts(formattedProducts);
-              setPartialProducts(formattedPartialProducts);
-              setSimpleProducts(formattedSimpleProducts);
-              setOutfitGroups([]); // Set to empty array to indicate no outfit groups
+                  description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'}`,
+                };
+              };
+
+              // Distribute products across different sections (same logic as initial load)
+              const trendingProducts: FormattedProduct[] = [];
+              const newDropsProducts: FormattedProduct[] = [];
+              const editorsPicksProducts: FormattedProduct[] = [];
+
+              apiProducts.forEach((product, index) => {
+                let formattedProduct: FormattedProduct | null = null;
+                
+                if (index < 10) {
+                  formattedProduct = formatProductForUnifiedCard(product, 'trending', 'full');
+                  if (formattedProduct) trendingProducts.push(formattedProduct);
+                } else if (index < 20) {
+                  formattedProduct = formatProductForUnifiedCard(product, 'newdrops', 'partial');
+                  if (formattedProduct) newDropsProducts.push(formattedProduct);
+                } else {
+                  formattedProduct = formatProductForUnifiedCard(product, 'editors', 'simple');
+                  if (formattedProduct) editorsPicksProducts.push(formattedProduct);
+                }
+              });
+
+              // Update the new product sections
+              setTrendingProducts(trendingProducts);
+              setNewDropsProducts(newDropsProducts);
+              setEditorsPicksProducts(editorsPicksProducts);
+              setOutfitGroups([]);
             }
           } catch (error) {
             console.error('Error refreshing products:', error);
@@ -1447,43 +1203,35 @@ const OverviewScreen: React.FC = () => {
           }
         }}
       >
-        {/* Top Featured Products */}
-        {shouldShowFeaturedProducts && (
+        {/* Trending Now Section */}
+        {trendingProducts.length > 0 && (
           <>
-            {renderSectionHeader('Featured Products')}
-            {renderFeaturedProducts()}
-            {isLoadingMore && displayedProductCount < products.length && (
-              <ActivityIndicator style={styles.loadingIndicator} />
-            )}
+            {renderSectionHeader('Trending Now')}
+            {renderProductSection(trendingProducts, displayedTrendingCount)}
           </>
         )}
 
-        {/* News Section */}
+        {/* Fashion News Section - Integrated naturally */}
         {shouldShowNews && (
           <>
-            {renderSectionHeader('Fashion News')}
+            {renderSectionHeader('Latest in Fashion')}
             {renderNewsItems()}
           </>
         )}
 
-        {/* Bottom Product Sections */}
-        {shouldShowPartialProducts && currentFilter !== 'news' && (
+        {/* New Drops Section */}
+        {newDropsProducts.length > 0 && displayedTrendingCount >= trendingProducts.length && (
           <>
-            {renderSectionHeader('More Products')}
-            {renderPartialProducts()}
-            {displayedPartialProductCount < partialProducts.length && (
-              <ActivityIndicator style={styles.loadingIndicator} />
-            )}
+            {renderSectionHeader('New Drops')}
+            {renderProductSection(newDropsProducts, displayedNewDropsCount)}
           </>
         )}
 
-        {shouldShowSimpleProducts && currentFilter !== 'news' && (
+        {/* Editor's Picks Section */}
+        {editorsPicksProducts.length > 0 && displayedNewDropsCount >= newDropsProducts.length && (
           <>
-            {renderSectionHeader('You Might Also Like')}
-            {renderSimpleProducts()}
-            {displayedSimpleProductCount < simpleProducts.length && (
-              <ActivityIndicator style={styles.loadingIndicator} />
-            )}
+            {renderSectionHeader("Editor's Picks")}
+            {renderProductSection(editorsPicksProducts, displayedEditorsPicksCount)}
           </>
         )}
         
@@ -1508,10 +1256,21 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     paddingBottom: 8,
   },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   headerTitle: {
     ...defaultTextStyle,
     fontSize: 24,
     fontWeight: '700',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
+    padding: 8,
   },
   filterContainer: {
     borderBottomWidth: 0.5,

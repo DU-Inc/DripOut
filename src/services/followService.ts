@@ -1,21 +1,5 @@
 import { db } from '../Config/firebaseconfig';
-import { 
-  collection, 
-  addDoc, 
-  query, 
-  where, 
-  getDocs, 
-  deleteDoc, 
-  serverTimestamp, 
-  DocumentReference,
-  DocumentData,
-  QuerySnapshot,
-  doc,
-  getDoc,
-  runTransaction,
-  increment,
-  updateDoc
-} from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 
 /**
  * Interface for follow relationship
@@ -50,44 +34,43 @@ export const followUser = async (
 
   // Create the follow relationship with a transaction to update counts
   try {
-    let followDocRef: DocumentReference<DocumentData>;
+    let followDocRef: any;
     
     // Use a transaction to ensure atomicity
-    await runTransaction(db, async (transaction) => {
+    await db.runTransaction(async (transaction) => {
       // FIRST: Do all reads (must happen before writes)
       // 1. Prepare document references
-      const followsCollection = collection(db, 'follows');
-      followDocRef = doc(followsCollection);
+      followDocRef = db.collection('follows').doc();
       
       // 2. Read follower document
-      const followerRef = doc(db, 'users', followerId);
+      const followerRef = db.collection('users').doc(followerId);
       const followerSnap = await transaction.get(followerRef);
       
       // 3. Read followed user document
-      const followedRef = doc(db, 'users', followedId);
+      const followedRef = db.collection('users').doc(followedId);
       const followedSnap = await transaction.get(followedRef);
       
       // Get current counts
-      const currentFollowingCount = followerSnap.exists() ? (followerSnap.data().followingCount || 0) : 0;
-      const currentFollowersCount = followedSnap.exists() ? (followedSnap.data().followersCount || 0) : 0;
+      const currentFollowingCount = followerSnap.exists ? (followerSnap.data().followingCount || 0) : 0;
+      const currentFollowersCount = followedSnap.exists ? (followedSnap.data().followersCount || 0) : 0;
       
       // SECOND: Perform all writes
       // 1. Create follow relationship
       transaction.set(followDocRef, {
         followerId,
         followedId,
-        createdAt: serverTimestamp()
+        createdAt: firestore.FieldValue.serverTimestamp()
       });
       
       // 2. Update follower's following count if the document exists
-      if (followerSnap.exists()) {
+      if (followerSnap.exists) {
         transaction.update(followerRef, {
           followingCount: currentFollowingCount + 1
         });
       }
       
       // 3. Update followed user's followers count if the document exists
-      if (followedSnap.exists()) {
+      if (followedSnap.exists) {
         transaction.update(followedRef, {
           followersCount: currentFollowersCount + 1
         });
@@ -114,14 +97,11 @@ export const unfollowUser = async (
 ): Promise<void> => {
   try {
     // Query for the follow relationship
-    const followsCollection = collection(db, 'follows');
-    const followQuery = query(
-      followsCollection,
-      where('followerId', '==', followerId),
-      where('followedId', '==', followedId)
-    );
-
-    const querySnapshot = await getDocs(followQuery);
+    const querySnapshot = await db
+      .collection('follows')
+      .where('followerId', '==', followerId)
+      .where('followedId', '==', followedId)
+      .get();
 
     // If no relationships found, return early
     if (querySnapshot.empty) {
@@ -130,22 +110,22 @@ export const unfollowUser = async (
     }
 
     // Use a transaction to update counts and delete the relationship
-    await runTransaction(db, async (transaction) => {
+    await db.runTransaction(async (transaction) => {
       // FIRST: Do all reads
       // Get the document references to delete
       const followDocRefs = querySnapshot.docs.map(doc => doc.ref);
       
       // 1. Read follower's document
-      const followerRef = doc(db, 'users', followerId);
+      const followerRef = db.collection('users').doc(followerId);
       const followerSnap = await transaction.get(followerRef);
       
       // 2. Read followed user's document
-      const followedRef = doc(db, 'users', followedId);
+      const followedRef = db.collection('users').doc(followedId);
       const followedSnap = await transaction.get(followedRef);
       
       // Calculate the new counts
-      const currentFollowingCount = followerSnap.exists() ? (followerSnap.data().followingCount || 0) : 0;
-      const currentFollowersCount = followedSnap.exists() ? (followedSnap.data().followersCount || 0) : 0;
+      const currentFollowingCount = followerSnap.exists ? (followerSnap.data().followingCount || 0) : 0;
+      const currentFollowersCount = followedSnap.exists ? (followedSnap.data().followersCount || 0) : 0;
       
       // Ensure we don't decrement below 0
       const newFollowingCount = Math.max(0, currentFollowingCount - 1);
@@ -158,14 +138,14 @@ export const unfollowUser = async (
       });
       
       // 2. Update follower's following count if document exists
-      if (followerSnap.exists()) {
+      if (followerSnap.exists) {
         transaction.update(followerRef, {
           followingCount: newFollowingCount
         });
       }
       
       // 3. Update followed user's followers count if document exists
-      if (followedSnap.exists()) {
+      if (followedSnap.exists) {
         transaction.update(followedRef, {
           followersCount: newFollowersCount
         });
@@ -191,14 +171,11 @@ export const isUserFollowing = async (
 ): Promise<boolean> => {
   try {
     // Query for follow relationships matching the criteria
-    const followsCollection = collection(db, 'follows');
-    const followQuery = query(
-      followsCollection,
-      where('followerId', '==', followerId),
-      where('followedId', '==', followedId)
-    );
-
-    const querySnapshot = await getDocs(followQuery);
+    const querySnapshot = await db
+      .collection('follows')
+      .where('followerId', '==', followerId)
+      .where('followedId', '==', followedId)
+      .get();
     
     // Return true if at least one relationship exists
     return !querySnapshot.empty;
@@ -215,13 +192,10 @@ export const isUserFollowing = async (
  */
 export const getFollowing = async (userId: string): Promise<string[]> => {
   try {
-    const followsCollection = collection(db, 'follows');
-    const followingQuery = query(
-      followsCollection,
-      where('followerId', '==', userId)
-    );
-
-    const querySnapshot = await getDocs(followingQuery);
+    const querySnapshot = await db
+      .collection('follows')
+      .where('followerId', '==', userId)
+      .get();
     
     // Extract the followed user IDs from the documents
     return querySnapshot.docs.map(doc => {
@@ -241,13 +215,10 @@ export const getFollowing = async (userId: string): Promise<string[]> => {
  */
 export const getFollowers = async (userId: string): Promise<string[]> => {
   try {
-    const followsCollection = collection(db, 'follows');
-    const followersQuery = query(
-      followsCollection,
-      where('followedId', '==', userId)
-    );
-
-    const querySnapshot = await getDocs(followersQuery);
+    const querySnapshot = await db
+      .collection('follows')
+      .where('followedId', '==', userId)
+      .get();
     
     // Extract the follower user IDs from the documents
     return querySnapshot.docs.map(doc => {
@@ -270,20 +241,17 @@ export const getFollowCounts = async (
 ): Promise<{ followers: number; following: number }> => {
   try {
     // Get followers (users following userId)
-    const followersCollection = collection(db, 'follows');
-    const followersQuery = query(
-      followersCollection,
-      where('followedId', '==', userId)
-    );
-    const followersSnapshot = await getDocs(followersQuery);
+    const followersSnapshot = await db
+      .collection('follows')
+      .where('followedId', '==', userId)
+      .get();
     const followersCount = followersSnapshot.size;
 
     // Get following (users that userId is following)
-    const followingQuery = query(
-      followersCollection,
-      where('followerId', '==', userId)
-    );
-    const followingSnapshot = await getDocs(followingQuery);
+    const followingSnapshot = await db
+      .collection('follows')
+      .where('followerId', '==', userId)
+      .get();
     const followingCount = followingSnapshot.size;
 
     return {

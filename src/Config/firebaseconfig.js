@@ -47,35 +47,4 @@ export const signOut = async () => {
     console.error('Sign out error:', error);
     throw error;
   }
-};
-
-// Helper function to ensure user profile exists
-export const ensureUserProfile = async (userId, email) => {
-  try {
-    const userRef = db.collection('users').doc(userId);
-    const userDoc = await userRef.get();
-
-    if (!userDoc.exists) {
-      console.log('Creating default profile for user:', userId);
-      const defaultProfile = {
-        userID: userId,
-        email: email,
-        username: '',
-        fullName: '',
-        profilePictureURL: '',
-        createdAt: Timestamp.now(),
-        isVerified: false,
-        userRole: 'user',
-        userGender: '',
-        userDisplayName: '',
-        userPronouns: '',
-        userType: 'basic',
-      };
-      await userRef.set(defaultProfile);
-      console.log('Default profile created successfully');
-    }
-  } catch (error) {
-    console.error('Error ensuring user profile:', error);
-    throw error;
-  }
-};
+}; 

@@ -11,6 +11,7 @@ import SignInScreen from '../screens/auth/SignInScreen';
 import SignUpScreen from '../screens/auth/SignUpScreen';
 import WelcomeScreen from '../screens/auth/WelcomeScreen';
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
+import ResetAuthScreen from '../screens/auth/ResetAuthScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import { AuthStackParamList } from './types';
 import { View, StyleSheet, Dimensions, Platform, Animated } from 'react-native'; // Added Platform and Animated
@@ -164,6 +165,14 @@ const AuthNavigator: React.FC<AuthNavigatorProps> = ({ initialRouteName = 'Welco
               ? pushFullTransitionInterpolator 
               : horizontalSlideInterpolator;
             return { cardStyleInterpolator: interpolator };
+          }}
+        />
+        <Stack.Screen 
+          name="ResetAuth" 
+          component={ResetAuthScreen}
+          options={{
+            cardStyleInterpolator: fadeTransitionInterpolator,
+            gestureEnabled: false,
           }}
         />
         <Stack.Screen 

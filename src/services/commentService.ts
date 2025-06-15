@@ -1,18 +1,5 @@
 import { db, auth } from '../Config/firebaseconfig';
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  updateDoc, 
-  getDoc, 
-  getDocs, 
-  deleteDoc, 
-  query, 
-  where, 
-  orderBy, 
-  runTransaction,
-  serverTimestamp 
-} from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 
 /**
  * Interface for Comment document
@@ -48,18 +35,17 @@ export const addComment = async (postId: string, text: string): Promise<Comment>
     let commentRef: any;
     
     // Use a transaction to ensure consistent comment count
-    await runTransaction(db, async (transaction) => {
+    await db.runTransaction(async (transaction) => {
       // Get the post document
-      const postRef = doc(db, 'posts', postId);
+      const postRef = db.collection('posts').doc(postId);
       const postDoc = await transaction.get(postRef);
 
-      if (!postDoc.exists()) {
+      if (!postDoc.exists) {
         throw new Error(`Post ${postId} does not exist`);
       }
 
       // Create a new comment document
-      const commentsCollection = collection(db, 'comments');
-      commentRef = doc(commentsCollection);
+      commentRef = db.collection('comments').doc();
       
       transaction.set(commentRef, {
         userId,
@@ -68,7 +54,7 @@ export const addComment = async (postId: string, text: string): Promise<Comment>
         postId,
         text,
         likes: 0,
-        createdAt: serverTimestamp()
+        createdAt: firestore.FieldValue.serverTimestamp()
       });
 
       // Update the post's comment count
@@ -111,12 +97,12 @@ export const deleteComment = async (commentId: string, postId: string): Promise<
     }
 
     // Use a transaction to ensure consistent comment count
-    await runTransaction(db, async (transaction) => {
+    await db.runTransaction(async (transaction) => {
       // Get the comment document
-      const commentRef = doc(db, 'comments', commentId);
+      const commentRef = db.collection('comments').doc(commentId);
       const commentDoc = await transaction.get(commentRef);
 
-      if (!commentDoc.exists()) {
+      if (!commentDoc.exists) {
         throw new Error(`Comment ${commentId} does not exist`);
       }
 
@@ -127,10 +113,10 @@ export const deleteComment = async (commentId: string, postId: string): Promise<
       }
 
       // Get the post document
-      const postRef = doc(db, 'posts', postId);
+      const postRef = db.collection('posts').doc(postId);
       const postDoc = await transaction.get(postRef);
 
-      if (!postDoc.exists()) {
+      if (!postDoc.exists) {
         throw new Error(`Post ${postId} does not exist`);
       }
 
@@ -158,17 +144,14 @@ export const deleteComment = async (commentId: string, postId: string): Promise<
  */
 export const getCommentsByPost = async (postId: string): Promise<Comment[]> => {
   try {
-    const commentsCollection = collection(db, 'comments');
-    const commentsQuery = query(
-      commentsCollection,
-      where('postId', '==', postId),
-      orderBy('createdAt', 'desc')
-    );
-
-    const querySnapshot = await getDocs(commentsQuery);
+    const querySnapshot = await db
+      .collection('comments')
+      .where('postId', '==', postId)
+      .orderBy('createdAt', 'desc')
+      .get();
     const comments: Comment[] = [];
 
-    querySnapshot.forEach((doc) => {
+    querySnapshot.docs.forEach((doc) => {
       const data = doc.data();
       comments.push({
         id: doc.id,
@@ -196,15 +179,15 @@ export const getCommentsByPost = async (postId: string): Promise<Comment[]> => {
  */
 export const likeComment = async (commentId: string): Promise<void> => {
   try {
-    const commentRef = doc(db, 'comments', commentId);
-    const commentDoc = await getDoc(commentRef);
+    const commentRef = db.collection('comments').doc(commentId);
+    const commentDoc = await commentRef.get();
 
-    if (!commentDoc.exists()) {
+    if (!commentDoc.exists) {
       throw new Error(`Comment ${commentId} does not exist`);
     }
 
     const currentLikes = commentDoc.data().likes || 0;
-    await updateDoc(commentRef, {
+    await commentRef.update({
       likes: currentLikes + 1
     });
 
@@ -222,15 +205,15 @@ export const likeComment = async (commentId: string): Promise<void> => {
  */
 export const unlikeComment = async (commentId: string): Promise<void> => {
   try {
-    const commentRef = doc(db, 'comments', commentId);
-    const commentDoc = await getDoc(commentRef);
+    const commentRef = db.collection('comments').doc(commentId);
+    const commentDoc = await commentRef.get();
 
-    if (!commentDoc.exists()) {
+    if (!commentDoc.exists) {
       throw new Error(`Comment ${commentId} does not exist`);
     }
 
     const currentLikes = commentDoc.data().likes || 0;
-    await updateDoc(commentRef, {
+    await commentRef.update({
       likes: Math.max(0, currentLikes - 1)
     });
 

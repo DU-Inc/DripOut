@@ -23,8 +23,7 @@ import {
   RefreshControl,
   Linking
 } from 'react-native';
-import { db } from '../../Config/firebaseconfig';
-import { auth } from '../../Config/firebaseconfig';
+import { db, auth, Timestamp } from '../../Config/firebaseconfig';
 import { createUserProfile, UserProfile, getUserPreferences, UserPreferences, setUserPreferences, propagateProfileUpdates } from '../../services/firestoreService';
 import { getPostsByUser, Post } from '../../services/postService';
 import { followUser, unfollowUser, isUserFollowing, getFollowCounts } from '../../services/followService';
@@ -32,7 +31,7 @@ import { takePhotoWithCamera, selectImageFromLibrary, ImageAsset } from '../../s
 import { uploadImageAndGetURL } from '../../services/storageService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootStackParamList } from '../../types/NavigationTypes';
-import { doc, onSnapshot, updateDoc, Timestamp } from 'firebase/firestore';
+// Firestore imported via db from config
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
@@ -247,15 +246,13 @@ const UserProfileScreen: React.FC = () => {
     setOutfitsLoading(true);
     try {
       console.log('Fetching saved outfits for user:', userId);
-      // Query the saved_outfits collection for the current user
-      const outfitsQuery = query(
-        collection(db, "saved_outfits"),
-        where("userId", "==", userId),
-        orderBy("createdAt", "desc"),
-        limit(10) // Limit to 10 most recent outfits
-      );
-      
-      const outfitsSnapshot = await getDocs(outfitsQuery);
+      // Query the saved_outfits collection for the current user using React Native Firebase
+      const outfitsSnapshot = await db
+        .collection("saved_outfits")
+        .where("userId", "==", userId)
+        .orderBy("createdAt", "desc")
+        .limit(10)
+        .get();
       
       if (outfitsSnapshot.empty) {
         console.log("No saved outfits found");
@@ -289,15 +286,13 @@ const UserProfileScreen: React.FC = () => {
   const fetchFavoriteProducts = useCallback(async (userId: string) => {
     try {
       console.log('Fetching favorite products for user:', userId);
-      // Query the user_favorite_products collection
-      const favoritesQuery = query(
-        collection(db, "user_favorite_products"),
-        where("userId", "==", userId),
-        orderBy("favorited", "desc"),
-        limit(10) // Limit to 10 most recent favorites
-      );
-      
-      const favoritesSnapshot = await getDocs(favoritesQuery);
+      // Query the user_favorite_products collection using React Native Firebase
+      const favoritesSnapshot = await db
+        .collection("user_favorite_products")
+        .where("userId", "==", userId)
+        .orderBy("favorited", "desc")
+        .limit(10)
+        .get();
       
       if (favoritesSnapshot.empty) {
         console.log("No favorite products found");
@@ -566,8 +561,7 @@ const UserProfileScreen: React.FC = () => {
       
       // Update the user's profile with the new image URL
       console.log('Updating user document in Firestore');
-      const userRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userRef, {
+      await db.collection('users').doc(currentUser.uid).update({
         profilePictureURL: imageUrl,
         updatedAt: new Date()
       });
@@ -630,7 +624,7 @@ const UserProfileScreen: React.FC = () => {
         
         if (user) {
           console.log('Fetching profile for user:', user.uid);
-          setProfileUserId(user.uid); // Store the profile user ID
+          setProfileUserId(user.uid);
           
           // Get user-specific profile cache keys
           const profileCacheKey = getUserProfileCacheKey(user.uid);
@@ -641,6 +635,8 @@ const UserProfileScreen: React.FC = () => {
             const cachedTimestampStr = await AsyncStorage.getItem(profileTimestampKey);
             const cachedProfileStr = await AsyncStorage.getItem(profileCacheKey);
             
+            console.log(`Profile cache check - timestamp: ${!!cachedTimestampStr}, profile: ${!!cachedProfileStr}`);
+            
             if (cachedTimestampStr && cachedProfileStr) {
               const timestamp = parseInt(cachedTimestampStr);
               const now = Date.now();
@@ -650,7 +646,9 @@ const UserProfileScreen: React.FC = () => {
                 const cachedProfile = JSON.parse(cachedProfileStr);
                 setProfile(cachedProfile);
                 setLoading(false);
-                console.log(`Using cached profile data for user ${user.uid}`);
+                console.log(`Using cached profile data for user ${user.uid} - loading set to false`);
+              } else {
+                console.log(`Profile cache expired for user ${user.uid}, will fetch from Firestore`);
               }
             }
           } catch (cacheError) {
@@ -658,14 +656,13 @@ const UserProfileScreen: React.FC = () => {
           }
           
           // Set up a real-time listener for the user's profile
-          const userRef = doc(db, 'users', user.uid);
-          profileUnsubscribe = onSnapshot(userRef, async (docSnap) => {
-            if (docSnap.exists()) {
-              console.log('Profile found:', docSnap.id);
+          profileUnsubscribe = db.collection('users').doc(user.uid).onSnapshot(async (docSnap) => {
+            if (docSnap.exists) {
+              console.log('Profile found from Firestore:', docSnap.id);
               const userData = docSnap.data() as UserProfile;
               
               // Convert Firestore Timestamp to Date if needed
-              if (userData.createdAt && userData.createdAt instanceof Timestamp) {
+              if (userData.createdAt && userData.createdAt.toDate && typeof userData.createdAt.toDate === 'function') {
                 userData.createdAt = userData.createdAt.toDate();
               }
               
@@ -673,9 +670,6 @@ const UserProfileScreen: React.FC = () => {
               
               // Update profile cache with user-specific keys
               try {
-                const profileCacheKey = getUserProfileCacheKey(user.uid);
-                const profileTimestampKey = getUserProfileTimestampKey(user.uid);
-                
                 await AsyncStorage.setItem(profileCacheKey, JSON.stringify(userData));
                 await AsyncStorage.setItem(profileTimestampKey, Date.now().toString());
                 console.log(`Profile cache updated for user ${user.uid}`);
@@ -686,28 +680,40 @@ const UserProfileScreen: React.FC = () => {
               console.log('No profile found for user');
               setProfile(null);
             }
+            console.log('Setting loading to false from Firestore listener');
             setLoading(false);
           }, (error) => {
             console.error('Error fetching profile:', error);
             setLoading(false);
           });
           
-          // Fetch preferences with caching
-          await fetchAndCachePreferences(user.uid);
-          
-          // Fetch user posts with caching
-          await fetchPosts(user.uid);
-
-          // Fetch saved outfits and favorite products
-          await fetchSavedOutfits(user.uid);
-          await fetchFavoriteProducts(user.uid);
-
-          // Fetch follow counts
-          await fetchFollowCounts(user.uid);
-
-          // Check if current user follows this profile (if viewing another user's profile)
-          if (user.uid !== profileUserId && profileUserId) {
-            await checkFollowStatus(user.uid, profileUserId);
+          // Fetch all additional data in parallel with proper error handling
+          try {
+            const [prefs, posts, outfits, products, counts] = await Promise.allSettled([
+              fetchAndCachePreferences(user.uid),
+              fetchPosts(user.uid),
+              fetchSavedOutfits(user.uid),
+              fetchFavoriteProducts(user.uid),
+              fetchFollowCounts(user.uid)
+            ]);
+            
+            // Log any failures
+            if (prefs.status === 'rejected') console.error('Failed to fetch preferences:', prefs.reason);
+            if (posts.status === 'rejected') console.error('Failed to fetch posts:', posts.reason);
+            if (outfits.status === 'rejected') console.error('Failed to fetch outfits:', outfits.reason);
+            if (products.status === 'rejected') console.error('Failed to fetch products:', products.reason);
+            if (counts.status === 'rejected') console.error('Failed to fetch follow counts:', counts.reason);
+            
+            // Check if current user follows this profile (if viewing another user's profile)
+            if (user.uid !== profileUserId && profileUserId) {
+              try {
+                await checkFollowStatus(user.uid, profileUserId);
+              } catch (error) {
+                console.error('Failed to check follow status:', error);
+              }
+            }
+          } catch (error) {
+            console.error('Error fetching additional data:', error);
           }
         } else {
           console.log('No user logged in');
@@ -1035,27 +1041,66 @@ const UserProfileScreen: React.FC = () => {
         </TouchableOpacity>
       </Animated.View>
       
-      <Animated.ScrollView
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
-        scrollEventThrottle={16}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {profile ? (
-          <>
-            {/* Profile Header Section */}
-            <Animated.View 
-              style={[
-                styles.profileHeader,
-                {
-                  transform: [{ scale: profileScale }],
-                  opacity: profileOpacity
-                }
-              ]}
+      {profile ? (
+        <FlatList
+          data={userPosts}
+          numColumns={3}
+          showsVerticalScrollIndicator={false}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: false }
+          )}
+          scrollEventThrottle={16}
+          contentContainerStyle={styles.scrollContent}
+          key={activeTab} // Force re-render when tab changes
+          keyExtractor={(item) => item.id}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={mainColor}
+              colors={[mainColor]}
+            />
+          }
+          renderItem={({ item }) => (
+            <TouchableOpacity 
+              style={[styles.postCard, { display: activeTab === 'posts' ? 'flex' : 'none' }]}
+              onPress={() => {
+                setSelectedPost(item);
+                setIsPostModalVisible(true);
+              }}
             >
+              <Image 
+                source={{ uri: item.imageUrl || 'https://via.placeholder.com/150' }}
+                style={styles.postImage} 
+                resizeMode="cover"
+              />
+              <View style={styles.postOverlay}>
+                <View style={styles.postStats}>
+                  <View style={styles.postStat}>
+                    <Icon name="heart" size={12} color="#FFFFFF" />
+                    <Text style={styles.postStatText}>{item.likes || 0}</Text>
+                  </View>
+                  <View style={styles.postStat}>
+                    <Icon name="chatbubble" size={12} color="#FFFFFF" />
+                    <Text style={styles.postStatText}>{item.comments || 0}</Text>
+                  </View>
+                </View>
+              </View>
+            </TouchableOpacity>
+          )}
+          ListHeaderComponent={() => (
+            <>
+              {/* Profile Header Section */}
+              <Animated.View 
+                style={[
+                  styles.profileHeader,
+                  {
+                    transform: [{ scale: profileScale }],
+                    opacity: profileOpacity
+                  }
+                ]}
+              >
               <View style={styles.profileGradient}>
                 <ImageBackground
                   source={{ uri: 'https://images.unsplash.com/photo-1445205170230-053b83016050?q=80&w=1000&auto=format' }}
@@ -1243,75 +1288,37 @@ const UserProfileScreen: React.FC = () => {
                 ]}>Settings</Text>
               </TouchableOpacity>
             </View>
-            
-            {/* Posts Grid */}
-            {activeTab === 'posts' && (
+            </>
+          )}
+          ListFooterComponent={() => (
+            <>
+            {/* Posts Grid Loading/Empty States */}
+            {activeTab === 'posts' && userPosts.length === 0 && !postsLoading && (
               <View style={styles.sectionContainer}>
-                {postsLoading ? (
-                  <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="small" color={mainColor} />
-                    <Text style={[styles.loadingText, { color: subTextColor }]}>Loading posts...</Text>
-                  </View>
-                ) : userPosts.length > 0 ? (
-                  <FlatList
-                    data={userPosts}
-                    numColumns={3}
-                    renderItem={({ item }) => (
-                      <TouchableOpacity 
-                        style={styles.postCard}
-                        onPress={() => {
-                          setSelectedPost(item);
-                          setIsPostModalVisible(true);
-                        }}
-                      >
-                        <Image 
-                          source={{ uri: item.imageUrl || 'https://via.placeholder.com/150' }}
-                          style={styles.postImage} 
-                          resizeMode="cover"
-                        />
-                        <View style={styles.postOverlay}>
-                          <View style={styles.postStats}>
-                            <View style={styles.postStat}>
-                              <Icon name="heart" size={12} color="#FFFFFF" />
-                              <Text style={styles.postStatText}>{item.likes || 0}</Text>
-                            </View>
-                            <View style={styles.postStat}>
-                              <Icon name="chatbubble" size={12} color="#FFFFFF" />
-                              <Text style={styles.postStatText}>{item.comments || 0}</Text>
-                            </View>
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    )}
-                    keyExtractor={(item) => item.id}
-                    contentContainerStyle={styles.postsGrid}
-                    refreshControl={
-                      <RefreshControl
-                        refreshing={refreshing}
-                        onRefresh={onRefresh}
-                        tintColor={mainColor}
-                        colors={[mainColor]}
-                      />
-                    }
-                  />
-                ) : (
-                  <View style={styles.emptyPostsContainer}>
-                    <Icon name="images-outline" size={60} color={subTextColor} style={{ opacity: 0.5 }} />
-                    <Text style={[styles.emptyPostsText, { color: textColor }]}>
-                      No Posts Yet
-                    </Text>
-                    <Text style={[styles.emptyPostsSubText, { color: subTextColor }]}>
-                      Share your style by creating your first post
-                    </Text>
-                    <TouchableOpacity 
-                      style={[styles.createPostButton, { backgroundColor: mainColor }]}
-                      onPress={() => navigation.navigate('CreatePostScreen' as never)}
-                    >
-                      <Text style={styles.createPostButtonText}>Create Post</Text>
-                      <Icon name="add-circle" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
-                    </TouchableOpacity>
-                  </View>
-                )}
+                <View style={styles.emptyPostsContainer}>
+                  <Icon name="images-outline" size={60} color={subTextColor} style={{ opacity: 0.5 }} />
+                  <Text style={[styles.emptyPostsText, { color: textColor }]}>
+                    No Posts Yet
+                  </Text>
+                  <Text style={[styles.emptyPostsSubText, { color: subTextColor }]}>
+                    Share your style by creating your first post
+                  </Text>
+                  <TouchableOpacity 
+                    style={[styles.createPostButton, { backgroundColor: mainColor }]}
+                    onPress={() => navigation.navigate('CreatePostScreen' as never)}
+                  >
+                    <Text style={styles.createPostButtonText}>Create Post</Text>
+                    <Icon name="add-circle" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            {activeTab === 'posts' && postsLoading && (
+              <View style={styles.sectionContainer}>
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color={mainColor} />
+                  <Text style={[styles.loadingText, { color: subTextColor }]}>Loading posts...</Text>
+                </View>
               </View>
             )}
             
@@ -1712,23 +1719,15 @@ const UserProfileScreen: React.FC = () => {
                 {profile.userType ? `${profile.userType.charAt(0).toUpperCase() + profile.userType.slice(1)} account` : 'Basic account'} · Created {profile.createdAt ? new Date(profile.createdAt).toLocaleDateString() : 'recently'}
               </Text>
             </View>
-          </>
-        ) : (
-          <View style={[styles.noProfileContainer, { backgroundColor: cardBgColor }]}>
-            <Icon name="person-circle-outline" size={80} color={mainColor} style={styles.noProfileIcon} />
-            <Text style={[styles.noProfileTitle, { color: textColor }]}>Create Your Profile</Text>
-            <Text style={[styles.noProfileDescription, { color: subTextColor }]}>
-              Set up your profile to get personalized style recommendations and show off your fashion sense.
-            </Text>
-            <TouchableOpacity 
-              style={[styles.createProfileButton, { backgroundColor: mainColor }]}
-              onPress={handleAddProfile}
-            >
-              <Text style={styles.createProfileButtonText}>Create Profile</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </Animated.ScrollView>
+            </>
+          )}
+        />
+      ) : (
+        <View style={[styles.loadingContainer, { backgroundColor: bgColor }]}>
+          <ActivityIndicator size="large" color={mainColor} />
+          <Text style={[styles.loadingText, { color: subTextColor }]}>Loading your profile...</Text>
+        </View>
+      )}
       
       {/* Style Board Detail Modal */}
       {renderStyleBoardModal()}

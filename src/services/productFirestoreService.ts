@@ -1,11 +1,3 @@
-import { 
-  collection, 
-  getDocs, 
-  query, 
-  where, 
-  orderBy, 
-  limit 
-} from 'firebase/firestore';
 import { db } from '../Config/firebaseconfig';
 
 /**
@@ -57,14 +49,11 @@ const getProductsByType = async (productType: string, maxResults: number = 10): 
   try {
     console.log(`Fetching products of type: ${productType}`);
     
-    const productsCollection = collection(db, 'products');
-    const productsQuery = query(
-      productsCollection,
-      where('productType', '==', productType),
-      limit(maxResults)
-    );
-    
-    const productsSnapshot = await getDocs(productsQuery);
+    const productsSnapshot = await db
+      .collection('products')
+      .where('productType', '==', productType)
+      .limit(maxResults)
+      .get();
     
     if (productsSnapshot.empty) {
       console.log(`No products found for type: ${productType}`);
@@ -75,7 +64,7 @@ const getProductsByType = async (productType: string, maxResults: number = 10): 
     
     const formattedProducts: FormattedProduct[] = [];
     
-    productsSnapshot.forEach(doc => {
+    productsSnapshot.docs.forEach(doc => {
       const product = doc.data();
       const formattedProduct = formatFirestoreProduct(product, doc.id);
       formattedProducts.push(formattedProduct);

@@ -4,7 +4,7 @@ import { GoogleSignin, statusCodes, User as GoogleUser } from '@react-native-goo
 import { googleSignIn } from '../services/firebase';
 import { Platform } from 'react-native';
 import { FIREBASE_CLIENT_ID } from '@env';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+// Using React Native Firebase
 import { db } from '../Config/firebaseconfig';
 import { FirebaseAuthTypes } from '@react-native-firebase/auth';
 
@@ -44,9 +44,7 @@ export const useGoogleAuth = () => {
   // Check if a user with the given email exists in Firestore
   const checkUserExists = async (email: string): Promise<boolean> => {
     try {
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('email', '==', email));
-      const snapshot = await getDocs(q);
+      const snapshot = await db.collection('users').where('email', '==', email).get();
       return !snapshot.empty;
     } catch (err) {
       console.error("Error checking if user exists:", err);

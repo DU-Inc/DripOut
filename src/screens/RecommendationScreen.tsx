@@ -23,7 +23,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import { useTheme } from '../styles/theme/ThemeContext';
 import { searchProducts, Product, checkApiHealth } from '../services/recommendationService';
-import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 import { db, auth } from '../Config/firebaseconfig';
 import { useNavigation } from '@react-navigation/native';
 
@@ -605,12 +605,12 @@ const RecommendationScreen: React.FC = () => {
 
     try {
       // Fetch user profile
-      const profileDoc = await getDoc(doc(db, 'users', userId));
-      const profileData = profileDoc.exists() ? profileDoc.data() : null;
+      const profileDoc = await db.collection('users').doc(userId).get();
+      const profileData = profileDoc.exists ? profileDoc.data() : null;
       
       // Fetch user preferences
-      const preferencesDoc = await getDoc(doc(db, 'user_preferences', userId));
-      const preferencesData = preferencesDoc.exists() ? preferencesDoc.data() : null;
+      const preferencesDoc = await db.collection('user_preferences').doc(userId).get();
+      const preferencesData = preferencesDoc.exists ? preferencesDoc.data() : null;
       
       // Combine profile and preferences
       const combinedProfile = {
@@ -786,8 +786,7 @@ const RecommendationScreen: React.FC = () => {
       console.log("Saving favorite data:", JSON.stringify(favoriteData, null, 2));
       
       // Add to Firebase collection
-      const collectionRef = collection(db, 'user_favorite_products');
-      await addDoc(collectionRef, favoriteData);
+      await db.collection('user_favorite_products').add(favoriteData);
       
       Alert.alert(
         "Added to Favorites", 

@@ -8,7 +8,7 @@ import { Platform } from 'react-native';
 import { Buffer } from 'buffer';
 
 // API configuration
-const API_BASE_URL = 'http://192.168.1.231:8082'; // For local development
+const API_BASE_URL = 'http://192.168.1.251:8082'; // For local development
 // const API_BASE_URL = "10.41.97.93";
 console.log('📡 Recommendation API configured with base URL:', API_BASE_URL);
 

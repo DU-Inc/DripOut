@@ -5,7 +5,7 @@ import { NavigationProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../types/NavigationTypes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '../../Config/firebaseconfig';
-import { doc, getDoc } from 'firebase/firestore';
+// Using React Native Firebase
 
 interface StepTrackerProps {
   totalSteps: number;
@@ -51,8 +51,8 @@ const StepTracker: React.FC<StepTrackerProps> = ({
       
       // First try to get data from Firestore for most accurate state
       if (currentUser) {
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        if (userDoc.exists() && userDoc.data().onboardingSteps) {
+        const userDoc = await db.collection('users').doc(currentUser.uid).get();
+        if (userDoc.exists && userDoc.data()?.onboardingSteps) {
           const dbSteps = userDoc.data().onboardingSteps;
           if (dbSteps.completedSteps && Array.isArray(dbSteps.completedSteps)) {
             updatedCompletedSteps = dbSteps.completedSteps;

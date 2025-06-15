@@ -1,4 +1,4 @@
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import functions from '@react-native-firebase/functions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Constants for rate limiting
@@ -37,11 +37,8 @@ export const requestVerificationCode = async (email: string): Promise<boolean> =
       throw new Error("Maximum verification attempts reached. Please try again later.");
     }
     
-    // Get a reference to the US-Central1 region functions
-    const functions = getFunctions(undefined, 'us-central1');
-    
     // Get a callable reference to the sendVerificationEmailFn
-    const sendVerificationEmailFn = httpsCallable(functions, 'sendVerificationEmailFn');
+    const sendVerificationEmailFn = functions().httpsCallable('sendVerificationEmailFn');
     
     // Call the cloud function with the email
     const result = await sendVerificationEmailFn({ email });
@@ -87,11 +84,8 @@ export const requestVerificationCode = async (email: string): Promise<boolean> =
 // Verify a code
 export const verifyCode = async (email: string, submittedCode: string): Promise<boolean> => {
   try {
-    // Get a reference to the US-Central1 region functions
-    const functions = getFunctions(undefined, 'us-central1');
-    
     // Get a callable reference to the verifyEmailFn
-    const verifyEmailFn = httpsCallable(functions, 'verifyEmailFn');
+    const verifyEmailFn = functions().httpsCallable('verifyEmailFn');
     
     // Call the cloud function with the email and verification code
     const result = await verifyEmailFn({ 

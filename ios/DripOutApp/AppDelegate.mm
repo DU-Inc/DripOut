@@ -1,6 +1,7 @@
 #import "AppDelegate.h"
 #import <Firebase.h>
 #import <React/RCTBundleURLProvider.h>
+// import { DevSettings, Platform, Button } from 'react-native';
 
 @implementation AppDelegate
 
@@ -25,12 +26,13 @@
 - (NSURL *)bundleURL
 {
 #if DEBUG
-  // Explicitly set the host IP for device debugging
-  [[RCTBundleURLProvider sharedSettings] setJsLocation:@"192.168.1.231"]; 
+  [[RCTBundleURLProvider sharedSettings] setJsLocation:@"192.168.1.251"]; 
   return [[RCTBundleURLProvider sharedSettings] jsBundleURLForBundleRoot:@"index"];
 #else
   return [[NSBundle mainBundle] URLForResource:@"main" withExtension:@"jsbundle"];
 #endif
 }
+
+
 
 @end

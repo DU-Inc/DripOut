@@ -1,20 +1,4 @@
-import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  DocumentReference, 
-  DocumentData, 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  getDocs, 
-  startAt, 
-  endAt,
-  writeBatch,
-  updateDoc
-} from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 import { db } from '../Config/firebaseconfig';
 
 // Add global setTimeout type declaration at the top of the file
@@ -95,9 +79,9 @@ export const createUserProfile = async (userId: string, profileData: Partial<Use
     while (retryCount <= maxRetries) {
       try {
         // Create a reference to the user document in the 'users' collection.
-        const userDocRef: DocumentReference<DocumentData> = doc(db, 'users', userId);
+        const userDocRef = db.collection('users').doc(userId);
         // Use merge: true so that existing fields are not overwritten.
-        await setDoc(userDocRef, cleanProfileData, { merge: true });
+        await userDocRef.set(cleanProfileData, { merge: true });
         console.log('User profile successfully written!');
         return; // Successfully written, exit the function.
       } catch (innerError: any) {
@@ -133,10 +117,10 @@ export const createUserProfile = async (userId: string, profileData: Partial<Use
  */
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
   try {
-    const userDocRef: DocumentReference<DocumentData> = doc(db, 'users', userId);
-    const userDoc = await getDoc(userDocRef);
+    const userDocRef = db.collection('users').doc(userId);
+    const userDoc = await userDocRef.get();
 
-    if (userDoc.exists()) {
+    if (userDoc.exists) {
       return userDoc.data() as UserProfile;
     } else {
       console.log('No such user profile!');
@@ -156,7 +140,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
  */
 export const updateBiometricPreference = async (userId: string, useBiometric: boolean): Promise<void> => {
   try {
-    const userDocRef: DocumentReference<DocumentData> = doc(db, 'users', userId);
+    const userDocRef = db.collection('users').doc(userId);
     // Data to update (includes "userID" for matching security rules).
     const updateData = {
       userID: userId,
@@ -169,7 +153,7 @@ export const updateBiometricPreference = async (userId: string, useBiometric: bo
 
     while (retryCount <= maxRetries) {
       try {
-        await setDoc(userDocRef, updateData, { merge: true });
+        await userDocRef.set(updateData, { merge: true });
         console.log('Biometric preference updated!');
         return;
       } catch (innerError: any) {
@@ -202,8 +186,8 @@ export const updateBiometricPreference = async (userId: string, useBiometric: bo
  */
 export const setUserPreferences = async (userId: string, preferencesData: Partial<UserPreferences>): Promise<void> => {
   try {
-    const preferencesDocRef: DocumentReference<DocumentData> = doc(db, 'user_preferences', userId);
-    await setDoc(preferencesDocRef, preferencesData, { merge: true });
+    const preferencesDocRef = db.collection('user_preferences').doc(userId);
+    await preferencesDocRef.set(preferencesData, { merge: true });
     console.log('User preferences successfully written!');
   } catch (error) {
     console.error('Error writing user preferences: ', error);
@@ -219,10 +203,10 @@ export const setUserPreferences = async (userId: string, preferencesData: Partia
  */
 export const getUserPreferences = async (userId: string): Promise<UserPreferences | null> => {
   try {
-    const preferencesDocRef: DocumentReference<DocumentData> = doc(db, 'user_preferences', userId);
-    const preferencesDoc = await getDoc(preferencesDocRef);
+    const preferencesDocRef = db.collection('user_preferences').doc(userId);
+    const preferencesDoc = await preferencesDocRef.get();
 
-    if (preferencesDoc.exists()) {
+    if (preferencesDoc.exists) {
       return preferencesDoc.data() as UserPreferences;
     } else {
       console.log('No such user preferences!');
@@ -254,25 +238,22 @@ export const searchUsers = async (searchTerm: string, maxResults: number = 20): 
     const searchTermUpper = searchTerm.toLowerCase() + '\uf8ff'; // Unicode character after all other characters
     
     // Create a query against the users collection
-    const usersCollection = collection(db, 'users');
     let results: UserProfile[] = [];
     const userIds = new Set<string>();
     
     // Try to match by email first (exact match with contains logic)
-    const emailQuery = query(
-      usersCollection,
-      where('email', '>=', searchTermLower),
-      where('email', '<=', searchTermUpper),
-      orderBy('email'),
-      limit(maxResults)
-    );
-    
     console.log('Executing email search query');
-    const emailSnapshot = await getDocs(emailQuery);
+    const emailSnapshot = await db
+      .collection('users')
+      .where('email', '>=', searchTermLower)
+      .where('email', '<=', searchTermUpper)
+      .orderBy('email')
+      .limit(maxResults)
+      .get();
     
     if (!emailSnapshot.empty) {
       console.log(`Found ${emailSnapshot.size} results matching email`);
-      emailSnapshot.forEach(doc => {
+      emailSnapshot.docs.forEach(doc => {
         const userData = doc.data() as UserProfile;
         results.push(userData);
         userIds.add(userData.userID);
@@ -283,20 +264,18 @@ export const searchUsers = async (searchTerm: string, maxResults: number = 20): 
     if (results.length < maxResults) {
       const remainingResults = maxResults - results.length;
       
-      const usernameQuery = query(
-        usersCollection,
-        where('username', '>=', searchTermLower),
-        where('username', '<=', searchTermUpper),
-        orderBy('username'),
-        limit(remainingResults)
-      );
-      
       console.log('Executing username search query');
-      const usernameSnapshot = await getDocs(usernameQuery);
+      const usernameSnapshot = await db
+        .collection('users')
+        .where('username', '>=', searchTermLower)
+        .where('username', '<=', searchTermUpper)
+        .orderBy('username')
+        .limit(remainingResults)
+        .get();
       
       if (!usernameSnapshot.empty) {
         console.log(`Found ${usernameSnapshot.size} results matching username`);
-        usernameSnapshot.forEach(doc => {
+        usernameSnapshot.docs.forEach(doc => {
           const userData = doc.data() as UserProfile;
           if (!userIds.has(userData.userID)) {
             results.push(userData);
@@ -310,20 +289,18 @@ export const searchUsers = async (searchTerm: string, maxResults: number = 20): 
     if (results.length < maxResults) {
       const remainingResults = maxResults - results.length;
       
-      const displayNameQuery = query(
-        usersCollection,
-        where('userDisplayName', '>=', searchTermLower),
-        where('userDisplayName', '<=', searchTermUpper),
-        orderBy('userDisplayName'),
-        limit(remainingResults)
-      );
-      
       console.log('Executing display name search query');
-      const displayNameSnapshot = await getDocs(displayNameQuery);
+      const displayNameSnapshot = await db
+        .collection('users')
+        .where('userDisplayName', '>=', searchTermLower)
+        .where('userDisplayName', '<=', searchTermUpper)
+        .orderBy('userDisplayName')
+        .limit(remainingResults)
+        .get();
       
       if (!displayNameSnapshot.empty) {
         console.log(`Found ${displayNameSnapshot.size} results matching display name`);
-        displayNameSnapshot.forEach(doc => {
+        displayNameSnapshot.docs.forEach(doc => {
           const userData = doc.data() as UserProfile;
           if (!userIds.has(userData.userID)) {
             results.push(userData);
@@ -337,20 +314,18 @@ export const searchUsers = async (searchTerm: string, maxResults: number = 20): 
     if (results.length < maxResults) {
       const remainingResults = maxResults - results.length;
       
-      const fullNameQuery = query(
-        usersCollection,
-        where('fullName', '>=', searchTermLower),
-        where('fullName', '<=', searchTermUpper),
-        orderBy('fullName'),
-        limit(remainingResults)
-      );
-      
       console.log('Executing full name search query');
-      const fullNameSnapshot = await getDocs(fullNameQuery);
+      const fullNameSnapshot = await db
+        .collection('users')
+        .where('fullName', '>=', searchTermLower)
+        .where('fullName', '<=', searchTermUpper)
+        .orderBy('fullName')
+        .limit(remainingResults)
+        .get();
       
       if (!fullNameSnapshot.empty) {
         console.log(`Found ${fullNameSnapshot.size} results matching full name`);
-        fullNameSnapshot.forEach(doc => {
+        fullNameSnapshot.docs.forEach(doc => {
           const userData = doc.data() as UserProfile;
           if (!userIds.has(userData.userID)) {
             results.push(userData);
@@ -376,13 +351,10 @@ export const searchUsers = async (searchTerm: string, maxResults: number = 20): 
  */
 export const getUserProfileByUsername = async (username: string): Promise<UserProfile | null> => {
   try {
-    const usersCollection = collection(db, 'users');
-    const usernameQuery = query(
-      usersCollection,
-      where('username', '==', username.toLowerCase())
-    );
-    
-    const querySnapshot = await getDocs(usernameQuery);
+    const querySnapshot = await db
+      .collection('users')
+      .where('username', '==', username.toLowerCase())
+      .get();
     
     if (!querySnapshot.empty) {
       // Return the first matching user (should only be one)
@@ -450,19 +422,17 @@ export const propagateProfileUpdates = async (
         
         // Fallback to original implementation if the dedicated function fails
         console.log('Updating posts using fallback method...');
-        const postsQuery = query(
-          collection(db, 'posts'),
-          where('userId', '==', userId)
-        );
-        
-        const postsSnapshot = await getDocs(postsQuery);
+        const postsSnapshot = await db
+          .collection('posts')
+          .where('userId', '==', userId)
+          .get();
         console.log(`Found ${postsSnapshot.size} posts to update with fallback method`);
         
         // Create batches of post updates to avoid exceeding write limits
         let processedCount = 0;
-        let batch = writeBatch(db);
+        let batch = db.batch();
         
-        postsSnapshot.forEach((postDoc, index) => {
+        postsSnapshot.docs.forEach((postDoc, index) => {
           const updateData: Record<string, any> = {};
           
           if (fieldsToPropagate.username) updateData.username = fieldsToPropagate.username;
@@ -474,7 +444,7 @@ export const propagateProfileUpdates = async (
           // Commit when batch reaches limit and start a new batch
           if (processedCount % batchSize === 0 || index === postsSnapshot.size - 1) {
             updatePromises.push(batch.commit());
-            batch = writeBatch(db);
+            batch = db.batch();
           }
         });
       }
@@ -483,18 +453,16 @@ export const propagateProfileUpdates = async (
     // 2. Update user comments
     if (fieldsToPropagate.username || fieldsToPropagate.userAvatar) {
       console.log('Updating comments...');
-      const commentsQuery = query(
-        collection(db, 'comments'),
-        where('userId', '==', userId)
-      );
-      
-      const commentsSnapshot = await getDocs(commentsQuery);
+      const commentsSnapshot = await db
+        .collection('comments')
+        .where('userId', '==', userId)
+        .get();
       console.log(`Found ${commentsSnapshot.size} comments to update`);
       
       let processedCount = 0;
-      let batch = writeBatch(db);
+      let batch = db.batch();
       
-      commentsSnapshot.forEach((commentDoc, index) => {
+      commentsSnapshot.docs.forEach((commentDoc, index) => {
         const updateData: Record<string, any> = {};
         
         if (fieldsToPropagate.username) updateData.username = fieldsToPropagate.username;
@@ -513,18 +481,16 @@ export const propagateProfileUpdates = async (
     // 3. Update user likes
     if (fieldsToPropagate.username) {
       console.log('Updating likes...');
-      const likesQuery = query(
-        collection(db, 'likes'),
-        where('userId', '==', userId)
-      );
-      
-      const likesSnapshot = await getDocs(likesQuery);
+      const likesSnapshot = await db
+        .collection('likes')
+        .where('userId', '==', userId)
+        .get();
       console.log(`Found ${likesSnapshot.size} likes to update`);
       
       let processedCount = 0;
-      let batch = writeBatch(db);
+      let batch = db.batch();
       
-      likesSnapshot.forEach((likeDoc, index) => {
+      likesSnapshot.docs.forEach((likeDoc, index) => {
         const updateData: Record<string, any> = {};
         
         if (fieldsToPropagate.username) updateData.username = fieldsToPropagate.username;
@@ -542,18 +508,16 @@ export const propagateProfileUpdates = async (
     // 4. Update conversations (only for display purposes, not functional data)
     if (fieldsToPropagate.username || fieldsToPropagate.userAvatar) {
       console.log('Updating message metadata...');
-      const messagesQuery = query(
-        collection(db, 'messages'),
-        where('senderId', '==', userId)
-      );
-      
-      const messagesSnapshot = await getDocs(messagesQuery);
+      const messagesSnapshot = await db
+        .collection('messages')
+        .where('senderId', '==', userId)
+        .get();
       console.log(`Found ${messagesSnapshot.size} messages to update`);
       
       let processedCount = 0;
-      let batch = writeBatch(db);
+      let batch = db.batch();
       
-      messagesSnapshot.forEach((messageDoc, index) => {
+      messagesSnapshot.docs.forEach((messageDoc, index) => {
         const updateData: Record<string, any> = {};
         
         if (fieldsToPropagate.username) updateData.senderName = fieldsToPropagate.username;

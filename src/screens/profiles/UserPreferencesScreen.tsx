@@ -17,7 +17,7 @@ import {
 import { db } from '../../Config/firebaseconfig';
 import { auth } from '../../Config/firebaseconfig';
 import { setUserPreferences, UserPreferences } from '../../services/firestoreService';
-import { doc, onSnapshot } from 'firebase/firestore'; // Import onSnapshot for real-time updates
+// React Native Firebase doesn't need separate onSnapshot import - it's part of the document reference
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 
@@ -39,8 +39,8 @@ const UserPreferencesScreen: React.FC = () => {
   useEffect(() => {
     const userId = auth().currentUser?.uid;
     if (userId) {
-      const unsubscribe = onSnapshot(doc(db, 'user_preferences', userId), (docSnapshot) => {
-        if (docSnapshot.exists()) {
+      const unsubscribe = db.collection('user_preferences').doc(userId).onSnapshot((docSnapshot) => {
+        if (docSnapshot.exists) {
           setPreferences(docSnapshot.data() as UserPreferences);
         } else {
           setPreferences(null); // No preferences found

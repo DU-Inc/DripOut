@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { ActivityIndicator, View, StyleSheet, Animated } from "react-native";
+import { ActivityIndicator, View, StyleSheet, Animated, AppState as RNAppState } from "react-native";
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -34,9 +34,9 @@ import { useTheme } from "../styles/theme/ThemeContext";
 import { appStateManager } from "../utils/appStateManager";
 import { OnboardingProvider } from "../context/OnboardingContext";
 import { auth } from "../Config/firebaseconfig";
-import { getDoc, doc } from "firebase/firestore";
 import { db } from "../Config/firebaseconfig";
 import FeedNavigator from "./feedNavigator/FeedNavigator";
+import { authGuard } from "../services/authGuard";
 
 // Add global setTimeout type
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -232,9 +232,9 @@ const OptionsSheetOverlay = ({ onNavigateToOnboarding, onDismiss }: { onNavigate
         // If no name in storage, try to get from Firestore
         const currentUser = auth().currentUser;
         if (!storedName && currentUser) {
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          if (userDoc.exists() && userDoc.data().firstName) {
-            const firstName = userDoc.data().firstName;
+          const userDoc = await db.collection('users').doc(currentUser.uid).get();
+          if (userDoc.exists && userDoc.data()?.firstName) {
+            const firstName = userDoc.data()?.firstName;
             if (typeof firstName === 'string') {
               storedName = firstName;
               // Save to AsyncStorage for future use
@@ -638,10 +638,10 @@ const AppNavigator: React.FC = () => {
           
           // User is authenticated - force check onboarding status
           try {
-            const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-            const onboardingCompleted = userDoc.exists() && userDoc.data().onboardingCompleted === true;
-            const onboardingStarted = userDoc.exists() && userDoc.data().onboardingStarted === true;
-            const onboardingSkipped = userDoc.exists() && userDoc.data().onboardingSkipped === true;
+            const userDoc = await db.collection('users').doc(currentUser.uid).get();
+            const onboardingCompleted = userDoc.exists && userDoc.data()?.onboardingCompleted === true;
+            const onboardingStarted = userDoc.exists && userDoc.data()?.onboardingStarted === true;
+            const onboardingSkipped = userDoc.exists && userDoc.data()?.onboardingSkipped === true;
             
             console.log(`AppNavigator: Onboarding - completed:${onboardingCompleted}, started:${onboardingStarted}, skipped:${onboardingSkipped}`);
             
@@ -854,7 +854,20 @@ const AppNavigator: React.FC = () => {
   
   // Update the subscribeToAuthState call to use our handler
   useEffect(() => {
-    const unsubscribeAuth = appStateManager.subscribeToAuthState(handleAuthStateChange);
+    const unsubscribeAuth = appStateManager.subscribeToAuthState((authenticated) => {
+      console.log('AppNavigator: Auth state changed ->', authenticated);
+      handleAuthStateChange(authenticated);
+      
+      // Start or stop auth guard based on authentication status
+      if (authenticated) {
+        console.log('AppNavigator: Starting auth guard for authenticated user');
+        authGuard.startAuthChecks();
+        authGuard.resetFailedChecks();
+      } else {
+        console.log('AppNavigator: Stopping auth guard for unauthenticated user');
+        authGuard.stopAuthChecks();
+      }
+    });
     
     // Keep other subscriptions as they were
     const unsubscribeOnboarding = appStateManager.subscribeToOnboardingState((isOnboard) => {
@@ -875,12 +888,29 @@ const AppNavigator: React.FC = () => {
     });
 
     return () => {
-      console.log('AppNavigator: Cleaning up auth state listeners');
+      console.log('AppNavigator: Cleaning up auth state listeners and stopping auth guard');
       unsubscribeAuth();
       unsubscribeOnboarding();
       unsubscribeOptionsSheet();
+      authGuard.stopAuthChecks();
     };
   }, [optionsSheetState]);
+
+  // Add app state listener for auth checks when app comes to foreground
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: any) => {
+      if (nextAppState === 'active' && isAuthenticated) {
+        console.log('AppNavigator: App became active, triggering auth check');
+        authGuard.checkAuthNow();
+      }
+    };
+
+    const subscription = RNAppState.addEventListener('change', handleAppStateChange);
+    
+    return () => {
+      subscription?.remove();
+    };
+  }, [isAuthenticated]);
   
   // Render splash screen during initialization
   if (appState === AppState.SPLASH) {

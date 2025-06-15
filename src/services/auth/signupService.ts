@@ -1,9 +1,9 @@
-import { doc, setDoc, collection, query, where, getDocs, Timestamp, limit } from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 import { auth, db } from '../../Config/firebaseconfig';
 import { sendAndStoreVerificationCode, verifyCode } from '../email/emailService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { appStateManager } from '../../utils/appStateManager';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import functions from '@react-native-firebase/functions';
 
 export enum SignupErrorTypes {
   EMAIL_ALREADY_IN_USE = 'auth/email-already-in-use',
@@ -138,8 +138,10 @@ export const isEmailAlreadyInUse = async (email: string): Promise<{ inUse: boole
     }
     
     // Also check if email is already in use in Firestore
-    const q = query(collection(db, 'users'), where('email', '==', email));
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await db
+      .collection('users')
+      .where('email', '==', email)
+      .get();
     
     if (!querySnapshot.empty) {
       return { 
@@ -169,8 +171,10 @@ export const isUsernameTaken = async (username: string): Promise<boolean> => {
     }
     
     // Check for exact match first
-    const exactQuery = query(collection(db, 'users'), where('username', '==', username));
-    const exactQuerySnapshot = await getDocs(exactQuery);
+    const exactQuerySnapshot = await db
+      .collection('users')
+      .where('username', '==', username)
+      .get();
     
     if (!exactQuerySnapshot.empty) {
       return true; // Username is taken with exact match
@@ -179,8 +183,10 @@ export const isUsernameTaken = async (username: string): Promise<boolean> => {
     // Also check for case-insensitive matches
     // Since Firestore doesn't support case-insensitive queries directly,
     // we can check for lowercase version
-    const lowercaseQuery = query(collection(db, 'users'), where('usernameLowercase', '==', username.toLowerCase()));
-    const lowercaseQuerySnapshot = await getDocs(lowercaseQuery);
+    const lowercaseQuerySnapshot = await db
+      .collection('users')
+      .where('usernameLowercase', '==', username.toLowerCase())
+      .get();
     
     return !lowercaseQuerySnapshot.empty;
   } catch (error) {
@@ -209,8 +215,10 @@ export const sendVerificationCode = async (email: string): Promise<boolean> => {
     }
 
     // Also check if email is already in use in Firestore
-    const q = query(collection(db, 'users'), where('email', '==', email));
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await db
+      .collection('users')
+      .where('email', '==', email)
+      .get();
     
     if (!querySnapshot.empty) {
       throw new Error(SignupErrorTypes.EMAIL_ALREADY_IN_USE);
@@ -347,19 +355,19 @@ export const completeSignup = async (
     const currentAge = calculateAge(userData.dateOfBirth);
     
     // Save user data to Firestore
-    await setDoc(doc(db, 'users', userId), {
+    await db.collection('users').doc(userId).set({
       userId: userId,
       email: email,
       firstName: userData.firstName,
       lastName: userData.lastName,
       username: userData.username,
       usernameLowercase: userData.username.toLowerCase(),
-      dateOfBirth: Timestamp.fromDate(userData.dateOfBirth),
+      dateOfBirth: firestore.Timestamp.fromDate(userData.dateOfBirth),
       age: currentAge,
       termsAccepted: userData.termsAccepted || false,
-      termsAcceptedAt: userData.termsAccepted ? Timestamp.now() : null,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
+      termsAcceptedAt: userData.termsAccepted ? firestore.Timestamp.now() : null,
+      createdAt: firestore.Timestamp.now(),
+      updatedAt: firestore.Timestamp.now(),
       isGoogleAuth: isGoogleAuth,
       onboardingCompleted: false
     });
@@ -401,8 +409,7 @@ export const completeSignup = async (
 // Use Firebase Functions instead of direct Nodemailer calls
 export const sendVerificationEmail = async (email: string, code: string): Promise<boolean> => {
   try {
-    const functions = getFunctions();
-    const sendVerificationEmail = httpsCallable(functions, 'sendVerificationEmail');
+    const sendVerificationEmail = functions().httpsCallable('sendVerificationEmail');
     
     await sendVerificationEmail({ email, code });
     return true;

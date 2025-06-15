@@ -1,4 +1,4 @@
-import { doc, getDoc, collection, query, where, getDocs, limit, setDoc, updateDoc } from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 import { auth, db } from '../Config/firebaseconfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createUserProfile, updateBiometricPreference } from './firestoreService';
@@ -109,14 +109,11 @@ export const determineIdentifierType = (identifier: string): IdentifierType => {
 const findUserByUsername = async (username: string): Promise<string | null> => {
   try {
     // Query Firestore for the user with this username
-    const usersRef = collection(db, 'users');
-    const q = query(
-      usersRef,
-      where('username', '==', username),
-      limit(1)
-    );
-    
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await db
+      .collection('users')
+      .where('username', '==', username)
+      .limit(1)
+      .get();
     
     if (!querySnapshot.empty) {
       const userDoc = querySnapshot.docs[0];
@@ -218,14 +215,14 @@ export async function verifyPhoneCode(verificationCode: string): Promise<{ userC
     const userCredential = await confirmationResult.confirm(verificationCode);
     
     // Check if user exists in Firestore
-    const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+    const userDoc = await db.collection('users').doc(userCredential.user.uid).get();
     
     // Determine if they need onboarding
-    const needsOnboarding = !userDoc.exists();
+    const needsOnboarding = !userDoc.exists;
     
     // If new user, create a Firestore record
     if (needsOnboarding) {
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
+      await db.collection('users').doc(userCredential.user.uid).set({
         phoneNumber: userCredential.user.phoneNumber,
         createdAt: new Date(),
         lastLogin: new Date(),
@@ -238,7 +235,7 @@ export async function verifyPhoneCode(verificationCode: string): Promise<{ userC
       appStateManager.setOnboarding(true);
     } else {
       // Update last login time
-      await updateDoc(doc(db, 'users', userCredential.user.uid), {
+      await db.collection('users').doc(userCredential.user.uid).update({
         lastLogin: new Date()
       });
       
@@ -391,14 +388,11 @@ export const signIn = async (identifier: string, password: string, useBiometric:
         const formattedPhone = formatPhoneNumber(identifier);
         
         // Find user with this phone number
-        const usersRef = collection(db, 'users');
-        const phoneQuery = query(
-          usersRef,
-          where('phoneNumber', '==', formattedPhone),
-          limit(1)
-        );
-        
-        const phoneQuerySnapshot = await getDocs(phoneQuery);
+        const phoneQuerySnapshot = await db
+          .collection('users')
+          .where('phoneNumber', '==', formattedPhone)
+          .limit(1)
+          .get();
         
         if (phoneQuerySnapshot.empty) {
           throw { code: AuthErrorTypes.USER_NOT_FOUND, message: 'No user found with this phone number' };
@@ -443,19 +437,19 @@ export const signIn = async (identifier: string, password: string, useBiometric:
     ]);
     
     // Fetch user details from Firestore to check onboarding status
-    const userDoc = await getDoc(doc(db, 'users', userId));
+    const userDoc = await db.collection('users').doc(userId).get();
     
     // Check if onboarding is completed and store the status
     let needsOnboarding = false;
     
-    if (userDoc.exists()) {
+    if (userDoc.exists) {
       // Set onboarding status based on user document data
       const onboardingCompleted = userDoc.data().onboardingCompleted === true;
       await AsyncStorage.setItem('onboardingCompleted', onboardingCompleted ? 'true' : 'false');
       needsOnboarding = !onboardingCompleted;
       
       // Update the user's last login timestamp in Firestore
-      await updateDoc(doc(db, 'users', userId), {
+      await db.collection('users').doc(userId).update({
         lastLoginAt: new Date(),
         // TEMPORARILY DISABLED: Force biometric auth to false for debugging
         useBiometricAuth: false
@@ -466,7 +460,7 @@ export const signIn = async (identifier: string, password: string, useBiometric:
       needsOnboarding = true;
       
       // Create a basic user document
-      await setDoc(doc(db, 'users', userId), {
+      await db.collection('users').doc(userId).set({
         email: email,
         createdAt: new Date(),
         lastLoginAt: new Date(),
@@ -553,10 +547,9 @@ export const isBiometricAuthEnabled = async (): Promise<boolean> => {
       try {
         const currentUser = auth().currentUser!; // Use non-null assertion
         const userId = currentUser.uid;
-        const userDocRef = doc(db, 'users', userId);
-        const userDoc = await getDoc(userDocRef);
+        const userDoc = await db.collection('users').doc(userId).get();
         
-        if (userDoc.exists() && userDoc.data().useBiometricAuth !== undefined) {
+        if (userDoc.exists && userDoc.data().useBiometricAuth !== undefined) {
           const useBiometric = !!userDoc.data().useBiometricAuth;
           
           // Cache the result in AsyncStorage
@@ -636,10 +629,9 @@ export const updateOnboardingProgress = async (
     console.log(`Updating onboarding progress for user ${userId}:`, progress);
     
     // Get the current user document
-    const userDocRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userDocRef);
+    const userDoc = await db.collection('users').doc(userId).get();
     
-    if (userDoc.exists()) {
+    if (userDoc.exists) {
       // Get current progress or create empty object
       const currentProgress = userDoc.data().onboardingProgress || {};
       
@@ -650,7 +642,7 @@ export const updateOnboardingProgress = async (
       };
       
       // Update the document with the merged progress
-      await updateDoc(userDocRef, {
+      await db.collection('users').doc(userId).update({
         onboardingProgress: updatedProgress
       });
       
@@ -671,7 +663,7 @@ export const updateOnboardingProgress = async (
       
       // If all steps are complete, mark onboarding as completed
       if (allStepsComplete) {
-        await updateDoc(userDocRef, {
+        await db.collection('users').doc(userId).update({
           onboardingCompleted: true
         });
         
@@ -695,10 +687,9 @@ export const updateOnboardingProgress = async (
 export const getOnboardingProgress = async (userId: string): Promise<{[key: string]: boolean}> => {
   try {
     // Get the user document
-    const userDocRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userDocRef);
+    const userDoc = await db.collection('users').doc(userId).get();
     
-    if (userDoc.exists()) {
+    if (userDoc.exists) {
       // Return the onboarding progress or empty object if none exists
       return userDoc.data().onboardingProgress || {};
     } else {

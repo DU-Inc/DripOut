@@ -22,7 +22,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import { db } from '../../Config/firebaseconfig';
-import { doc, onSnapshot, updateDoc, Timestamp } from 'firebase/firestore';
+// Using React Native Firebase - no separate imports needed
 import { auth } from '../../Config/firebaseconfig';
 import { 
   UserProfile, 
@@ -102,17 +102,17 @@ const SettingsScreen: React.FC = () => {
     const userId = auth().currentUser?.uid;
     if (userId) {
       // Listen for profile updates
-      const profileUnsubscribe = onSnapshot(doc(db, 'users', userId), (docSnapshot) => {
-        if (docSnapshot.exists()) {
+      const profileUnsubscribe = db.collection('users').doc(userId).onSnapshot((docSnapshot) => {
+        if (docSnapshot.exists) {
           try {
             // Get the raw data from Firestore
             const rawData = docSnapshot.data();
             
-            // Convert Firestore Timestamp to Date
+            // React Native Firebase automatically converts timestamps to Date objects
             const data: UserProfile = {
               ...rawData,
-              createdAt: rawData.createdAt instanceof Timestamp ? rawData.createdAt.toDate() : rawData.createdAt,
-              updatedAt: rawData.updatedAt instanceof Timestamp ? rawData.updatedAt.toDate() : rawData.updatedAt,
+              createdAt: rawData.createdAt,
+              updatedAt: rawData.updatedAt,
               // Ensure the new fields are properly typed
               height: rawData.height || undefined,
               weight: rawData.weight || undefined,
@@ -246,7 +246,7 @@ const SettingsScreen: React.FC = () => {
     
     try {
       const userId = auth().currentUser.uid;
-      const userRef = doc(db, 'users', userId);
+      const userRef = db.collection('users').doc(userId);
       
       // Create clean update data, removing any undefined values
       const updateData: Record<string, any> = {
@@ -268,7 +268,7 @@ const SettingsScreen: React.FC = () => {
       });
       
       console.log('Saving profile with data:', updateData);
-      await updateDoc(userRef, updateData);
+      await userRef.update(updateData);
       
       // Determine which fields need to be propagated to other collections
       const fieldsToPropagate: Partial<UserProfile> = {};

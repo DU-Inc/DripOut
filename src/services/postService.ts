@@ -1,5 +1,5 @@
-import { db, auth } from '../Config/firebaseconfig';
-import { collection, addDoc, getDocs, query, where, orderBy, Timestamp, serverTimestamp, limit, writeBatch, updateDoc, doc } from 'firebase/firestore';
+import { db, auth, Timestamp, FieldValue } from '../Config/firebaseconfig';
+import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { uploadImageAndGetURL } from './storageService';
 
@@ -38,7 +38,7 @@ export interface Post {
   outfitItems?: OutfitItem[]; // Featured clothing pieces
   likes: number;
   comments: number;
-  createdAt: Timestamp;
+  createdAt: any; // Timestamp type - can be FirebaseFirestoreTypes.Timestamp or FieldValue
 }
 
 /**
@@ -109,7 +109,6 @@ export const createPost = async (
     );
 
     // Create the post document in Firestore
-    const postRef = collection(db, 'posts');
     const newPost = {
       userId,
       username,
@@ -121,10 +120,10 @@ export const createPost = async (
       outfitItems: postData.outfitItems || [], // Add outfit items if provided
       likes: 0,
       comments: 0,
-      createdAt: serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     };
 
-    const docRef = await addDoc(postRef, newPost);
+    const docRef = await db.collection('posts').add(newPost);
 
     // Return the created post with its ID
     return {
@@ -199,16 +198,14 @@ export const getPostsByUser = async (userId?: string): Promise<Post[]> => {
       throw new Error('User ID not provided and user not authenticated');
     }
 
-    const postsQuery = query(
-      collection(db, 'posts'),
-      where('userId', '==', currentUserId),
-      orderBy('createdAt', 'desc')
-    );
-
-    const querySnapshot = await getDocs(postsQuery);
+    const querySnapshot = await db
+      .collection('posts')
+      .where('userId', '==', currentUserId)
+      .orderBy('createdAt', 'desc')
+      .get();
     const posts: Post[] = [];
 
-    querySnapshot.forEach((doc) => {
+    querySnapshot.docs.forEach((doc) => {
       const data = doc.data();
       posts.push({
         id: doc.id,
@@ -248,70 +245,39 @@ export const getAllPosts = async (limitCount: number = 20): Promise<Post[]> => {
       return [];
     }
     
-    // Create mock posts if no real posts exist yet - TO REMOVE IN PRODUCTION
-    const mockPosts: Post[] = [];
-    for (let i = 0; i < 5; i++) {
-      mockPosts.push({
-        id: `mock-${i}`,
-        userId: `mock-user-${i}`,
-        username: `user_${i}`,
-        userAvatar: `https://i.pravatar.cc/150?u=${i}`,
-        imageUrl: `https://picsum.photos/800/1000?random=${i * 3 + 51}`,
-        caption: `This is a sample post #${i} to demonstrate the app's functionality.`,
-        tags: ['sample', 'demo', 'fashion'],
-        outfitItems: [
-          {name: 'Sample Shirt', brand: 'Demo Brand'},
-          {name: 'Sample Pants', brand: 'Test Brand'}
-        ],
-        likes: Math.floor(Math.random() * 100),
-        comments: Math.floor(Math.random() * 20),
-        createdAt: Timestamp.now(),
-      });
-    }
-    
     try {
-      // Try to get real posts from Firestore first
-      const postsQuery = query(
-        collection(db, 'posts'),
-        orderBy('createdAt', 'desc'),
-        limit(limitCount)
-      );
-
-      const querySnapshot = await getDocs(postsQuery);
+      // Get real posts from Firestore
+      const querySnapshot = await db
+        .collection('posts')
+        .orderBy('createdAt', 'desc')
+        .limit(limitCount)
+        .get();
       const posts: Post[] = [];
 
       console.log(`Fetched ${querySnapshot.size} posts from Firestore`);
       
-      if (querySnapshot.size > 0) {
-        // Process each post document
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          console.log('Post data:', JSON.stringify(data, null, 2));
-          posts.push({
-            id: doc.id,
-            userId: data.userId || 'unknown-user',
-            username: data.username || 'anonymous',
-            userAvatar: data.userAvatar,
-            imageUrl: data.imageUrl,
-            caption: data.caption || 'No caption',
-            tags: data.tags || [], // Ensure tags exists even if missing in Firestore
-            outfitItems: data.outfitItems || [], // Include outfit items
-            likes: data.likes || 0,
-            comments: data.comments || 0,
-            createdAt: data.createdAt,
-          });
+      // Process each post document
+      querySnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        console.log('Post data:', JSON.stringify(data, null, 2));
+        posts.push({
+          id: doc.id,
+          userId: data.userId || 'unknown-user',
+          username: data.username || 'anonymous',
+          userAvatar: data.userAvatar,
+          imageUrl: data.imageUrl,
+          caption: data.caption || 'No caption',
+          tags: data.tags || [], // Ensure tags exists even if missing in Firestore
+          outfitItems: data.outfitItems || [], // Include outfit items
+          likes: data.likes || 0,
+          comments: data.comments || 0,
+          createdAt: data.createdAt,
         });
-        return posts;
-      } else {
-        // If no posts in Firestore, return mock posts
-        console.log('No posts found in Firestore, returning mock posts');
-        return mockPosts;
-      }
+      });
+      return posts;
     } catch (firestoreError) {
       console.error('Error querying Firestore:', firestoreError);
-      // Return mock posts on error
-      console.log('Returning mock posts due to Firestore error');
-      return mockPosts;
+      return [];
     }
   } catch (error) {
     console.error('Error getting all posts:', error);
@@ -320,21 +286,13 @@ export const getAllPosts = async (limitCount: number = 20): Promise<Post[]> => {
 };
 
 /**
- * Cache key for storing feed posts in AsyncStorage
- */
-const FEED_POSTS_CACHE_KEY = 'feed_posts_cache';
-const FEED_POSTS_TIMESTAMP_KEY = 'feed_posts_cache_timestamp';
-
-/**
  * Get all posts for the feed with caching
  * 
  * @param forceRefresh Whether to force a refresh from Firestore
- * @param cacheMaxAge Maximum age of cache in milliseconds (default 5 minutes)
  * @returns Array of all posts ordered by creation date
  */
 export const getCachedFeedPosts = async (
-  forceRefresh: boolean = false,
-  cacheMaxAge: number = 5 * 60 * 1000 // 5 minutes
+  forceRefresh: boolean = false
 ): Promise<Post[]> => {
   try {
     console.log('getCachedFeedPosts called, forceRefresh:', forceRefresh);
@@ -425,12 +383,10 @@ export const updatePostsWithNewProfileData = async (
     console.log(`Updating existing posts for user ${userId} with new profile data`);
     
     // Query all posts by this user
-    const postsQuery = query(
-      collection(db, 'posts'),
-      where('userId', '==', userId)
-    );
-    
-    const postsSnapshot = await getDocs(postsQuery);
+    const postsSnapshot = await db
+      .collection('posts')
+      .where('userId', '==', userId)
+      .get();
     console.log(`Found ${postsSnapshot.size} posts to update with new profile data`);
     
     if (postsSnapshot.empty) {
@@ -440,11 +396,11 @@ export const updatePostsWithNewProfileData = async (
     
     // Create a batch to update all posts at once
     const batchSize = 500; // Firestore has a limit of 500 writes per batch
-    let currentBatch = writeBatch(db);
+    let currentBatch = db.batch();
     let operationCount = 0;
     let totalUpdated = 0;
     
-    postsSnapshot.forEach((postDoc) => {
+    postsSnapshot.docs.forEach((postDoc) => {
       const updateData: Record<string, any> = {};
       
       if (newUsername) updateData.username = newUsername;
@@ -463,7 +419,7 @@ export const updatePostsWithNewProfileData = async (
         });
         
         // Reset batch and counter
-        currentBatch = writeBatch(db);
+        currentBatch = db.batch();
         operationCount = 0;
       }
     });

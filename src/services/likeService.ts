@@ -1,17 +1,5 @@
 import { db, auth } from '../Config/firebaseconfig';
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  runTransaction,
-  updateDoc,
-  serverTimestamp 
-} from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 
 /**
  * Interface for Like document
@@ -31,14 +19,11 @@ export interface Like {
  */
 export const hasUserLikedPost = async (userId: string, postId: string): Promise<boolean> => {
   try {
-    const likesCollection = collection(db, 'likes');
-    const likeQuery = query(
-      likesCollection,
-      where('userId', '==', userId),
-      where('postId', '==', postId)
-    );
-
-    const querySnapshot = await getDocs(likeQuery);
+    const querySnapshot = await db
+      .collection('likes')
+      .where('userId', '==', userId)
+      .where('postId', '==', postId)
+      .get();
     return !querySnapshot.empty;
   } catch (error) {
     console.error('Error checking if user has liked post:', error);
@@ -62,18 +47,18 @@ export const likePost = async (userId: string, postId: string): Promise<void> =>
     }
 
     // Use a transaction to update the post's like count and create a like document
-    await runTransaction(db, async (transaction) => {
+    await db.runTransaction(async (transaction) => {
       // Get the post document
-      const postRef = doc(db, 'posts', postId);
+      const postRef = db.collection('posts').doc(postId);
       const postDoc = await transaction.get(postRef);
 
-      if (!postDoc.exists()) {
+      if (!postDoc.exists) {
         throw new Error(`Post ${postId} does not exist`);
       }
 
       // Create a unique ID for the like document
       const likeDocId = `${userId}_${postId}`;
-      const likeRef = doc(db, 'likes', likeDocId);
+      const likeRef = db.collection('likes').doc(likeDocId);
 
       // Get current likes count
       const currentLikes = postDoc.data().likes || 0;
@@ -87,7 +72,7 @@ export const likePost = async (userId: string, postId: string): Promise<void> =>
       transaction.set(likeRef, {
         userId,
         postId,
-        createdAt: serverTimestamp()
+        createdAt: firestore.FieldValue.serverTimestamp()
       });
     });
 
@@ -107,24 +92,24 @@ export const likePost = async (userId: string, postId: string): Promise<void> =>
 export const unlikePost = async (userId: string, postId: string): Promise<void> => {
   try {
     // Use a transaction to update the post's like count and delete the like document
-    await runTransaction(db, async (transaction) => {
+    await db.runTransaction(async (transaction) => {
       // Get the post document
-      const postRef = doc(db, 'posts', postId);
+      const postRef = db.collection('posts').doc(postId);
       const postDoc = await transaction.get(postRef);
 
-      if (!postDoc.exists()) {
+      if (!postDoc.exists) {
         throw new Error(`Post ${postId} does not exist`);
       }
 
       // Create a unique ID for the like document
       const likeDocId = `${userId}_${postId}`;
-      const likeRef = doc(db, 'likes', likeDocId);
+      const likeRef = db.collection('likes').doc(likeDocId);
       
       // Get the like document
       const likeDoc = await transaction.get(likeRef);
       
       // Only proceed if the like exists
-      if (likeDoc.exists()) {
+      if (likeDoc.exists) {
         // Get current likes count
         const currentLikes = postDoc.data().likes || 0;
         
@@ -175,13 +160,10 @@ export const toggleLikePost = async (userId: string, postId: string): Promise<bo
  */
 export const getLikedPostsByUser = async (userId: string): Promise<string[]> => {
   try {
-    const likesCollection = collection(db, 'likes');
-    const likeQuery = query(
-      likesCollection,
-      where('userId', '==', userId)
-    );
-
-    const querySnapshot = await getDocs(likeQuery);
+    const querySnapshot = await db
+      .collection('likes')
+      .where('userId', '==', userId)
+      .get();
     return querySnapshot.docs.map(doc => doc.data().postId);
   } catch (error) {
     console.error('Error getting liked posts by user:', error);

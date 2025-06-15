@@ -23,7 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
 import StepTracker from '../components/Onboarding/StepTracker';
 import { markOnboardingCompleted, markOnboardingSkipped } from '../utils/appStateManager';
-import { doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
+// Using React Native Firebase - import db from config
 import { db, auth } from '../Config/firebaseconfig';
 import { setUserPreferences, getUserPreferences } from '../services/firestoreService';
 import SuccessOptionsSheet from '../components/common/SuccessOptionsSheet';
@@ -133,9 +133,9 @@ const OnboardingReview: React.FC = () => {
         if (!currentUser) return;
         
         // Get user document to check onboarding status
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        const userDoc = await db.collection('users').doc(currentUser.uid).get();
         
-        if (userDoc.exists()) {
+        if (userDoc.exists) {
           const userData = userDoc.data();
           console.log('Firebase user data onboarding status:', {
             completed: userData.onboardingCompleted,
@@ -565,12 +565,12 @@ const OnboardingReview: React.FC = () => {
         
         try {
           // First, get current onboarding state to preserve other properties
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          const userDoc = await getDoc(userDocRef);
+          const userDocRef = db.collection('users').doc(currentUser.uid);
+          const userDoc = await userDocRef.get();
           let currentOnboardingSteps = {};
           let wasAlreadyCompleted = false;
           
-          if (userDoc.exists()) {
+          if (userDoc.exists) {
             const userData = userDoc.data();
             if (userData.onboardingSteps) {
               currentOnboardingSteps = userData.onboardingSteps;
@@ -609,7 +609,7 @@ const OnboardingReview: React.FC = () => {
           };
           
           // Add required user fields if the document doesn't exist
-          if (!userDoc.exists()) {
+          if (!userDoc.exists) {
             // Add basic user information to create the document
             Object.assign(userDocData, {
               userId: currentUser.uid,
@@ -621,11 +621,11 @@ const OnboardingReview: React.FC = () => {
             });
             
             // Use setDoc instead of updateDoc to create the document if it doesn't exist
-            await setDoc(userDocRef, userDocData);
+            await userDocRef.set(userDocData);
             console.log("Created new user document with completion status");
           } else {
             // Just update the existing document
-            await updateDoc(userDocRef, userDocData);
+            await userDocRef.update(userDocData);
             console.log("Updated existing user document with completion status");
           }
           
@@ -722,11 +722,11 @@ const OnboardingReview: React.FC = () => {
         
         try {
           // First, get current onboarding state to preserve other properties
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          const userDoc = await getDoc(userDocRef);
+          const userDocRef = db.collection('users').doc(currentUser.uid);
+          const userDoc = await userDocRef.get();
           let currentOnboardingSteps = {};
           
-          if (userDoc.exists() && userDoc.data().onboardingSteps) {
+          if (userDoc.exists && userDoc.data()?.onboardingSteps) {
             currentOnboardingSteps = userDoc.data().onboardingSteps;
           }
           
@@ -775,7 +775,7 @@ const OnboardingReview: React.FC = () => {
           };
           
           // Add required user fields if the document doesn't exist
-          if (!userDoc.exists()) {
+          if (!userDoc.exists) {
             // Add basic user information to create the document
             Object.assign(userDocData, {
               userId: currentUser.uid,
@@ -787,11 +787,11 @@ const OnboardingReview: React.FC = () => {
             });
             
             // Use setDoc instead of updateDoc to create the document if it doesn't exist
-            await setDoc(userDocRef, userDocData);
+            await userDocRef.set(userDocData);
             console.log("Created new user document with completion status during explicit completion");
           } else {
             // Just update the existing document
-            await updateDoc(userDocRef, userDocData);
+            await userDocRef.update(userDocData);
             console.log("Updated existing user document with completion status during explicit completion");
           }
           

@@ -34,8 +34,9 @@ import { auth } from '../../Config/firebaseconfig';
 import { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import firebase from '@react-native-firebase/app';
 import SuccessOptionsSheet from '../../components/common/SuccessOptionsSheet';
-import { doc, getDoc } from 'firebase/firestore';
+// Using React Native Firebase - import db from config
 import { db } from '../../Config/firebaseconfig';
+import { authGuard } from '../../services/authGuard';
 
 // Add global setTimeout and clearTimeout type declarations
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -1161,15 +1162,14 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
   // Function to fetch user's first name and onboarding progress
   const fetchUserDetails = async (userId: string) => {
     try {
-      const userDocRef = doc(db, 'users', userId);
-      const userDoc = await getDoc(userDocRef);
+      const userDoc = await db.collection('users').doc(userId).get();
       
-      if (userDoc.exists()) {
+      if (userDoc.exists) {
         const userData = userDoc.data();
         // Set first name if available
-        if (userData.firstName) {
+        if (userData?.firstName) {
           setUserFirstName(userData.firstName);
-        } else if (userData.displayName) {
+        } else if (userData?.displayName) {
           // Try to extract first name from display name
           const names = userData.displayName.split(' ');
           setUserFirstName(names[0]);
@@ -1179,7 +1179,7 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
         setCurrentUser(userData);
         
         // Check and store onboarding progress if available
-        if (userData.onboardingProgress) {
+        if (userData?.onboardingProgress) {
           setOnboardingProgress(userData.onboardingProgress);
         }
       }
@@ -1246,6 +1246,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       // Don't reset the navigation stack as it's causing issues
       appStateManager.setAuthenticated(true);
       
+      // Reset auth guard failed checks on successful login
+      authGuard.resetFailedChecks();
+      
       // Reset the SignIn screen's state
       setLoading(false);
       setIdentifier('');
@@ -1273,6 +1276,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       // Just set the authenticated flag - the app will navigate to main tabs
       // Don't reset the navigation stack as it's causing issues
       appStateManager.setAuthenticated(true);
+      
+      // Reset auth guard failed checks on successful login
+      authGuard.resetFailedChecks();
       
       // Reset the SignIn screen's state
       setLoading(false);
@@ -2451,18 +2457,25 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       
       console.log('Verification successful!');
         
+      // Get the Firebase token and store it
+      const token = await userCredential.user.getIdToken();
+      await AsyncStorage.setItem('firebaseUserToken', token);
+      await AsyncStorage.setItem('lastActivityTimestamp', Date.now().toString());
+        
       // User is now authenticated
       // Update global state
       appStateManager.setAuthenticated(true);
+      
+      // Reset auth guard failed checks on successful login
+      authGuard.resetFailedChecks();
       
       // Reset verification tracking
       setInvalidAttempts(0);
       setVerificationCooldown(false);
       
       // Get the user's document from Firestore to check onboarding status
-      const userDocRef = doc(db, 'users', userCredential.user.uid);
-      const userDoc = await getDoc(userDocRef);
-      const needsOnboarding = !userDoc.exists() || userDoc.data().onboardingCompleted !== true;
+      const userDoc = await db.collection('users').doc(userCredential.user.uid).get();
+      const needsOnboarding = !userDoc.exists || userDoc.data()?.onboardingCompleted !== true;
       
       // Fetch user details (first name and onboarding progress)
       await fetchUserDetails(userCredential.user.uid);
@@ -2489,6 +2502,9 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
             onPress: () => {
               // Just ensure the authenticated flag is set - app will navigate to main tabs
               appStateManager.setAuthenticated(true);
+      
+      // Reset auth guard failed checks on successful login
+      authGuard.resetFailedChecks();
               appStateManager.setOnboarding(false);
             }
           }]
