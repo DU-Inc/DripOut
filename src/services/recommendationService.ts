@@ -180,19 +180,97 @@ export async function searchProducts(
     };
     console.log('📦 Request payload prepared:', JSON.stringify(payload));
     
-    // Log the payload right before sending
-    console.log('📤 Sending payload:', payload);
+    // Step 1: Initiate the recommendations task
+    console.log('⏳ Sending request to start recommendations task:', `${API_BASE_URL}/recommendations`);
+    const initialResponse = await apiClient.post('/recommendations', payload);
     
-    console.log('⏳ Sending API request to:', `${API_BASE_URL}/recommendations`);
-    const response = await apiClient.post<RecommendationsApiResponse>('/recommendations', payload);
+    if (!initialResponse.data || !initialResponse.data.task_id) {
+      throw new Error('Invalid response from recommendations API - no task_id received');
+    }
     
-    console.log('✅ Search successful, received', (response.data.products?.length || 0), 'results');
+    const taskId = initialResponse.data.task_id;
+    console.log(`📋 Recommendations task started with ID: ${taskId}`);
     
-    // Return the 'products' array from the response
-    return response.data.products || []; // Return empty array if products field is missing
+    // Step 2: Poll for the result
+    const pollInterval = 3000; // Poll every 3 seconds
+    const maxPollingTime = 120000; // Maximum 2 minutes of polling for recommendations
+    const startTime = Date.now();
+    
+    return new Promise((resolve, reject) => {
+      const checkStatus = async () => {
+        try {
+          // Check if we've exceeded the maximum polling time
+          const elapsedTime = Date.now() - startTime;
+          if (elapsedTime > maxPollingTime) {
+            reject(new Error('Recommendations task timed out. The operation took too long to complete.'));
+            return;
+          }
+          
+          console.log('🔄 Polling for recommendations task status...');
+          const statusResponse = await apiClient.get(`/recommendations_status/${taskId}`);
+          
+          if (!statusResponse.data) {
+            reject(new Error('Failed to get task status - no response data'));
+            return;
+          }
+          
+          const { status, result } = statusResponse.data;
+          console.log(`📊 Recommendations task status: ${status}`);
+          
+          if (status === 'SUCCESS') {
+            // Task succeeded
+            console.log('✅ Recommendations task completed successfully');
+            
+            if (!result || !result.products || result.products.length === 0) {
+              console.log('ℹ️ No products found from recommendations');
+              resolve([]); // Return empty array instead of rejecting
+              return;
+            }
+            
+            console.log('✅ Successfully received', result.products.length, 'recommendations');
+            resolve(result.products);
+            
+          } else if (status === 'FAILURE') {
+            // Task failed
+            console.error('❌ Recommendations task failed:', result);
+            const errorMessage = result?.error || 'Recommendations task failed with unknown error';
+            reject(new Error(`Recommendations failed: ${errorMessage}`));
+            
+          } else if (status === 'PENDING' || status === 'STARTED') {
+            // Task is still running, continue polling
+            console.log(`⏳ Task status is ${status}. Polling again in ${pollInterval / 1000}s...`);
+            setTimeout(checkStatus, pollInterval);
+            
+          } else {
+            // Unknown status
+            console.warn(`⚠️ Unknown task status: ${status}. Continuing to poll...`);
+            setTimeout(checkStatus, pollInterval);
+          }
+          
+        } catch (pollError) {
+          console.error('❌ Error while polling for recommendations task status:', pollError);
+          
+          if (axios.isAxiosError(pollError)) {
+            if (pollError.response?.status === 404) {
+              reject(new Error('Recommendations task not found. The task may have expired.'));
+            } else {
+              reject(new Error(`Failed to check task status: ${pollError.message}`));
+            }
+          } else {
+            reject(new Error(`Polling error: ${pollError instanceof Error ? pollError.message : 'Unknown error'}`));
+          }
+        }
+      };
+      
+      // Start the first poll
+      checkStatus();
+    });
+    
   } catch (error: unknown) {
+    console.error('❌ Error starting recommendations task:', error);
+    
     if (axios.isAxiosError(error)) {
-      console.error('❌ Search failed with error:',
+      console.error('❌ Recommendations failed with error:',
         error.code || 'unknown code',
         'Message:', error.message);
       console.error('📡 Request config:',
@@ -200,8 +278,30 @@ export async function searchProducts(
         'Method:', error.config?.method);
       console.error('🔄 Response data:', error.response?.data || 'No response data');
       console.error('📊 Response status:', error.response?.status, error.response?.statusText);
+      
+      if (error.response?.status === 404) {
+        throw new Error('Recommendations endpoint not found. Please check if the API is running.');
+      } else if (error.response?.status === 422) {
+        // Extract detailed error message
+        let errorMessage = 'Invalid request data for recommendations.';
+        try {
+          if (error.response?.data && typeof error.response.data === 'object') {
+            const responseData = error.response.data as any;
+            if (responseData.detail) {
+              if (typeof responseData.detail === 'string') {
+                errorMessage = responseData.detail;
+              } else if (Array.isArray(responseData.detail)) {
+                errorMessage = responseData.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+              }
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing error response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
     } else {
-      console.error('❌ Search failed with non-Axios error:', error);
+      console.error('❌ Recommendations failed with non-Axios error:', error);
     }
     throw error;
   }
@@ -654,7 +754,7 @@ export const userTryOn = async (
       throw new Error('No products provided for try-on.');
     }
     
-    if (onProgress) onProgress(0.2); // Initialization complete
+    if (onProgress) onProgress(0.1); // Initialization complete
     
     // Get user profile data if not provided
     let profile = userProfile;
@@ -668,7 +768,7 @@ export const userTryOn = async (
       }
     }
     
-    if (onProgress) onProgress(0.4); // Profile retrieved
+    if (onProgress) onProgress(0.2); // Profile retrieved
     
     // Format the products to ensure they match the API's expected format
     const formattedProducts = products.map(product => ({
@@ -682,11 +782,7 @@ export const userTryOn = async (
       images: product.images || []
     }));
     
-    // Call the API to generate the try-on image
-    console.log('🔄 Calling API for user try-on');
-    
     // Create our request payload following the Pydantic model pattern
-    // This will be sent in a special format to accommodate the API design
     const tryOnRequestData = {
       user_profile: {
         // Basic user information - simplified to match example
@@ -707,85 +803,146 @@ export const userTryOn = async (
     };
     
     console.log('📦 User try-on payload prepared with', userImages.length, 'user images and', products.length, 'products');
-    // Log the payload for debugging
-    console.log('📦 Full payload:', JSON.stringify(tryOnRequestData, null, 2));
     
-    // Make the API request with appropriate timeout and response type
-    console.log('Sending API request...');
+    // Step 1: Initiate the try-on task
+    console.log('⏳ Sending request to start try-on task:', `${API_BASE_URL}/user_try_on`);
+    const initialResponse = await apiClient.post('/user_try_on', tryOnRequestData);
     
-    // Make a single API call instead of doing a redundant validation check first
-    const response = await apiClient.post('/user_try_on', tryOnRequestData, {
-      timeout: 60000, // 60 seconds timeout for image processing
-      headers: {
-        'Content-Type': 'application/json',
-        // Explicitly accept both JSON and images for more flexibility
-        'Accept': 'image/png, image/jpeg, application/json'
-      },
-      responseType: 'arraybuffer',
-      // Don't throw errors for non-200 responses
-      validateStatus: function (status) {
-        return true;
-      }
+    if (!initialResponse.data || !initialResponse.data.task_id) {
+      throw new Error('Invalid response from try-on API - no task_id received');
+    }
+    
+    const taskId = initialResponse.data.task_id;
+    console.log(`📋 Try-on task started with ID: ${taskId}`);
+    
+    if (onProgress) onProgress(0.3); // Task initiated
+    
+    // Step 2: Poll for the result
+    const pollInterval = 3000; // Poll every 3 seconds
+    const maxPollingTime = 180000; // Maximum 3 minutes of polling for try-on
+    const startTime = Date.now();
+    
+    return new Promise((resolve, reject) => {
+      const checkStatus = async () => {
+        try {
+          // Check if we've exceeded the maximum polling time
+          const elapsedTime = Date.now() - startTime;
+          if (elapsedTime > maxPollingTime) {
+            reject(new Error('Try-on task timed out. The operation took too long to complete.'));
+            return;
+          }
+          
+          console.log('🔄 Polling for try-on task status...');
+          const statusResponse = await apiClient.get(`/try_on_status/${taskId}`);
+          
+          if (!statusResponse.data) {
+            reject(new Error('Failed to get task status - no response data'));
+            return;
+          }
+          
+          const { status, result } = statusResponse.data;
+          console.log(`📊 Try-on task status: ${status}`);
+          
+          // Update progress based on status and elapsed time
+          if (onProgress) {
+            const baseProgress = 0.3;
+            const progressRange = 0.6; // From 0.3 to 0.9
+            const timeProgress = Math.min(elapsedTime / maxPollingTime, 1);
+            const currentProgress = baseProgress + (progressRange * timeProgress);
+            onProgress(Math.min(currentProgress, 0.9));
+          }
+          
+          if (status === 'SUCCESS') {
+            // Task succeeded, now get the image
+            console.log('✅ Try-on task completed successfully, retrieving image...');
+            
+            try {
+              // Step 3: Get the actual image from the try_on_image endpoint
+              const imageResponse = await apiClient.get(`/try_on_image/${taskId}`, {
+                responseType: 'arraybuffer',
+                headers: {
+                  'Accept': 'image/png, image/jpeg'
+                }
+              });
+              
+              if (imageResponse.status !== 200) {
+                throw new Error('Failed to retrieve generated image');
+              }
+              
+              // Handle the arraybuffer response based on platform
+              if (Platform.OS === 'web') {
+                // For web platforms, we can use URL.createObjectURL
+                const blob = new Blob([imageResponse.data], { type:'image/png'});
+                const imageUrl = URL.createObjectURL(blob);
+                console.log('✅ Try-on image generated successfully (web platform)');
+                if (onProgress) onProgress(1.0);
+                resolve(imageUrl);
+              } else {
+                try {
+                  // For React Native, create a data URI
+                  const base64Flag = 'data:image/png;base64,';
+                  const base64Image = Buffer.from(imageResponse.data, 'binary').toString('base64');
+                  const dataURI = `${base64Flag}${base64Image}`;
+                  console.log('✅ Try-on image generated successfully (native platform)');
+                  if (onProgress) onProgress(1.0);
+                  resolve(dataURI);
+                } catch (bufferError) {
+                  console.error('Error converting arraybuffer to base64:', bufferError);
+                  
+                  // Fallback to the user's avatar image
+                  console.log('⚠️ Using fallback method for image display');
+                  if (onProgress) onProgress(1.0);
+                  
+                  if (userImages && userImages.length > 0) {
+                    resolve(userImages[0]); // Return the user's avatar as fallback
+                  } else {
+                    reject(new Error('Failed to process try-on image and no fallback available'));
+                  }
+                }
+              }
+            } catch (imageError) {
+              console.error('❌ Error retrieving try-on image:', imageError);
+              reject(new Error('Try-on completed but failed to retrieve the generated image'));
+            }
+            
+          } else if (status === 'FAILURE') {
+            // Task failed
+            console.error('❌ Try-on task failed:', result);
+            const errorMessage = result?.error || 'Try-on task failed with unknown error';
+            reject(new Error(`Try-on failed: ${errorMessage}`));
+            
+          } else if (status === 'PENDING' || status === 'STARTED') {
+            // Task is still running, continue polling
+            console.log(`⏳ Task status is ${status}. Polling again in ${pollInterval / 1000}s...`);
+            setTimeout(checkStatus, pollInterval);
+            
+          } else {
+            // Unknown status
+            console.warn(`⚠️ Unknown task status: ${status}. Continuing to poll...`);
+            setTimeout(checkStatus, pollInterval);
+          }
+          
+        } catch (pollError) {
+          console.error('❌ Error while polling for try-on task status:', pollError);
+          
+          if (axios.isAxiosError(pollError)) {
+            if (pollError.response?.status === 404) {
+              reject(new Error('Try-on task not found. The task may have expired.'));
+            } else {
+              reject(new Error(`Failed to check task status: ${pollError.message}`));
+            }
+          } else {
+            reject(new Error(`Polling error: ${pollError instanceof Error ? pollError.message : 'Unknown error'}`));
+          }
+        }
+      };
+      
+      // Start the first poll
+      checkStatus();
     });
     
-    // For error responses, the API should return JSON
-    if (response.status !== 200) {
-      let errorMessage = `Server returned status ${response.status}`;
-      
-      try {
-        // Try to parse error response as JSON
-        if (response.data) {
-          const errorText = Buffer.from(response.data).toString('utf8');
-          const errorJson = JSON.parse(errorText);
-          errorMessage = `API Error: ${errorJson.detail || JSON.stringify(errorJson)}`;
-        }
-      } catch (parseError) {
-        console.error('Failed to parse error response:', parseError);
-      }
-      
-      throw new Error(errorMessage);
-    }
-    
-    if (response.status === 200) {
-      // Handle the arraybuffer response based on platform
-      if (Platform.OS === 'web') {
-        // For web platforms, we can use URL.createObjectURL
-        const blob = new Blob([response.data], { type:'image/png'});
-        const imageUrl = URL.createObjectURL(blob);
-        console.log('✅ Try-on image generated successfully (web platform)');
-        if (onProgress) onProgress(1.0);
-        return imageUrl;
-      } else {
-        try {
-          // For React Native, create a data URI
-          const base64Flag = 'data:image/png;base64,';
-          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
-          const dataURI = `${base64Flag}${base64Image}`;
-          console.log('✅ Try-on image generated successfully (native platform)');
-          if (onProgress) onProgress(1.0);
-          return dataURI;
-        } catch (bufferError) {
-          console.error('Error converting arraybuffer to base64:', bufferError);
-          
-          // Fallback to a simplified approach - just return a tempfile URL that we'll mock
-          // This isn't ideal but provides a graceful fallback
-          console.log('⚠️ Using fallback method for image display');
-          if (onProgress) onProgress(1.0);
-          
-          // In a real app, we'd save the arraybuffer to a temp file and return its path
-          // For now we'll just return a static success message or the avatar image
-          if (userImages && userImages.length > 0) {
-            return userImages[0]; // Return the user's avatar as fallback
-          }
-          return 'https://example.com/mock-try-on-image.png';
-        }
-      }
-    } else {
-      throw new Error(`Invalid response from user try-on API: ${response.status}`);
-    }
-    
   } catch (error) {
-    console.error('❌ Error during user try-on:');
+    console.error('❌ Error starting try-on task:', error);
     
     // Provide more comprehensive details about the error
     if (axios.isAxiosError(error)) {
