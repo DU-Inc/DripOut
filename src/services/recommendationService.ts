@@ -884,7 +884,7 @@ export const scrapeProductFromUrl = async (
     
     console.log('🔍 Starting product scraping for', urls.length, 'URL(s):', urls);
     
-    if (onProgress) onProgress(0.2); // Start progress
+    if (onProgress) onProgress(0.1); // Start progress
     
     // Validate each URL
     for (const url of urls) {
@@ -895,43 +895,125 @@ export const scrapeProductFromUrl = async (
       }
     }
     
-    if (onProgress) onProgress(0.3); // URL validation complete
+    if (onProgress) onProgress(0.2); // URL validation complete
     
-    // Create the request payload with urls array to match API expectations
+    // Step 1: Initiate the scraping task
     const payload = {
       urls: urls,  // Send as an array of URLs
       timeout: 180  // Default timeout in seconds
     };
     
-    console.log('⏳ Sending request to:', `${API_BASE_URL}/scrape_on_demand`, 'with payload:', payload);
-    const response = await apiClient.post<{products: Product[]}>('/scrape_on_demand', payload);
+    console.log('⏳ Sending request to start scraping task:', `${API_BASE_URL}/scrape_on_demand`);
+    const initialResponse = await apiClient.post('/scrape_on_demand', payload);
     
-    if (!response.data || !response.data.products || response.data.products.length === 0) {
-      throw new Error('Invalid response from scraping API or no products found');
+    if (!initialResponse.data || !initialResponse.data.task_id) {
+      throw new Error('Invalid response from scraping API - no task_id received');
     }
     
-    if (onProgress) onProgress(0.9); // Almost complete
+    const taskId = initialResponse.data.task_id;
+    console.log(`📋 Scraping task started with ID: ${taskId}`);
     
-    // Return either a single product or an array based on input type
-    if (Array.isArray(productUrl)) {
-      // Return all products
-      console.log('✅ Successfully scraped', response.data.products.length, 'products');
-      if (onProgress) onProgress(1.0); // Complete
-      return response.data.products;
-    } else {
-      // Return just the first product for backwards compatibility
-      const product = response.data.products[0];
-      console.log('✅ Product scraped successfully:', product.name || 'Unnamed Product');
-      if (onProgress) onProgress(1.0); // Complete
-      return product;
-    }
+    if (onProgress) onProgress(0.3); // Task initiated
+    
+    // Step 2: Poll for the result
+    const pollInterval = 3000; // Poll every 3 seconds
+    const maxPollingTime = 180000; // Maximum 3 minutes of polling
+    const startTime = Date.now();
+    
+    return new Promise((resolve, reject) => {
+      const checkStatus = async () => {
+        try {
+          // Check if we've exceeded the maximum polling time
+          const elapsedTime = Date.now() - startTime;
+          if (elapsedTime > maxPollingTime) {
+            reject(new Error('Scraping task timed out. The operation took too long to complete.'));
+            return;
+          }
+          
+          console.log('🔄 Polling for task status...');
+          const statusResponse = await apiClient.get(`/scrape_status/${taskId}`);
+          
+          if (!statusResponse.data) {
+            reject(new Error('Failed to get task status - no response data'));
+            return;
+          }
+          
+          const { status, result } = statusResponse.data;
+          console.log(`📊 Task status: ${status}`);
+          
+          // Update progress based on status and elapsed time
+          if (onProgress) {
+            const baseProgress = 0.3;
+            const progressRange = 0.6; // From 0.3 to 0.9
+            const timeProgress = Math.min(elapsedTime / maxPollingTime, 1);
+            const currentProgress = baseProgress + (progressRange * timeProgress);
+            onProgress(Math.min(currentProgress, 0.9));
+          }
+          
+          if (status === 'SUCCESS') {
+            // Task succeeded
+            console.log('✅ Scraping task completed successfully');
+            
+            if (!result || !result.products || result.products.length === 0) {
+              reject(new Error('No products found from the provided URLs'));
+              return;
+            }
+            
+            if (onProgress) onProgress(1.0); // Complete
+            
+            // Return either a single product or an array based on input type
+            if (Array.isArray(productUrl)) {
+              console.log('✅ Successfully scraped', result.products.length, 'products');
+              resolve(result.products);
+            } else {
+              const product = result.products[0];
+              console.log('✅ Product scraped successfully:', product.name || 'Unnamed Product');
+              resolve(product);
+            }
+            
+          } else if (status === 'FAILURE') {
+            // Task failed
+            console.error('❌ Scraping task failed:', result);
+            const errorMessage = result?.error || 'Scraping task failed with unknown error';
+            reject(new Error(`Scraping failed: ${errorMessage}`));
+            
+          } else if (status === 'PENDING' || status === 'STARTED') {
+            // Task is still running, continue polling
+            console.log(`⏳ Task status is ${status}. Polling again in ${pollInterval / 1000}s...`);
+            setTimeout(checkStatus, pollInterval);
+            
+          } else {
+            // Unknown status
+            console.warn(`⚠️ Unknown task status: ${status}. Continuing to poll...`);
+            setTimeout(checkStatus, pollInterval);
+          }
+          
+        } catch (pollError) {
+          console.error('❌ Error while polling for task status:', pollError);
+          
+          if (axios.isAxiosError(pollError)) {
+            if (pollError.response?.status === 404) {
+              reject(new Error('Scraping task not found. The task may have expired.'));
+            } else {
+              reject(new Error(`Failed to check task status: ${pollError.message}`));
+            }
+          } else {
+            reject(new Error(`Polling error: ${pollError instanceof Error ? pollError.message : 'Unknown error'}`));
+          }
+        }
+      };
+      
+      // Start the first poll
+      checkStatus();
+    });
+    
   } catch (error) {
-    console.error('❌ Error scraping product:', error);
+    console.error('❌ Error starting scraping task:', error);
     
     // If it's an Axios error, provide more specific information
     if (axios.isAxiosError(error)) {
       if (error.response?.status === 404) {
-        throw new Error('Product not found. The URL may be invalid or the product is unavailable.');
+        throw new Error('Scraping endpoint not found. Please check if the API is running.');
       } else if (error.response?.status === 422) {
         // Try to extract the detailed error message from the response
         let errorMessage = 'Invalid URL or website not supported for scraping.';
@@ -954,7 +1036,7 @@ export const scrapeProductFromUrl = async (
         
         throw new Error(errorMessage);
       } else if (error.code === 'ECONNABORTED') {
-        throw new Error('Request timed out. The server took too long to scrape the product.');
+        throw new Error('Request timed out. Could not connect to the scraping service.');
       } else {
         throw new Error(`API Error (${error.response?.status || 'unknown'}): ${error.message}`);
       }
