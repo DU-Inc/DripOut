@@ -29,14 +29,16 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import SimpleProductCard from '../../components/feed/SimpleProductCard';
-import AddToCartButton from '../../components/common/CardButtons/AddToCartButton';
+// import AddToCartButton from '../../components/common/CardButtons/AddToCartButton'; // Commented out for closet functionality
 import ContentAction from '../../components/common/CardButtons/contentAction';
 import MasonryList from '@react-native-seoul/masonry-list';
-import { useTheme } from '../../styles/theme/ThemeContext';
+import { useTheme } from '../../styles/themeprovider';
 import { colors } from '../../styles/theme/colors';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { SharedElement } from 'react-navigation-shared-element';
 import { logger } from '../../utils/logger';
+import { toggleSaveProductToCloset, hasUserSavedProduct } from '../../services/closetService';
+import { auth } from '../../Config/firebaseconfig';
 
 // Import sample data
 // import feedData from '../../data/feed.json';
@@ -351,6 +353,22 @@ const ExpandedProductScreen: SharedElementsFC = () => {
   useEffect(() => {
     fetchSimilarProducts();
   }, []);
+
+  // Check if product is saved when component mounts or product changes
+  useEffect(() => {
+    const checkIfProductIsSaved = async () => {
+      if (product && auth().currentUser) {
+        try {
+          const isSaved = await hasUserSavedProduct(auth().currentUser!.uid, product.id);
+          setIsSaved(isSaved);
+        } catch (error) {
+          console.error('Error checking if product is saved:', error);
+        }
+      }
+    };
+
+    checkIfProductIsSaved();
+  }, [product]);
   
   // Format product images into the expected format - update to handle more possible formats
   const productImages = product
@@ -399,52 +417,65 @@ const ExpandedProductScreen: SharedElementsFC = () => {
   // Store current animation for cancellation
   const currentAnimation = useRef<Animated.CompositeAnimation | null>(null);
 
-  // Handle save/unsave with heart animation
-  const handleSaveToggle = () => {
+  // Handle save/unsave to closet with heart animation
+  const handleSaveToggle = async () => {
+    if (!auth().currentUser || !product) {
+      console.log('User not authenticated or no product data');
+      return;
+    }
+
     // Always clear existing animations when toggling
     if (currentAnimation.current) {
       currentAnimation.current.stop();
       currentAnimation.current = null;
     }
 
-    // Toggle liked state immediately
-    if (!isSaved) {
-      // Show like animation
-      setAnimationDirection('like');
-      animateHeartsOut();
-    } else {
-      // Show dislike animation
-      setAnimationDirection('dislike');
-      animateHeartsIn();
+    try {
+      // Prepare product data for saving
+      const productData = {
+        name: product.productName || product.name || 'Unnamed Product',
+        brand: product.brand || '',
+        price: product.price || 0,
+        image: productImages.length > 0 ? productImages[0]?.url : '',
+        url: product.productUrl || product.url || ''
+      };
+
+      // Toggle save status in Firebase
+      const newSaveStatus = await toggleSaveProductToCloset(
+        auth().currentUser!.uid,
+        product.id,
+        productData
+      );
+
+      // Update local state
+      setIsSaved(newSaveStatus);
+
+      // Show appropriate animation
+      if (newSaveStatus) {
+        // Show like animation (saved to closet)
+        setAnimationDirection('like');
+        animateHeartsOut();
+        console.log('Product saved to closet');
+      } else {
+        // Show dislike animation (removed from closet)
+        setAnimationDirection('dislike');
+        animateHeartsIn();
+        console.log('Product removed from closet');
+      }
+    } catch (error) {
+      console.error('Error toggling save to closet:', error);
+      // Don't update UI state if the operation failed
     }
-    setIsSaved(!isSaved);
   };
   
-  // Double tap handler for liking/unliking the product
+  // Double tap handler for saving/removing from closet
   const handleDoubleTap = () => {
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300; // 300ms for double tap
     
     if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
-      // Double tap detected - always allow, regardless of animation state
-      
-      // Stop any running animations
-      if (currentAnimation.current) {
-        currentAnimation.current.stop();
-        currentAnimation.current = null;
-      }
-        
-      // Toggle liked state and run the appropriate animation
-      if (!isSaved) {
-        // Show primary colored hearts floating up
-        setAnimationDirection('like');
-        animateHeartsOut();
-      } else {
-        // Show broken hearts floating down
-        setAnimationDirection('dislike');
-        animateHeartsIn();
-      }
-      setIsSaved(!isSaved);
+      // Double tap detected - trigger save to closet
+      handleSaveToggle();
     }
     
     // Update the last tap timestamp
@@ -790,7 +821,7 @@ const ExpandedProductScreen: SharedElementsFC = () => {
           brand={product.brand || ''}
           images={product.images}
           price={product.price}
-          onCartPress={() => console.log('Add to cart:', product.id)}
+          // onCartPress={() => console.log('Add to cart:', product.id)} // Commented out for closet functionality
           onLikePress={() => console.log('Like:', product.id)}
           onDislikePress={() => console.log('Dislike:', product.id)}
           onSharePress={() => console.log('Share:', product.id)}
@@ -1081,6 +1112,14 @@ const ExpandedProductScreen: SharedElementsFC = () => {
   useEffect(() => {
      if (product) {
          console.log(`[${getTimestamp()}] [ExpandedProductScreen ${productId}] Derived productImages updated. Count: ${productImages.length}`);
+         
+         // Log all image URLs
+         if (productImages.length > 0) {
+           console.log(`[${getTimestamp()}] [ExpandedProductScreen ${productId}] All image URLs:`);
+           productImages.forEach((image, index) => {
+             console.log(`  [${index}] ${image.id}: ${image.url}`);
+           });
+         }
      }
   }, [productImages]); // Log when the derived array changes
 
@@ -1225,18 +1264,6 @@ const ExpandedProductScreen: SharedElementsFC = () => {
       isMounted.current = false;
     };
   }, []);
-
-  // Add timestamp logging helper
-  const getTimestamp = () => {
-    const now = new Date();
-    // Format time with leading zeros and include milliseconds
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    const milliseconds = String(now.getMilliseconds()).padStart(3, '0');
-    
-    return `${hours}:${minutes}:${seconds}.${milliseconds}`;
-  };
 
   // Add states to track rendering of all required components
   const [mainImageRendered, setMainImageRendered] = useState(false);
@@ -1808,18 +1835,23 @@ const ExpandedProductScreen: SharedElementsFC = () => {
 
             <View style={styles.actionButtonsRight}>
               <TouchableOpacity
-                style={styles.actionButton}
+                style={[styles.actionButton, styles.saveToClosetButton]}
                 onPress={handleSaveToggle}
                 activeOpacity={0.7}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Icon
                   name={isSaved ? "heart" : "heart-outline"}
-                  size={24}
+                  size={20}
                   color={isSaved ? themeColors.primary : "#FFFFFF"}
+                  style={{ marginRight: 6 }}
                 />
+                <Text style={[styles.saveToClosetText, { color: isSaved ? themeColors.primary : "#FFFFFF" }]}>
+                  {isSaved ? 'In Closet' : 'Save to Closet'}
+                </Text>
               </TouchableOpacity>
 
+              {/* Commented out for closet functionality
               <View style={styles.actionButton}>
                 <AddToCartButton
                   size={24}
@@ -1829,6 +1861,7 @@ const ExpandedProductScreen: SharedElementsFC = () => {
                   style={{ backgroundColor: 'transparent' }}
                 />
               </View>
+              */}
             </View>
           </View>
         </Animated.View>
@@ -1926,10 +1959,35 @@ const ExpandedProductScreen: SharedElementsFC = () => {
             <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>
               Description
             </Text>
-            <Text style={[styles.descriptionText, { color: themeColors.text.secondary }]}>
-              {product.description || "No description available for this product."}
+            <Text style={[styles.descriptionText, { color: themeColors.text.secondary }]}>  
+              {product.description || 'Not Available'}
             </Text>
           </View>
+
+          {/* Add to Cart Button - Commented out for closet functionality
+          <TouchableOpacity
+            style={[styles.addToCartButton, { backgroundColor: theme.primary }]}
+            onPress={handleAddToCart}
+          >
+            <Icon name={isInCart ? "check" : "cart"} size={20} color="#FFFFFF" />
+            <Text style={styles.addToCartText}>
+              {isInCart ? "Added to Cart" : "Add to Cart"}
+            </Text>
+          </TouchableOpacity>
+          */}
+
+          {/* Save to Favorites Button */}
+          {/* Commented out for closet functionality
+          <TouchableOpacity
+            style={[styles.addToCartButton, { backgroundColor: theme.primary }]}
+            onPress={handleAddToCart}
+          >
+            <Icon name={isInCart ? "check" : "heart"} size={20} color="#FFFFFF" />
+            <Text style={styles.addToCartText}>
+              {isInCart ? "Saved to Favorites" : "Save to Favorites"}
+            </Text>
+          </TouchableOpacity>
+          */}
         </View>
 
         {/* Similar Products Section (modal overlay) */}
@@ -2056,7 +2114,7 @@ const ExpandedProductScreen: SharedElementsFC = () => {
           left: 16,
           opacity: backButtonInterpolation,
           zIndex: 10001, // Just below the sticky header
-          backgroundColor: 'rgba(0,0,0,0.5)',
+          backgroundColor: '#000000', // Use solid color for shadow efficiency
           borderRadius: 12,
           width: 40,
           height: 40,
@@ -2219,7 +2277,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.5)', // Change to solid color
+    backgroundColor: '#000000', // Use solid color for shadow efficiency
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -2227,6 +2285,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 5,
     elevation: 8,
+  },
+  saveToClosetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 'auto',
+    paddingHorizontal: 16,
+    minWidth: 120,
+  },
+  saveToClosetText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   detailsContainer: {
     paddingHorizontal: 16,
@@ -2429,6 +2499,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginHorizontal: 5,
     overflow: 'hidden',
+    backgroundColor: '#FFFFFF', // Add solid background for shadow efficiency
     ...colors.light.elevation.light,
   },
   
@@ -2494,7 +2565,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: '#000000', // Use solid color for shadow efficiency
     alignItems: 'center',
     justifyContent: 'center',
   },
