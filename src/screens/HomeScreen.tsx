@@ -29,6 +29,7 @@ import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-g
 // Using View with background color instead of LinearGradient
 import { fetchRandomProducts, Product } from '../services/productService';
 import PartialDataProductCard from '../components/feed/PartialDataProductCard';
+import MediaComponent from '../components/common/MediaComponent';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -45,7 +46,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
-import { useTheme } from '../styles/theme/ThemeContext';
+import { useTheme } from '../styles/themeprovider';
 
 // Get screen dimensions
 const { width, height } = Dimensions.get('window');
@@ -613,9 +614,13 @@ const HomeScreen: React.FC = () => {
           ]}
           {...(panResponder ? panResponder.panHandlers : {})}
         >
-          <Image 
-            source={{ uri: item.gallery[currentImageIndex] }} 
+          <MediaComponent 
+            uri={item.gallery[currentImageIndex]} 
             style={styles.galleryImage}
+            resizeMode="cover"
+            muted={true}
+            loop={true}
+            autoPlay={true}
           />
           
           {/* Overlay shadow for aesthetic tag */}

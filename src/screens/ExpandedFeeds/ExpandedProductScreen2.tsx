@@ -26,17 +26,16 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
-import SimpleProductCard from '../../components/feed/SimpleProductCard';
+import UnifiedProductCard from '../../components/feed/UnifiedProductCard';
 import AddToCartButton from '../../components/common/CardButtons/AddToCartButton';
 import ContentAction from '../../components/common/CardButtons/contentAction';
 import MasonryList from '@react-native-seoul/masonry-list';
-import { useTheme } from '../../styles/theme/ThemeContext';
+import { useTheme } from '../../styles/themeprovider';
 import { colors } from '../../styles/theme/colors';
 import { SharedElement } from 'react-navigation-shared-element';
+import MediaComponent from '../../components/common/MediaComponent';
 
-// Import sample data
-import feedData from '../../data/feed.json';
-// Import API product fetcher to retrieve product by ID if initial data is missing
+// Import API product fetcher for real products
 import { fetchRandomProducts, Product as ApiProduct } from '../../services/productService';
 // Import save service for favorites functionality
 import { toggleSavePost, hasUserSavedPost } from '../../services/saveService';
@@ -47,8 +46,8 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MAX_HEADER = SCREEN_HEIGHT * 0.65;
 const MIN_HEADER = Platform.OS === 'ios' ? 90 : 70;
 const TAB_BAR_HEIGHT = 50;
-const NUM_COLUMNS = 2; // Number of columns in the masonry grid
-const ITEM_SPACING = 8; // Spacing between masonry items
+const NUM_COLUMNS = 2; // Number of columns in the grid (same as OverviewScreen)
+const ITEM_SPACING = 6; // Consistent spacing between items (same as OverviewScreen)
 const LOAD_MORE_COUNT = 10; // Number of items to load when scrolling
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 44 : (StatusBar.currentHeight || 24); // iOS standard status bar is 44pt
 const PRODUCT_IMAGE_HEIGHT = SCREEN_HEIGHT * 0.65;
@@ -74,15 +73,19 @@ interface SizeOption {
   isAvailable: boolean;
 }
 
-// Interface for formatted similar product
+// Interface for formatted similar product (matching UnifiedProductCard requirements)
 interface FormattedSimpleProduct {
   id: string;
+  name: string;
   price: number;
+  currency?: string;
   brand?: string;
   images: {
     id: string;
     url: string;
   }[];
+  productUrl?: string;
+  cardType?: 'full' | 'simple' | 'partial';
   masonryHeightOffset?: number;
 }
 
@@ -535,33 +538,42 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     setIsLoadingMore(true);
     
     try {
-      // Simulate API call with a delay
-      await createDelay(500);
+      console.log('🔄 Fetching similar products from API...');
       
-      // Get products from the dummy data - in a real app, this would fetch from the API
-      // to get similar products based on the current product's category, brand, etc.
-      const productsData = feedData.simpleCardComponent.slice(0, 50);
+      // Fetch real products from the API
+      // In a more sophisticated implementation, you could filter by category, brand, etc.
+      // based on the current product to get truly "similar" products
+      const apiProducts = await fetchRandomProducts(50);
+      
+      if (!apiProducts || apiProducts.length === 0) {
+        console.warn('⚠️ No products returned from API');
+        return;
+      }
+      
+      console.log(`✅ Successfully fetched ${apiProducts.length} similar products`);
       
       // Format products with random height offsets for masonry
-      const formattedProducts: FormattedSimpleProduct[] = productsData.map((item, index) => {
+      const formattedProducts: FormattedSimpleProduct[] = apiProducts.map((item, index) => {
         // Generate a random height offset for masonry staggering
         const randomOffset = Math.floor(Math.random() * 50);
         
         return {
           id: `${item.id}_${Date.now()}_${index}`, // Make sure IDs are truly unique
+          name: item.name || 'Product',
           price: typeof item.price === 'string' 
-            ? parseFloat(item.price.replace('$', '')) 
+            ? parseFloat(item.price.toString().replace('$', '')) 
             : item.price,
+          currency: item.currency || '$',
           brand: item.brand,
-          images: [{ id: `${item.id}_main_${index}`, url: item.productImage }],
+          // Use the images array from API products, fallback to single image if needed
+          images: item.images && item.images.length > 0 
+            ? item.images 
+            : [{ id: `${item.id}_main_${index}`, url: item.url || '' }],
+          productUrl: item.url,
+          cardType: 'full' as const, // Use full card type to show all info
           masonryHeightOffset: randomOffset
         };
       });
-      
-      // In a real implementation, you would fetch similar products based on product.id 
-      // or other properties like product.category, product.brand, etc.
-      // Example:
-      // const similarProductsFromApi = await fetchSimilarProductsFromApi(product.id);
       
       if (isRefresh) {
         setSimilarProducts(formattedProducts);
@@ -570,7 +582,8 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
         setSimilarProducts(prevProducts => [...prevProducts, ...formattedProducts]);
       }
     } catch (error) {
-      console.error('Error fetching similar products:', error);
+      console.error('❌ Error fetching similar products:', error);
+      // You could show a user-friendly error message here if needed
     } finally {
       setIsLoadingMore(false);
       setRefreshing(false);
@@ -620,34 +633,175 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     );
   };
   
-  // Render a single similar product item for masonry
+  // Calculate optimal card dimensions for the available space in "explore similar" section
+  const SECTION_HORIZONTAL_PADDING = 40; // 20px on each side from section style
+  const SIMILAR_ITEM_SPACING = 12; // Optimal spacing for this section
+  const SIMILAR_NUM_COLUMNS = 2;
+  
+  // Available width calculation: screen width minus section padding
+  const availableWidth = SCREEN_WIDTH - SECTION_HORIZONTAL_PADDING;
+  
+  // Calculate card width: (available width - total spacing) / number of columns
+  // Total spacing = (columns + 1) * spacing for proper edge spacing
+  const totalSpacing = (SIMILAR_NUM_COLUMNS + 1) * SIMILAR_ITEM_SPACING;
+  const similarProductCardWidth = (availableWidth - totalSpacing) / SIMILAR_NUM_COLUMNS;
+  
+  // Optimal image aspect ratio for mobile cards (not too tall, not too wide)
+  const SIMILAR_IMAGE_ASPECT_RATIO = 1.25; // Slightly taller than square for clothing items
+  
+  // Debug sizing calculations
+  console.log('📐 Similar products sizing:', {
+    screenWidth: SCREEN_WIDTH,
+    sectionPadding: SECTION_HORIZONTAL_PADDING,
+    availableWidth: availableWidth,
+    totalSpacing: totalSpacing,
+    cardWidth: similarProductCardWidth,
+    aspectRatio: SIMILAR_IMAGE_ASPECT_RATIO
+  });
+
+  // Custom compact product card for similar products section
+  const renderCompactProductCard = (product: FormattedSimpleProduct) => {
+    const imageHeight = similarProductCardWidth / SIMILAR_IMAGE_ASPECT_RATIO;
+    const themeColors = isDarkMode ? colors.dark : colors.light;
+    
+    return (
+      <TouchableOpacity
+        style={[
+          {
+            width: similarProductCardWidth,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: isDarkMode ? '#333' : '#E5E5E5',
+            backgroundColor: themeColors.background,
+            overflow: 'hidden',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.1,
+            shadowRadius: 4,
+            elevation: 2,
+          }
+        ]}
+        onPress={() => console.log('Navigate to product:', product.id)}
+        activeOpacity={0.9}
+      >
+        {/* Image */}
+        <View style={{ position: 'relative' }}>
+          <Image
+            source={{ uri: product.images[0]?.url }}
+            style={{
+              width: '100%',
+              height: imageHeight,
+              borderTopLeftRadius: 12,
+              borderTopRightRadius: 12,
+            }}
+            resizeMode="cover"
+          />
+          
+          {/* Save button */}
+          <TouchableOpacity 
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              backgroundColor: 'rgba(0,0,0,0.6)',
+              borderRadius: 12,
+              padding: 6,
+            }}
+            onPress={() => console.log('Save product:', product.id)}
+          >
+            <Icon name="heart-outline" size={14} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Content */}
+        <View style={{ padding: 8 }}>
+          {/* Brand */}
+          {product.brand && (
+            <Text
+              style={{
+                fontSize: 10,
+                fontWeight: '500',
+                color: themeColors.text.secondary,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                marginBottom: 2,
+              }}
+              numberOfLines={1}
+            >
+              {product.brand}
+            </Text>
+          )}
+          
+          {/* Product Name */}
+          <Text
+            style={{
+              fontSize: 12,
+              fontWeight: '600',
+              color: themeColors.text.primary,
+              lineHeight: 16,
+              marginBottom: 6,
+            }}
+            numberOfLines={2}
+          >
+            {product.name}
+          </Text>
+          
+          {/* Price and Add Button Row */}
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}>
+            <Text
+              style={{
+                fontSize: 14,
+                fontWeight: '700',
+                color: themeColors.text.primary,
+                flex: 1,
+              }}
+            >
+              {product.currency}{product.price.toFixed(2)}
+            </Text>
+            
+            <TouchableOpacity
+              style={{
+                backgroundColor: themeColors.primary,
+                borderRadius: 6,
+                padding: 6,
+                minWidth: 28,
+                minHeight: 28,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+              onPress={() => console.log('Add to cart:', product.id)}
+            >
+              <Icon name="plus" size={14} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  // Render a single similar product item with optimized sizing for the available space
   const renderSimilarItem = ({ item, i }: { item: any; i: number }) => {
     const product = item as FormattedSimpleProduct;
-    const aspectRatio = 1 + (Math.abs(hashCode(product.id)) % 6) / 10; // Value between 1.0 and 1.6
+    
+    // Skip products without valid images (same check as OverviewScreen)
+    if (!product.images || product.images.length === 0 || !product.images[0].url) {
+      console.warn(`Skipping similar product ${product.id} - no images`);
+      return null;
+    }
     
     return (
       <View 
-        key={`product_${product.id}_${i}`}
+        key={`similar-product-${product.id}-${i}`}
         style={{
-          margin: ITEM_SPACING / 2,
-          marginBottom: 2,
-          marginHorizontal: 4,
+          marginHorizontal: SIMILAR_ITEM_SPACING / 2,
+          marginBottom: SIMILAR_ITEM_SPACING,
         }}
       >
-        <SimpleProductCard 
-          id={product.id}
-          brand={product.brand || ''}
-          images={product.images}
-          price={product.price}
-          onCartPress={() => console.log('Add to cart:', product.id)}
-          onLikePress={() => console.log('Like:', product.id)}
-          onDislikePress={() => console.log('Dislike:', product.id)}
-          onSharePress={() => console.log('Share:', product.id)}
-          isDarkMode={isDarkMode}
-          onCardPress={() => scrollToSection(0)}
-          cardWidth={calculatedItemWidth - 8}
-          imageAspectRatio={aspectRatio}
-        />
+        {renderCompactProductCard(product)}
       </View>
     );
   };
@@ -780,41 +934,23 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
               height: '100%', 
               opacity: sharedElementOpacity 
             }}>
-              <Image 
-                source={{ uri: productImages[currentImageIndex]?.url }} 
+              <MediaComponent 
+                uri={productImages[currentImageIndex]?.url} 
                 style={styles.headerImage}
-                defaultSource={{ uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' }}
+                resizeMode="cover"
                 onError={(error) => {
-                  const errorMessage = error.nativeEvent?.error || 'Unknown error';
                   const currentImage = productImages[currentImageIndex];
-                  console.error(`[ExpandedProductScreen2] === HEADER IMAGE LOAD ERROR ===`);
+                  console.error(`[ExpandedProductScreen2] === HEADER MEDIA LOAD ERROR ===`);
                   console.error(`  Product ID: ${product?.id}`);
                   console.error(`  Product Name: ${product?.productName}`);
                   console.error(`  Header Image Index: ${currentImageIndex}`);
-                  console.error(`  Header Image URL: ${currentImage?.url}`);
-                  console.error(`  Error Message: ${errorMessage}`);
-                  console.error(`  Full Error Object:`, error);
-                  console.error(`  nativeEvent:`, error.nativeEvent);
-                  console.error(`  URL Length: ${currentImage?.url?.length || 0}`);
-                  try {
-                    if (currentImage?.url && currentImage.url.startsWith('http')) {
-                      // Extract domain manually since React Native doesn't support URL.hostname
-                      const urlMatch = currentImage.url.match(/^https?:\/\/([^\/]+)/);
-                      const domain = urlMatch ? urlMatch[1] : 'Could not extract domain';
-                      const protocol = currentImage.url.startsWith('https') ? 'https:' : 'http:';
-                      
-                      console.error(`  URL Domain: ${domain}`);
-                      console.error(`  URL Protocol: ${protocol}`);
-                    } else {
-                      console.error(`  URL Domain: Invalid URL - does not start with http or is undefined`);
-                      console.error(`  URL Protocol: Invalid URL - does not start with http or is undefined`);
-                    }
-                  } catch (urlError) {
-                    console.error(`  URL Domain: Error parsing URL - ${urlError}`);
-                    console.error(`  URL Protocol: Error parsing URL - ${urlError}`);
-                  }
-                  console.error(`=== END HEADER IMAGE LOAD ERROR ===`);
+                  console.error(`  Header Media URL: ${currentImage?.url}`);
+                  console.error(`  Error:`, error);
+                  console.error(`=== END HEADER MEDIA LOAD ERROR ===`);
                 }}
+                muted={true}
+                loop={true}
+                autoPlay={true}
               />
             </Animated.View>
           </SharedElement>
@@ -844,41 +980,22 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
                   key={image ? image.id : `fallback-${index}`}
                   style={styles.imageWrapper}
                 >
-                  <Image
-                    source={image?.url ? { uri: image.url } : undefined}
+                  <MediaComponent
+                    uri={image?.url}
                     style={styles.productImage}
                     resizeMode="cover"
-                    defaultSource={{ uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' }}
                     onError={(error) => {
-                      const errorMessage = error.nativeEvent?.error || 'Unknown error';
-                      console.error(`[ExpandedProductScreen2] === IMAGE LOAD ERROR ===`);
+                      console.error(`[ExpandedProductScreen2] === MEDIA LOAD ERROR ===`);
                       console.error(`  Product ID: ${product?.id}`);
                       console.error(`  Product Name: ${product?.productName}`);
                       console.error(`  Image Index: ${index}`);
-                      console.error(`  Image URL: ${image?.url}`);
-                      console.error(`  Error Message: ${errorMessage}`);
-                      console.error(`  Full Error Object:`, error);
-                      console.error(`  nativeEvent:`, error.nativeEvent);
-                      console.error(`  URL Length: ${image?.url?.length || 0}`);
-                      try {
-                        if (image?.url && image.url.startsWith('http')) {
-                          // Extract domain manually since React Native doesn't support URL.hostname
-                          const urlMatch = image.url.match(/^https?:\/\/([^\/]+)/);
-                          const domain = urlMatch ? urlMatch[1] : 'Could not extract domain';
-                          const protocol = image.url.startsWith('https') ? 'https:' : 'http:';
-                          
-                          console.error(`  URL Domain: ${domain}`);
-                          console.error(`  URL Protocol: ${protocol}`);
-                        } else {
-                          console.error(`  URL Domain: Invalid URL - does not start with http or is undefined`);
-                          console.error(`  URL Protocol: Invalid URL - does not start with http or is undefined`);
-                        }
-                      } catch (urlError) {
-                        console.error(`  URL Domain: Error parsing URL - ${urlError}`);
-                        console.error(`  URL Protocol: Error parsing URL - ${urlError}`);
-                      }
-                      console.error(`=== END IMAGE LOAD ERROR ===`);
+                      console.error(`  Media URL: ${image?.url}`);
+                      console.error(`  Error:`, error);
+                      console.error(`=== END MEDIA LOAD ERROR ===`);
                     }}
+                    muted={true}
+                    loop={true}
+                    autoPlay={true}
                   />
                 </View>
               ))}
@@ -1075,17 +1192,6 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
               </Text>
             </View>
             
-            {/* Add to Cart Button */}
-            <TouchableOpacity
-              style={[styles.addToCartButton, { backgroundColor: theme.primary }]}
-              onPress={handleAddToCart}
-            >
-              <Icon name={isInCart ? "check" : "cart"} size={20} color="#FFFFFF" />
-              <Text style={styles.addToCartText}>
-                {isInCart ? "Added to Cart" : "Add to Cart"}
-              </Text>
-            </TouchableOpacity>
-
             {/* Save to Favorites Button */}
             <TouchableOpacity
               style={[styles.saveToFavoritesButton, { 
@@ -1128,7 +1234,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
           <View style={styles.similarProductsContainer}>
             <MasonryListWithFooter
               data={similarProducts.slice(0, displayedSimilarCount)}
-              numColumns={NUM_COLUMNS}
+              numColumns={SIMILAR_NUM_COLUMNS}
               renderItem={renderSimilarItem}
               keyExtractor={(item: FormattedSimpleProduct, index: number) => `similar_product_${item.id}_${index}`}
               refreshControl={
@@ -1141,14 +1247,20 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
               onEndReached={handleLoadMore}
               onEndReachedThreshold={0.5}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.masonryContentContainer}
+              contentContainerStyle={[
+                styles.masonryContentContainer, 
+                { 
+                  paddingHorizontal: SIMILAR_ITEM_SPACING / 2,
+                  paddingTop: SIMILAR_ITEM_SPACING / 2,
+                }
+              ]}
               ListFooterComponent={renderFooter()}
             />
           </View>
         </View>
       </Animated.ScrollView>
       
-      {/* Floating action button for adding to cart (visible on scroll) */}
+      {/* Floating action button for adding to cart (visible on scroll) - Commented out for closet functionality
       <Animated.View
         style={[
           styles.floatingActionButton,
@@ -1169,6 +1281,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
           <Icon name={isInCart ? "check" : "cart"} size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </Animated.View>
+      */}
     </View>
   );
 };

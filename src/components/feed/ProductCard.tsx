@@ -15,6 +15,7 @@ import ContentAction from '../common/CardButtons/contentAction';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../../styles/theme/colors';
 import { SharedElement } from 'react-navigation-shared-element';
+import MediaComponent from '../common/MediaComponent';
 
 // Add type declaration at the top of file (after imports)
 // declare const setTimeout: (callback: (...args: any[]) => void, ms: number) => number;
@@ -651,12 +652,15 @@ const ProductCard: React.FC<ProductCardProps> = ({
           id={`item.${id}.image`}
           style={containerStyle}
         >
-          <Image
-            source={{ uri: image.url }}
+          <MediaComponent
+            uri={image.url}
             style={imageStyle}
             resizeMode="cover"
             onLoad={handleImageLoad}
             onError={(error) => handleImageError(error, image.url, _index)}
+            muted={true}
+            loop={true}
+            autoPlay={true}
           />
         </SharedElement>
       );
@@ -665,12 +669,15 @@ const ProductCard: React.FC<ProductCardProps> = ({
     // Regular image for non-current images
     return (
       <View style={containerStyle}>
-        <Image
-          source={{ uri: image.url }}
+        <MediaComponent
+          uri={image.url}
           style={imageStyle}
           resizeMode="cover"
           onLoad={handleImageLoad}
           onError={(error) => handleImageError(error, image.url, _index)}
+          muted={true}
+          loop={true}
+          autoPlay={true}
         />
       </View>
     );
@@ -810,12 +817,15 @@ const ProductCard: React.FC<ProductCardProps> = ({
                   backgroundColor: theme.background
                 }}
               >
-                <Image
-                  source={{ uri: images[0].url }}
+                <MediaComponent
+                  uri={images[0].url}
                   style={{ borderRadius: 12, width: '100%', height: cardWidth * imageAspectRatio }}
                   resizeMode="cover"
                   onLoad={handleImageLoad}
                   onError={(error) => handleImageError(error, images[0].url, 0)}
+                  muted={true}
+                  loop={true}
+                  autoPlay={true}
                 />
               </SharedElement>
             </TouchableOpacity>
@@ -907,6 +917,7 @@ const styles = StyleSheet.create({
     margin: 3, 
     overflow: 'visible', // Allow shadow to be visible
     position: 'relative',
+    backgroundColor: '#FFFFFF', // Add background color for shadow calculation
   },
   innerContainer: { 
     borderRadius: 12,
@@ -927,6 +938,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
+    backgroundColor: 'transparent', // Add background color
   },
   heartContainer: {
     position: 'absolute',
@@ -939,6 +951,7 @@ const styles = StyleSheet.create({
     zIndex: 15,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent', // Add background color
   },
   scrollView: {
     height: '100%',

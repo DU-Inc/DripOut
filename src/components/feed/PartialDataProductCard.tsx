@@ -19,6 +19,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../../styles/theme/colors';
 import { FeedStackParamList } from '../../navigations/feedNavigator/FeedNavigator';
 import ExpandedPartialProductFeed from '../ExpandedFeed/ExpandedPartialProductFeed';
+import MediaComponent from '../common/MediaComponent';
 
 // Add image loading state tracking
 interface ProductImage {
@@ -620,6 +621,7 @@ const PartialDataProductCard: React.FC<PartialDataProductCardProps> = ({
       width: cardWidth,
       minHeight: CARD_MIN_HEIGHT,
       marginBottom: 3, // Add margin to the bottom of each card
+      backgroundColor: '#FFFFFF', // Add background color for shadow calculation
     },
     imageContainer: {
       height: cardWidth * imageAspectRatio, 
@@ -634,7 +636,84 @@ const PartialDataProductCard: React.FC<PartialDataProductCardProps> = ({
       borderRadius: 12,
       borderBottomLeftRadius: 12,
       borderBottomRightRadius: 12,
-    }
+    },
+    cartButtonContainer: {
+      position: 'absolute',
+      top: 8,
+      left: 8,
+      zIndex: 10,
+      alignItems: 'flex-start',
+      justifyContent: 'flex-start',
+      backgroundColor: 'transparent', // Add background color
+    },
+    heartContainer: {
+      position: 'absolute',
+      left: '50%',
+      top: '50%',
+      width: 24,
+      height: 24,
+      marginLeft: -12,
+      marginTop: -12,
+      zIndex: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'transparent', // Add background color
+    },
+    image: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 0, // Remove border radius from image
+    },
+    placeholderImage: {
+      // Styling for placeholder when image is not available
+    },
+    linkContainer: {
+      width: '100%',
+      paddingHorizontal: 0,
+      paddingBottom: 8,
+      paddingTop: 0, // Remove padding between image and link
+    },
+    linkButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 0, // No border radius on top
+      borderBottomLeftRadius: 12, // Add curve to bottom corners
+      borderBottomRightRadius: 12,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+      borderBottomWidth: 1,
+    },
+    linkText: {
+      fontSize: 12, // Reduced from 13
+      fontWeight: '500',
+      flex: 1,
+      marginRight: 8,
+    },
+    contentActionContainer: {
+      position: 'absolute',
+      bottom: -18, // Increased from -18 to -28 for more margin
+      right: 1,
+      zIndex: 9999,
+      elevation: 9999,
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+      pointerEvents: 'box-none',// Add more margin on top
+    },
+    cardOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: '#000',
+      zIndex: 50,
+      borderRadius: 12, // Match card border radius
+    },
   };
 
   return (
@@ -713,43 +792,23 @@ const PartialDataProductCard: React.FC<PartialDataProductCardProps> = ({
                 delayLongPress={300}
                 style={{width: '100%', height: '100%'}}
               >
-                <Image
-                  source={{ uri: mainImage.url }}
+                <MediaComponent
+                  uri={mainImage.url}
                   style={[styles.image, { width: cardWidth, height: cardWidth * imageAspectRatio }]}
                   resizeMode="cover"
-                  // Disable fade-in animation for smoother experience
-                  fadeDuration={0} 
                   onLoad={() => handleImageLoad(mainImage.id)}
                   onError={(error) => {
-                    const errorMessage = error.nativeEvent?.error || 'Unknown error';
-                    console.error(`[PartialDataProductCard ${id}] === IMAGE LOAD ERROR ===`);
+                    console.error(`[PartialDataProductCard ${id}] === MEDIA LOAD ERROR ===`);
                     console.error(`  Product ID: ${id}`);
                     console.error(`  Product Name: ${name || 'Unknown'}`);
                     console.error(`  Brand: ${brand || 'Unknown'}`);
-                    console.error(`  Image URL: ${mainImage.url}`);
-                    console.error(`  Error Message: ${errorMessage}`);
-                    console.error(`  Full Error Object:`, error);
-                    console.error(`  nativeEvent:`, error.nativeEvent);
-                    console.error(`  URL Length: ${mainImage.url?.length || 0}`);
-                    try {
-                      if (mainImage.url && mainImage.url.startsWith('http')) {
-                        // Extract domain manually since React Native doesn't support URL.hostname
-                        const urlMatch = mainImage.url.match(/^https?:\/\/([^\/]+)/);
-                        const domain = urlMatch ? urlMatch[1] : 'Could not extract domain';
-                        const protocol = mainImage.url.startsWith('https') ? 'https:' : 'http:';
-                        
-                        console.error(`  URL Domain: ${domain}`);
-                        console.error(`  URL Protocol: ${protocol}`);
-                      } else {
-                        console.error(`  URL Domain: Invalid URL - does not start with http`);
-                        console.error(`  URL Protocol: Invalid URL - does not start with http`);
-                      }
-                    } catch (urlError) {
-                      console.error(`  URL Domain: Error parsing URL - ${urlError}`);
-                      console.error(`  URL Protocol: Error parsing URL - ${urlError}`);
-                    }
-                    console.error(`=== END IMAGE LOAD ERROR ===`);
+                    console.error(`  Media URL: ${mainImage.url}`);
+                    console.error(`  Error:`, error);
+                    console.error(`=== END MEDIA LOAD ERROR ===`);
                   }}
+                  muted={true}
+                  loop={true}
+                  autoPlay={true}
                 />
               </TouchableOpacity>
             ) : (
@@ -845,9 +904,10 @@ const PartialDataProductCard: React.FC<PartialDataProductCardProps> = ({
 const styles = StyleSheet.create({
   container: {
     borderRadius: 12,
-    margin: 3, 
-    overflow: 'visible', // Allow shadow to be visible
+    margin: 3,
+    overflow: 'visible',
     position: 'relative',
+    backgroundColor: '#FFFFFF', // Add background color for shadow calculation
   },
   innerContainer: { 
     borderRadius: 12,
@@ -872,6 +932,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
+    backgroundColor: 'transparent', // Add background color
   },
   heartContainer: {
     position: 'absolute',
@@ -884,6 +945,7 @@ const styles = StyleSheet.create({
     zIndex: 15,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent', // Add background color
   },
   image: {
     width: '100%',
