@@ -18,9 +18,10 @@ import {
   TextInput,
   KeyboardAvoidingView,
   ToastAndroid,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { 
   hasUserModel, 
   getUserModelUrl, 
@@ -42,13 +43,17 @@ import { useTheme } from "../styles/themeprovider";
 import Icon from "react-native-vector-icons/Ionicons";
 import MaterialIcon from "react-native-vector-icons/MaterialIcons";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
+import { RootStackParamList, MainTabParamList } from "../types/NavigationTypes";
 
 // Get screen dimensions for responsive design
 const { width: screenWidth } = Dimensions.get('window');
 
+type ThreeDScreenRouteProp = RouteProp<MainTabParamList, '3DTab'>;
+
 const ThreeDScreen: React.FC = () => {
   const scrollY = useRef(new Animated.Value(0)).current; // Track scrolling
   const navigation = useNavigation();
+  const route = useRoute<ThreeDScreenRouteProp>();
   const { isDarkMode } = useTheme();
   
   // State variables for 3D model functionality
@@ -69,13 +74,18 @@ const ThreeDScreen: React.FC = () => {
   
   // Try-on bucket states
   const [tryOnBucket, setTryOnBucket] = useState<Product[]>([]);
-  const [showTryOnBucket, setShowTryOnBucket] = useState<boolean>(false);
+  const [showTryOnBucket, setShowTryOnBucket] = useState<boolean>(true);
   
   // Products related states
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  
+  // Product details modal states
+  const [showProductDetails, setShowProductDetails] = useState<boolean>(false);
+  const [selectedProductForDetails, setSelectedProductForDetails] = useState<Product | null>(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
   
   // Custom product URL states
   const [showUrlModal, setShowUrlModal] = useState<boolean>(false);
@@ -151,6 +161,47 @@ const ThreeDScreen: React.FC = () => {
       setProductsLoading(false);
     }
   }, []);
+  
+  // Handle preloaded outfit from route parameters
+  useEffect(() => {
+    const preloadedOutfit = route.params?.preloadedOutfit;
+    
+    if (preloadedOutfit && preloadedOutfit.products && preloadedOutfit.products.length > 0) {
+      console.log('🎯 Processing preloaded outfit:', preloadedOutfit.name);
+      
+      // Convert outfit products to the Product format expected by the try-on system
+      const convertedProducts: Product[] = preloadedOutfit.products.map((product: any, index: number) => ({
+        id: product.id || `preloaded_${index}`,
+        name: product.name || 'Unknown Item',
+        brand: product.brand || 'Unknown Brand',
+        price: product.price || 0,
+        currency: 'USD',
+        images: product.images || [],
+        url: product.url || product.affiliateLink || '',
+        description: product.description || '',
+        color: product.color || '',
+        size: product.size || '',
+        availability: product.availability || 'in_stock'
+      }));
+      
+      // Add all converted products to the try-on bucket
+      setTryOnBucket(convertedProducts);
+      
+      // Show a toast/alert to let the user know the outfit was loaded
+      const message = `"${preloadedOutfit.name}" outfit loaded with ${convertedProducts.length} item(s)`;
+      
+      if (Platform.OS === 'android') {
+        ToastAndroid.show(message, ToastAndroid.LONG);
+      } else {
+        // For iOS, we could show a temporary alert or use a custom toast
+        setTimeout(() => {
+          Alert.alert('Outfit Loaded', message, [{ text: 'OK' }]);
+        }, 500); // Slight delay to let the screen load first
+      }
+      
+      console.log(`✅ Added ${convertedProducts.length} products to try-on bucket`);
+    }
+  }, [route.params]);
   
   // Pull-to-refresh handler
   const handleRefresh = useCallback(() => {
@@ -424,8 +475,17 @@ const ThreeDScreen: React.FC = () => {
     setShowImageOptions(true);
   };
   
-  // State to track bucket highlighting
-  const [highlightBucket, setHighlightBucket] = useState<boolean>(false);
+  // Enhanced fitting room states with better performance  
+  const translateY = useRef(new Animated.Value(400)).current; // Start hidden (use dynamic height)
+  const opacity = useRef(new Animated.Value(0)).current;
+  const [panelState, setPanelState] = useState<'hidden' | 'peek' | 'expanded'>('hidden');
+  
+  // Panel heights for different states
+  const PANEL_HEIGHTS = {
+    hidden: 0,
+    peek: 120,
+    expanded: Math.min(420, Dimensions.get('window').height * 0.65)
+  };
 
   // Add a product to the try-on bucket
   const handleAddToTryOnBucket = (product: Product) => {
@@ -461,12 +521,6 @@ const ThreeDScreen: React.FC = () => {
     // Add to bucket
     setTryOnBucket(prevBucket => [...prevBucket, preparedProduct]);
     
-    // Highlight the bucket to draw attention to it
-    setHighlightBucket(true);
-    setTimeout(() => {
-      setHighlightBucket(false);
-    }, 1500); // Reset the highlight after 1.5 seconds
-    
     // Show message that product was added
     if (Platform.OS === 'android') {
       ToastAndroid.show('Added to fitting room', ToastAndroid.SHORT);
@@ -479,7 +533,16 @@ const ThreeDScreen: React.FC = () => {
   
   // Remove a product from the try-on bucket
   const handleRemoveFromBucket = (productId: string) => {
-    setTryOnBucket(prevBucket => prevBucket.filter(item => item.id !== productId));
+    setTryOnBucket(prevBucket => {
+      const newBucket = prevBucket.filter(item => item.id !== productId);
+      
+      // Hide panel if no items left
+      if (newBucket.length === 0) {
+        setTimeout(() => animateToState('hidden'), 300);
+      }
+      
+      return newBucket;
+    });
   };
   
   // Clear the entire try-on bucket
@@ -492,7 +555,10 @@ const ThreeDScreen: React.FC = () => {
         { 
           text: 'Clear All', 
           style: 'destructive',
-          onPress: () => setTryOnBucket([]) 
+          onPress: () => {
+            setTryOnBucket([]);
+            animateToState('hidden');
+          }
         }
       ]
     );
@@ -555,6 +621,66 @@ const ThreeDScreen: React.FC = () => {
     }
   };
   
+  // Handle opening product details modal
+  const handleShowProductDetails = (product: Product) => {
+    setSelectedProductForDetails(product);
+    setCurrentImageIndex(0); // Reset to first image
+    setShowProductDetails(true);
+  };
+
+  // Handle closing product details modal
+  const handleCloseProductDetails = () => {
+    setShowProductDetails(false);
+    setSelectedProductForDetails(null);
+    setCurrentImageIndex(0);
+  };
+
+  // Extract store name from URL
+  const getStoreName = (url: string): string | null => {
+    try {
+      const domain = new URL(url).hostname;
+      // Remove 'www.' and get the main domain
+      const cleanDomain = domain.replace(/^www\./, '');
+      // Extract the store name (e.g., "nike.com" -> "Nike")
+      const storeName = cleanDomain.split('.')[0];
+      return storeName.charAt(0).toUpperCase() + storeName.slice(1);
+    } catch {
+      return null;
+    }
+  };
+
+  // Handle opening website URL
+  const handleOpenWebsite = async (url: string) => {
+    try {
+      console.log('🌐 Attempting to open website:', url);
+      
+      // Check if the URL can be opened
+      const canOpen = await Linking.canOpenURL(url);
+      
+      if (canOpen) {
+        await Linking.openURL(url);
+        console.log('✅ Successfully opened website');
+        
+        // Close the modal after opening the website
+        handleCloseProductDetails();
+      } else {
+        console.warn('⚠️ Cannot open URL:', url);
+        Alert.alert(
+          'Unable to Open Website',
+          'Sorry, we could not open this website. Please check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('❌ Error opening website:', error);
+      Alert.alert(
+        'Error Opening Website',
+        'An error occurred while trying to open the website. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
   // Save try-on outfit to user's collection
   const handleSaveLook = async () => {
     // Get the current user
@@ -700,6 +826,55 @@ const ThreeDScreen: React.FC = () => {
     }
   };
 
+  // Enhanced panel animations with better performance
+  const animateToState = useCallback((newState: 'hidden' | 'peek' | 'expanded') => {
+    const targetHeight = PANEL_HEIGHTS[newState];
+    const targetOpacity = newState === 'hidden' ? 0 : 1;
+    const targetTranslateY = newState === 'hidden' ? PANEL_HEIGHTS.expanded : 0;
+
+    setPanelState(newState);
+
+    Animated.parallel([
+      Animated.spring(translateY, {
+        toValue: targetTranslateY,
+        useNativeDriver: true,
+        tension: 150,
+        friction: 12,
+      }),
+      Animated.timing(opacity, {
+        toValue: targetOpacity,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [translateY, opacity, PANEL_HEIGHTS]);
+
+
+  const showFittingRoom = useCallback(() => {
+    animateToState('peek');
+  }, [animateToState]);
+
+  const toggleFittingRoom = useCallback(() => {
+    if (panelState === 'hidden') {
+      animateToState('peek');
+    } else if (panelState === 'peek') {
+      animateToState('expanded');
+    } else {
+      animateToState('peek');
+    }
+  }, [panelState, animateToState]);
+
+  // Effect to show fitting room when items are added
+  useEffect(() => {
+    if (tryOnBucket.length > 0 && panelState === 'hidden') {
+      console.log('🎯 Showing fitting room for', tryOnBucket.length, 'items');
+      animateToState('peek');
+    } else if (tryOnBucket.length === 0 && panelState !== 'hidden') {
+      console.log('🙈 Hiding fitting room - no items');
+      animateToState('hidden');
+    }
+  }, [tryOnBucket.length, panelState, animateToState]);
+
   // Category filtering
   const filteredProducts = selectedCategory === 'All'
     ? products
@@ -832,6 +1007,9 @@ const ThreeDScreen: React.FC = () => {
         <Text style={[styles.headerTitle, { color: textColor }]}>Try On a Fit</Text>
         <Text style={[styles.headerSubtitle, { color: subTextColor }]}>
           See Yourself in Style
+        </Text>
+        <Text style={[styles.experimentalWarning, { color: subTextColor }]}>
+          Feature in development - results may be inconsistent
         </Text>
       </View>
 
@@ -1049,8 +1227,8 @@ const ThreeDScreen: React.FC = () => {
             style={[
               styles.tryDifferentButton,
               { 
-                backgroundColor: hasModel ? 'rgba(255, 45, 85, 0.1)' : surfaceColor,
-                borderColor: hasModel ? accentColor : surfaceColor
+                backgroundColor: hasModel ? 'rgba(0, 122, 255, 0.1)' : surfaceColor,
+                borderColor: hasModel ? mainColor : surfaceColor
               }
             ]}
             onPress={() => {
@@ -1065,15 +1243,15 @@ const ThreeDScreen: React.FC = () => {
             <Icon 
               name="link-outline" 
               size={16} 
-              color={hasModel ? accentColor : subTextColor} 
+              color={hasModel ? mainColor : subTextColor} 
             />
             <Text 
               style={[
                 styles.tryDifferentButtonText, 
-                { color: hasModel ? accentColor : subTextColor }
+                { color: hasModel ? mainColor : subTextColor }
               ]}
             >
-              Add products from external websites
+              Paste product links to try on
             </Text>
           </TouchableOpacity>
           
@@ -1151,73 +1329,157 @@ const ThreeDScreen: React.FC = () => {
         </View>
       </Animated.ScrollView>
       
-      {/* Fitting Room (Try-On Bucket) UI at bottom of screen */}
-      {hasModel && tryOnBucket.length > 0 && showTryOnBucket && (
+      {/* Modern Fitting Room Panel */}
+      {hasModel && tryOnBucket.length > 0 && (
         <Animated.View 
           style={[
-            styles.bucketContainer, 
+            styles.modernFittingRoom, 
             { 
               backgroundColor: cardBgColor,
-              paddingBottom: Math.max(insets.bottom, 16),
-              borderColor: highlightBucket ? accentColor : 'transparent',
-              borderWidth: highlightBucket ? 2 : 0,
+              transform: [{ translateY }],
+              opacity,
+              height: PANEL_HEIGHTS[panelState],
             }
           ]}
         >
-          <View style={styles.bucketHeader}>
-            <Text style={[styles.bucketTitle, { color: textColor }]}>
-              Fitting Room ({tryOnBucket.length})
-            </Text>
-            <TouchableOpacity
-              style={styles.bucketClearButton}
-              onPress={handleClearBucket}
-            >
-              <Text style={[styles.bucketClearText, { color: subTextColor }]}>Clear</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Fitting Room Header with Expand/Collapse Button */}
+          <TouchableOpacity 
+            onPress={toggleFittingRoom}
+            style={styles.fittingRoomHeader}
+            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+          >
+            <View style={styles.headerContent}>
+              <View style={styles.fittingRoomTitle}>
+                <Icon name="shirt-outline" size={20} color={mainColor} />
+                <Text style={[styles.fittingRoomText, { color: textColor }]}>
+                  Fitting Room
+                </Text>
+                <View style={[styles.itemCountBadge, { backgroundColor: mainColor }]}>
+                  <Text style={styles.itemCountText}>
+                    {tryOnBucket.length}
+                  </Text>
+                </View>
+              </View>
+              
+              <View style={styles.headerActions}>
+                <Icon 
+                  name={panelState === 'expanded' ? 'chevron-down' : 'chevron-up'} 
+                  size={20} 
+                  color={textColor} 
+                />
+              </View>
+            </View>
+          </TouchableOpacity>
           
-          <View style={styles.bucketContent}>
-            <FlatList
-              data={tryOnBucket}
-              renderItem={renderBucketItem}
-              keyExtractor={(item) => item.id || Math.random().toString()}
+          
+          {/* Items Preview */}
+          <View style={styles.itemsPreview}>
+            <ScrollView 
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.bucketItemsContainer}
-            />
-            
-            <TouchableOpacity
-              style={[styles.tryOnBucketButton, { backgroundColor: mainColor }]}
-              onPress={handleTryOn}
+              style={styles.itemsContainer}
+              contentContainerStyle={styles.itemsContent}
             >
-              <Icon name="shirt" size={18} color="#FFFFFF" />
-              <Text style={styles.tryOnBucketButtonText}>
-                Try On {tryOnBucket.length === 1 ? 'Item' : 'All Items'}
+              {tryOnBucket.map((item, index) => {
+                const imageUrl = item.images?.[0] || item.url || 'https://via.placeholder.com/150';
+                
+                return (
+                  <View key={item.id || index} style={styles.itemCard}>
+                    <TouchableOpacity
+                      onPress={() => handleRemoveFromBucket(item.id || '')}
+                      style={styles.removeBtn}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Icon name="close" size={14} color="#FFFFFF" />
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      onPress={() => handleShowProductDetails(item)}
+                      style={styles.itemImageContainer}
+                      activeOpacity={0.8}
+                    >
+                      <Image 
+                        source={{ uri: imageUrl }} 
+                        style={styles.itemImage}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
+                    
+                    {panelState === 'expanded' && (
+                      <View style={styles.itemDetails}>
+                        <Text style={[styles.itemTitle, { color: textColor }]} numberOfLines={2}>
+                          {item.name || 'Item'}
+                        </Text>
+                        <Text style={[styles.itemPriceText, { color: subTextColor }]} numberOfLines={1}>
+                          {formatPrice(item.price)}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+          
+          {/* Primary Action */}
+          <View style={styles.primaryAction}>
+            <TouchableOpacity
+              style={[styles.tryOnBtn, { backgroundColor: mainColor }]}
+              onPress={handleTryOn}
+              activeOpacity={0.8}
+            >
+              <Icon name="sparkles" size={20} color="#FFFFFF" />
+              <Text style={styles.tryOnText}>
+                Try On {tryOnBucket.length > 1 ? 'All' : 'Item'}
               </Text>
             </TouchableOpacity>
+            
+            {panelState === 'expanded' && (
+              <View style={styles.secondaryActions}>
+                <TouchableOpacity 
+                  style={[styles.secondaryBtn, { borderColor: successColor }]}
+                  onPress={() => Alert.alert('Save Collection', 'Feature coming soon!')}
+                >
+                  <Icon name="bookmark-outline" size={16} color={successColor} />
+                  <Text style={[styles.secondaryBtnText, { color: successColor }]}>Save</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.secondaryBtn, { borderColor: accentColor }]}
+                  onPress={handleClearBucket}
+                >
+                  <Icon name="trash-outline" size={16} color={accentColor} />
+                  <Text style={[styles.secondaryBtnText, { color: accentColor }]}>Clear All</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </Animated.View>
       )}
       
-      {/* Floating Try-On Button when bucket has items but is collapsed */}
-      {hasModel && tryOnBucket.length > 0 && !showTryOnBucket && (
-        <TouchableOpacity
+      {/* Floating Fab when hidden */}
+      {hasModel && tryOnBucket.length > 0 && panelState === 'hidden' && (
+        <Animated.View
           style={[
-            styles.floatingBucketButton,
+            styles.floatingFab,
             { 
               backgroundColor: mainColor,
-              bottom: Math.max(insets.bottom, 16) + 16
+              bottom: Math.max(insets.bottom, 20) + 20,
+              transform: [{ scale: opacity }]
             }
           ]}
-          onPress={() => setShowTryOnBucket(true)}
         >
-          <Icon name="shirt" size={24} color="#FFFFFF" />
-          <View style={styles.bucketCount}>
-            <Text style={styles.bucketCountText}>
-              {tryOnBucket.length}
-            </Text>
-          </View>
-        </TouchableOpacity>
+          <TouchableOpacity
+            onPress={showFittingRoom}
+            style={styles.fabButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Icon name="bag" size={24} color="#FFFFFF" />
+            <View style={styles.fabBadge}>
+              <Text style={styles.fabBadgeText}>{tryOnBucket.length}</Text>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
       )}
       
       {/* Image Options Modal with modern design */}
@@ -1247,6 +1509,19 @@ const ThreeDScreen: React.FC = () => {
               >
                 <Icon name="close" size={24} color={textColor} />
               </TouchableOpacity>
+            </View>
+            
+            <View style={[
+              styles.photoTipContainer, 
+              { 
+                backgroundColor: isDarkMode ? 'rgba(10, 132, 255, 0.1)' : 'rgba(0, 122, 255, 0.05)',
+                borderColor: isDarkMode ? 'rgba(10, 132, 255, 0.2)' : 'rgba(0, 122, 255, 0.1)'
+              }
+            ]}>
+              <Icon name="information-circle-outline" size={16} color={mainColor} />
+              <Text style={[styles.photoTipText, { color: subTextColor }]}>
+                For best results, use full-body photos with good lighting
+              </Text>
             </View>
             
             <TouchableOpacity 
@@ -1385,7 +1660,7 @@ const ThreeDScreen: React.FC = () => {
           console.log('Modal requested to close');
           if (!scrapingProduct) {
             setShowUrlModal(false);
-            setProductUrl('');
+            setProductUrls(['']);
           }
         }}
       >
@@ -1404,7 +1679,7 @@ const ThreeDScreen: React.FC = () => {
                   onPress={() => {
                     if (!scrapingProduct) {
                       setShowUrlModal(false);
-                      setProductUrl('');
+                      setProductUrls(['']);
                     }
                   }}
                   disabled={scrapingProduct}
@@ -1555,6 +1830,175 @@ const ThreeDScreen: React.FC = () => {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+      
+      {/* Product Details Modal */}
+      <Modal
+        visible={showProductDetails}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={handleCloseProductDetails}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: modalBgColor }]}>
+          <View style={[styles.productDetailsModalContent, { backgroundColor: cardBgColor }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: textColor }]}>
+                Product Details
+              </Text>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={handleCloseProductDetails}
+              >
+                <Icon name="close" size={24} color={textColor} />
+              </TouchableOpacity>
+            </View>
+            
+            {selectedProductForDetails && (
+              <View style={styles.productDetailsContent}>
+                {/* Product Image Carousel */}
+                <View style={styles.productDetailsImageContainer}>
+                  {selectedProductForDetails.images && selectedProductForDetails.images.length > 0 ? (
+                    <>
+                      <ScrollView
+                        horizontal
+                        pagingEnabled
+                        showsHorizontalScrollIndicator={false}
+                        onMomentumScrollEnd={(event) => {
+                          const imageIndex = Math.round(
+                            event.nativeEvent.contentOffset.x / 
+                            event.nativeEvent.layoutMeasurement.width
+                          );
+                          setCurrentImageIndex(imageIndex);
+                        }}
+                        style={styles.imageCarousel}
+                      >
+                        {selectedProductForDetails.images.map((imageUrl, index) => (
+                          <Image
+                            key={index}
+                            source={{ uri: imageUrl }}
+                            style={[styles.productDetailsImage, { width: screenWidth * 0.9 - 40 }]}
+                            resizeMode="cover"
+                          />
+                        ))}
+                      </ScrollView>
+                      
+                      {/* Image indicator dots */}
+                      {selectedProductForDetails.images.length > 1 && (
+                        <View style={styles.imageIndicators}>
+                          {selectedProductForDetails.images.map((_, index) => (
+                            <View
+                              key={index}
+                              style={[
+                                styles.imageIndicatorDot,
+                                {
+                                  backgroundColor: 
+                                    index === currentImageIndex ? mainColor : subTextColor,
+                                  opacity: index === currentImageIndex ? 1 : 0.3,
+                                }
+                              ]}
+                            />
+                          ))}
+                        </View>
+                      )}
+                    </>
+                  ) : (
+                    <Image
+                      source={{ 
+                        uri: selectedProductForDetails.url || 'https://via.placeholder.com/300'
+                      }}
+                      style={styles.productDetailsImage}
+                      resizeMode="cover"
+                    />
+                  )}
+                </View>
+                
+                {/* Product Info */}
+                <View style={styles.productDetailsInfo}>
+                  <Text style={[styles.productDetailsName, { color: textColor }]}>
+                    {selectedProductForDetails.name || 'Unnamed Product'}
+                  </Text>
+                  
+                  {selectedProductForDetails.brand && (
+                    <Text style={[styles.productDetailsBrand, { color: subTextColor }]}>
+                      {selectedProductForDetails.brand}
+                    </Text>
+                  )}
+                  
+                  {selectedProductForDetails.price && (
+                    <Text style={[styles.productDetailsPrice, { color: mainColor }]}>
+                      {formatPrice(selectedProductForDetails.price)}
+                    </Text>
+                  )}
+                  
+                  {/* Store Information */}
+                  {selectedProductForDetails.url && 
+                   (selectedProductForDetails.url.startsWith('http://') || 
+                    selectedProductForDetails.url.startsWith('https://')) && (
+                    <View style={styles.productDetailsRow}>
+                      <Text style={[styles.productDetailsLabel, { color: subTextColor }]}>
+                        Store:
+                      </Text>
+                      <Text style={[styles.productDetailsValue, { color: textColor }]}>
+                        {getStoreName(selectedProductForDetails.url) || 'External Store'}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {selectedProductForDetails.color && (
+                    <View style={styles.productDetailsRow}>
+                      <Text style={[styles.productDetailsLabel, { color: subTextColor }]}>
+                        Color:
+                      </Text>
+                      <Text style={[styles.productDetailsValue, { color: textColor }]}>
+                        {selectedProductForDetails.color}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {/* Product Description */}
+                  {selectedProductForDetails.description && (
+                    <View style={styles.productDescriptionContainer}>
+                      <Text style={[styles.productDescriptionTitle, { color: textColor }]}>
+                        Description
+                      </Text>
+                      <Text style={[styles.productDescriptionText, { color: subTextColor }]}>
+                        {selectedProductForDetails.description}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {/* Action Buttons */}
+                  <View style={styles.productDetailsActions}>
+                    {selectedProductForDetails.url && 
+                     (selectedProductForDetails.url.startsWith('http://') || 
+                      selectedProductForDetails.url.startsWith('https://')) && (
+                      <TouchableOpacity
+                        style={[styles.visitWebsiteButton, { backgroundColor: mainColor }]}
+                        onPress={() => handleOpenWebsite(selectedProductForDetails.url || '')}
+                      >
+                        <Icon name="open-outline" size={16} color="#FFFFFF" />
+                        <Text style={styles.visitWebsiteButtonText}>Visit Website</Text>
+                      </TouchableOpacity>
+                    )}
+                    
+                    <TouchableOpacity
+                      style={[styles.removeFromBucketButton, { borderColor: accentColor }]}
+                      onPress={() => {
+                        handleRemoveFromBucket(selectedProductForDetails.id || '');
+                        handleCloseProductDetails();
+                      }}
+                    >
+                      <Icon name="trash-outline" size={16} color={accentColor} />
+                      <Text style={[styles.removeFromBucketButtonText, { color: accentColor }]}>
+                        Remove from Fitting Room
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -1756,6 +2200,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '400',
     marginTop: 4,
+  },
+  experimentalWarning: {
+    fontSize: 12,
+    fontWeight: '400',
+    fontStyle: 'italic',
+    marginTop: 8,
+    opacity: 0.8,
   },
   content: {
     paddingHorizontal: 20,
@@ -2085,6 +2536,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
   },
+  photoTipContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  photoTipText: {
+    fontSize: 13,
+    marginLeft: 8,
+    flex: 1,
+    lineHeight: 18,
+  },
   
   // Try-on modal styles
   tryOnModalContent: {
@@ -2210,7 +2677,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingBottom: 24,
     maxHeight: '80%',
-    backgroundColor: '#FFFFFF', // Add explicit background color for light mode
   },
   urlInputContainer: {
     padding: 20,
@@ -2303,6 +2769,356 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 16,
     marginBottom: 24,
+  },
+  
+  // Modern fitting room styles - optimized for performance
+  modernFittingRoom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 8,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 15,
+  },
+  
+  fittingRoomHeader: {
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+  },
+  
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  
+  fittingRoomTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  
+  fittingRoomText: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  
+  itemCountBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  
+  itemCountText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  
+  headerActions: {
+    padding: 4,
+  },
+  
+  
+  itemsPreview: {
+    marginBottom: 16,
+  },
+  
+  itemsContainer: {
+    maxHeight: 180,
+  },
+  
+  itemsContent: {
+    paddingRight: 16,
+  },
+  
+  itemCard: {
+    width: 120,
+    marginRight: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  
+  removeBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  
+  itemImageContainer: {
+    width: '100%',
+    height: 120,
+    borderRadius: 12,
+  },
+  
+  itemImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 12,
+  },
+  
+  itemDetails: {
+    paddingTop: 8,
+    paddingHorizontal: 2,
+  },
+  
+  itemTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
+    lineHeight: 16,
+  },
+  
+  itemPriceText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  
+  primaryAction: {
+    gap: 8,
+  },
+  
+  tryOnBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    gap: 8,
+  },
+  
+  tryOnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  
+  secondaryActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  
+  secondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    gap: 6,
+  },
+  
+  secondaryBtnText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  
+  floatingFab: {
+    position: 'absolute',
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  
+  fabButton: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 28,
+  },
+  
+  fabBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#FF3B30',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  
+  fabBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  
+  // Product Details Modal styles
+  productDetailsModalContent: {
+    width: '90%',
+    maxHeight: '80%',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  
+  productDetailsContent: {
+    padding: 20,
+  },
+  
+  productDetailsImageContainer: {
+    width: '100%',
+    height: 250,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+    position: 'relative',
+  },
+  
+  imageCarousel: {
+    width: '100%',
+    height: '100%',
+  },
+  
+  productDetailsImage: {
+    width: '100%',
+    height: '100%',
+  },
+  
+  imageIndicators: {
+    position: 'absolute',
+    bottom: 12,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  
+  imageIndicatorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  
+  
+  productDetailsInfo: {
+    gap: 8,
+  },
+  
+  productDetailsName: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  
+  productDetailsBrand: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  
+  productDetailsPrice: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  
+  productDetailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  
+  productDetailsLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    width: 60,
+  },
+  
+  productDetailsValue: {
+    fontSize: 14,
+    fontWeight: '400',
+    flex: 1,
+  },
+  
+  productDetailsActions: {
+    marginTop: 24,
+    gap: 12,
+  },
+  
+  visitWebsiteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  
+  visitWebsiteButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  
+  removeFromBucketButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    gap: 8,
+  },
+  
+  removeFromBucketButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  
+  productDescriptionContainer: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+  },
+  
+  productDescriptionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  
+  productDescriptionText: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'left',
   },
 });
 

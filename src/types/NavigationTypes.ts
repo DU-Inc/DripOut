@@ -5,7 +5,13 @@ export type MainTabParamList = {
   HomeTab: undefined;
   SocialTab: undefined;
   DiscoverTab: undefined;
-  '3DTab': undefined;
+  '3DTab': {
+    preloadedOutfit?: {
+      id: string;
+      name: string;
+      products: any[];
+    };
+  } | undefined;
   ClosetTab: undefined;
   ProfileTab: undefined;
 };
@@ -14,7 +20,10 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   Welcome: undefined; // Welcome Screen for not signed in users
   Auth: undefined;
-  MainTabs: undefined; // The tab navigator is a single screen in the stack
+  MainTabs: {
+    screen?: keyof MainTabParamList;
+    params?: any;
+  } | undefined; // The tab navigator with optional nested navigation
   UserPreferencesScreen: undefined;
   SettingsScreen: undefined;
   
@@ -41,11 +50,37 @@ export type RootStackParamList = {
   UserDetailScreen: { userId: string; username?: string };
   SearchScreen: undefined;
   MessagingScreen: { conversationId?: string; otherUserId?: string; otherUserName?: string };
+  FollowersFollowingScreen: {
+    initialTab?: 'followers' | 'following';
+    userId: string;
+  };
+  PostDetailScreen: {
+    postId: string;
+    userId: string;
+    initialPostIndex?: number;
+  };
+  OutfitDetailScreen: {
+    outfitId: string;
+    outfit: {
+      id: string;
+      userId: string;
+      name: string;
+      imageUrl: string;
+      products: any[];
+      createdAt: any;
+    };
+  };
   
   // Legacy types for backward compatibility
   Home: undefined;
   UserProfileScreen: undefined;
-  ThreeDScreen: undefined;
+  ThreeDScreen: {
+    preloadedOutfit?: {
+      id: string;
+      name: string;
+      products: any[];
+    };
+  } | undefined;
   ClosetScreen: undefined;
   CartScreen: undefined;
   RecommendationScreen: undefined;

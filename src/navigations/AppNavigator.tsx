@@ -30,13 +30,17 @@ import ForgotPasswordScreen from "../screens/auth/ForgotPasswordScreen";
 import SuccessOptionsSheet from "../components/common/SuccessOptionsSheet";
 import AnimatedSplashScreen from "../components/common/AnimatedSplashScreen";
 import { RootStackParamList, MainTabParamList } from "../types/NavigationTypes";
-import { useTheme } from "../styles/theme/ThemeContext";
+import { useTheme } from "../styles/themeprovider";
 import { appStateManager } from "../utils/appStateManager";
 import { OnboardingProvider } from "../context/OnboardingContext";
 import { auth } from "../Config/firebaseconfig";
 import { db } from "../Config/firebaseconfig";
 import FeedNavigator from "./feedNavigator/FeedNavigator";
 import { authGuard } from "../services/authGuard";
+import OptimizedUserProfileScreen from '../screens/profiles/OptimizedUserProfileScreen';
+import FollowersFollowingScreen from '../screens/profiles/FollowersFollowingScreen';
+import PostDetailScreen from '../screens/PostDetailScreen';
+import OutfitDetailScreen from '../screens/OutfitDetailScreen';
 
 // Add global setTimeout type
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -152,7 +156,7 @@ const MainTabNavigator = () => {
         name="3DTab" 
         component={ThreeDScreen} 
         options={{
-          tabBarLabel: '3D',
+          tabBarLabel: 'Try-On',
           tabBarIcon: ({ color, size, focused }) => {
             const iconName = focused ? "cube" : "cube-outline";
             return iconName ? (
@@ -190,7 +194,8 @@ const MainTabNavigator = () => {
       />
       <Tab.Screen 
         name="ProfileTab" 
-        component={UserProfileScreen} 
+        component={OptimizedUserProfileScreen} 
+        // component={UserProfileScreen} 
         options={{
           tabBarLabel: 'Profile',
           tabBarIcon: ({ color, size, focused }) => {
@@ -945,6 +950,21 @@ const AppNavigator: React.FC = () => {
           <Stack.Screen 
             name="SettingsScreen" 
             component={SettingsScreen}
+            options={{ headerShown: false }} 
+          />
+          <Stack.Screen 
+            name="FollowersFollowingScreen" 
+            component={FollowersFollowingScreen}
+            options={{ headerShown: false }} 
+          />
+          <Stack.Screen 
+            name="PostDetailScreen" 
+            component={PostDetailScreen}
+            options={{ headerShown: false }} 
+          />
+          <Stack.Screen 
+            name="OutfitDetailScreen" 
+            component={OutfitDetailScreen}
             options={{ headerShown: false }} 
           />
           <Stack.Screen 
