@@ -39,7 +39,7 @@ const ResetAuthScreen = () => {
     <View style={styles.container}>
       <Text style={styles.title}>Reset Authentication</Text>
       <Text style={styles.description}>
-        This will sign you out and clear all stored data. You'll need to sign in again.
+        Developer Function: This will sign you out and clear all stored data. You'll need to sign in again.
       </Text>
       <TouchableOpacity style={styles.button} onPress={handleReset}>
         <Text style={styles.buttonText}>Reset and Sign Out</Text>

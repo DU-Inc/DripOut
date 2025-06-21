@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, forwardRef, useImperativeHandle } from 'react';
 import { View, TextInput, StyleSheet, Keyboard, Animated, Text } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import { ThemeColors } from '../../styles/theme/colors';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 

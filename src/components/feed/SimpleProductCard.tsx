@@ -591,20 +591,23 @@ const SimpleProductCard: React.FC<SimpleProductCardProps> = ({
             </View>
           )}
           
-          <View style={[
-            styles.cartButtonContainer,
-            { backgroundColor: 'transparent' }
-          ]}>
-            <AddToCartButton
-              size={30}
-              onPress={handleAddToCart}
-              productImageSource={images && images.length > 0 && currentImageIndex < images.length 
-                ? images[currentImageIndex].url 
-                : undefined}
-              color={theme.primary}
-              style={{ backgroundColor: 'white' }}
-            />
-          </View>
+          {/* Only show cart button if onCartPress is provided */}
+          {onCartPress && (
+            <View style={[
+              styles.cartButtonContainer,
+              { backgroundColor: 'transparent' }
+            ]}>
+              <AddToCartButton
+                size={30}
+                onPress={handleAddToCart}
+                productImageSource={images && images.length > 0 && currentImageIndex < images.length 
+                  ? images[currentImageIndex].url 
+                  : undefined}
+                color={theme.primary}
+                style={{ backgroundColor: 'white' }}
+              />
+            </View>
+          )}
         </View>
         
         {/* Show brand first then price */}
@@ -678,9 +681,10 @@ const SimpleProductCard: React.FC<SimpleProductCardProps> = ({
 const styles = StyleSheet.create<Styles>({
   container: {
     borderRadius: 12,
-    margin: 3, 
+    margin: 3,
     overflow: 'visible',
     position: 'relative',
+    backgroundColor: '#FFFFFF',
   },
   innerContainer: { 
     borderRadius: 12,
@@ -701,6 +705,7 @@ const styles = StyleSheet.create<Styles>({
     zIndex: 10,
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
+    backgroundColor: 'transparent',
   },
   heartContainer: {
     position: 'absolute',
@@ -713,6 +718,7 @@ const styles = StyleSheet.create<Styles>({
     zIndex: 15,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   scrollView: {
     height: '100%',

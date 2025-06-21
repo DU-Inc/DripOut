@@ -12,7 +12,7 @@ import {
   Animated,
   Easing
 } from 'react-native';
-import { useTheme } from '../styles/theme/ThemeContext';
+import { useTheme } from '../styles/themeprovider';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';

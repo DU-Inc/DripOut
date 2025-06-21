@@ -17,21 +17,107 @@ import {
   ScrollView,
   Easing,
   Platform,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  RefreshControl
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
-import { useTheme } from '../styles/theme/ThemeContext';
+import { useTheme } from '../styles/themeprovider';
 import { searchProducts, Product, checkApiHealth } from '../services/recommendationService';
 import firestore from '@react-native-firebase/firestore';
 import { db, auth } from '../Config/firebaseconfig';
+import { useOptimizedProfile } from '../hooks/useOptimizedProfile';
 import { useNavigation } from '@react-navigation/native';
+import LinearGradient from 'react-native-linear-gradient';
 
 // Get screen dimensions
 const { width, height } = Dimensions.get('window');
+const CATEGORY_CARD_WIDTH = width * 0.45;
 
 // For TypeScript to recognize setTimeout as a global
 declare const setTimeout: (callback: () => void, ms: number) => number;
+
+// Measuring Tape Refresh Animation Component
+const MeasuringTapeRefreshAnimation: React.FC<{
+  mainColor: string;
+  refreshing: boolean;
+}> = ({ mainColor, refreshing }) => {
+  const tapeAnim = useRef(new Animated.Value(0)).current;
+  const numbersAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (refreshing) {
+      // Start tape animation
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(tapeAnim, {
+            toValue: 1,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true
+          }),
+          Animated.timing(tapeAnim, {
+            toValue: 0,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true
+          })
+        ])
+      ).start();
+
+      // Numbers counting animation
+      Animated.loop(
+        Animated.timing(numbersAnim, {
+          toValue: 1,
+          duration: 2000,
+          easing: Easing.linear,
+          useNativeDriver: false
+        })
+      ).start();
+    } else {
+      tapeAnim.setValue(0);
+      numbersAnim.setValue(0);
+    }
+  }, [refreshing, tapeAnim, numbersAnim]);
+
+  const tapeTranslateX = tapeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-100, 100]
+  });
+
+  const currentMeasurement = numbersAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 99]
+  });
+
+  if (!refreshing) return null;
+
+  return (
+    <View style={styles.measuringTapeContainer}>
+      <View style={[styles.tapeBody, { backgroundColor: mainColor + '20' }]}>
+        <Animated.View 
+          style={[
+            styles.tapeMarker,
+            { 
+              backgroundColor: mainColor,
+              transform: [{ translateX: tapeTranslateX }]
+            }
+          ]}
+        />
+        <View style={styles.tapeNumbers}>
+          {[...Array(10)].map((_, i) => (
+            <Text key={i} style={[styles.tapeNumber, { color: mainColor }]}>
+              {i * 10}
+            </Text>
+          ))}
+        </View>
+      </View>
+      <Text style={[styles.measurementText, { color: mainColor }]}>
+        Measuring...
+      </Text>
+    </View>
+  );
+};
 
 // Fashion themed loading animation component
 const FashionLoadingAnimation: React.FC<{mainColor: string}> = ({ mainColor }) => {
@@ -479,7 +565,7 @@ const ProductDetailsModal = React.memo(({
               {/* View in Closet button */}
               <TouchableOpacity 
                 style={[styles.viewClosetButton, { borderColor: subTextColor }]}
-                onPress={() => navigation.navigate('ClosetTab')}
+                onPress={() => navigation.navigate('ClosetTab' as never)}
               >
                 <Icon name="shirt-outline" size={20} color={subTextColor} style={{ marginRight: 8 }} />
                 <Text style={[styles.viewClosetButtonText, { color: subTextColor }]}>View in Closet</Text>
@@ -536,15 +622,156 @@ const MOCK_PRODUCTS: Product[] = [
   }
 ];
 
-// Trendy search suggestions
-const TRENDY_SEARCHES = [
-  'Summer Dress',
-  'Athletic Wear',
-  'Casual Sneakers',
-  'Vintage Denim',
-  'Statement Accessories',
-  'Minimalist Wardrobe',
-  'Sustainable Fashion'
+// Professional greeting utilities
+const getProfessionalGreeting = (firstName?: string) => {
+  const hour = new Date().getHours();
+  const date = new Date();
+  const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+  
+  let timeOfDay = 'day';
+  if (hour < 12) {
+    timeOfDay = 'morning';
+  } else if (hour < 17) {
+    timeOfDay = 'afternoon';
+  } else {
+    timeOfDay = 'evening';
+  }
+  
+  if (firstName) {
+    return {
+      primary: `Good ${timeOfDay}, ${firstName}`,
+      secondary: `${dayName} • Discover new styles`
+    };
+  }
+  
+  return {
+    primary: 'Discover Fashion',
+    secondary: `${dayName} • Explore trending styles`
+  };
+};
+
+// Professional trending categories with sophisticated metadata
+const TRENDING_CATEGORIES = [
+  { 
+    title: 'Summer Essentials', 
+    description: 'Curated seasonal pieces',
+    trend: 'rising',
+    growth: '+12%',
+    category: 'seasonal'
+  },
+  { 
+    title: 'Performance Wear', 
+    description: 'Athletic & activewear',
+    trend: 'stable',
+    growth: '+8%',
+    category: 'lifestyle'
+  },
+  { 
+    title: 'Urban Footwear', 
+    description: 'Contemporary sneakers',
+    trend: 'rising',
+    growth: '+15%',
+    category: 'footwear'
+  },
+  { 
+    title: 'Heritage Denim', 
+    description: 'Premium & vintage styles',
+    trend: 'stable',
+    growth: '+6%',
+    category: 'classics'
+  },
+  { 
+    title: 'Statement Pieces', 
+    description: 'Bold accessories & jewelry',
+    trend: 'rising',
+    growth: '+18%',
+    category: 'accessories'
+  },
+  { 
+    title: 'Sustainable Fashion', 
+    description: 'Eco-conscious brands',
+    trend: 'rising',
+    growth: '+22%',
+    category: 'sustainable'
+  }
+];
+
+// Generate sophisticated personalized recommendations
+const getPersonalizedRecommendations = (userProfile: any) => {
+  if (!userProfile) return [];
+  
+  const recommendations = [];
+  
+  // Based on body type
+  if (userProfile.bodyType === 'athletic') {
+    recommendations.push({ 
+      title: 'Tailored Athletic',
+      description: 'Performance fits for your build',
+      confidence: 94
+    });
+  }
+  
+  // Based on preferred brands
+  if (userProfile.preferredBrands?.includes('nike')) {
+    recommendations.push({ 
+      title: 'Nike Innovation',
+      description: 'Latest from your preferred brand',
+      confidence: 88
+    });
+  }
+  
+  // Based on style preferences
+  if (userProfile.stylePreferences?.includes('minimalist')) {
+    recommendations.push({ 
+      title: 'Minimalist Curation',
+      description: 'Clean, essential designs',
+      confidence: 91
+    });
+  }
+  
+  // Default sophisticated suggestions
+  recommendations.push(
+    { 
+      title: 'Size Optimized',
+      description: 'Perfect fit recommendations',
+      confidence: 96
+    },
+    { 
+      title: 'Trending Match',
+      description: 'Popular items in your style',
+      confidence: 85
+    }
+  );
+  
+  return recommendations.slice(0, 3);
+};
+
+// Smart assistant suggestions for enhanced search
+const ASSISTANT_SUGGESTIONS = [
+  {
+    icon: 'person-outline',
+    title: 'Style Consultation',
+    description: 'Get personalized recommendations',
+    query: 'personal styling consultation'
+  },
+  {
+    icon: 'resize-outline',
+    title: 'Size & Fit Guide',
+    description: 'Find your perfect fit',
+    query: 'sizing guide and fit recommendations'
+  },
+  {
+    icon: 'trending-up-outline',
+    title: 'Trend Analysis',
+    description: 'Latest fashion insights',
+    query: 'current fashion trends and analysis'
+  },
+  {
+    icon: 'color-palette-outline',
+    title: 'Color Matching',
+    description: 'Colors that complement you',
+    query: 'color coordination and matching'
+  }
 ];
 
 const RecommendationScreen: React.FC = () => {
@@ -556,7 +783,9 @@ const RecommendationScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiConnected, setApiConnected] = useState<boolean | null>(null);
-  const [userProfile, setUserProfile] = useState<any>(null);
+  // Use optimized profile with caching
+  const { profile: userProfile, isInitialLoading: profileLoading, refresh: refreshProfile } = useOptimizedProfile();
+  const [refreshing, setRefreshing] = useState(false);
   
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -565,11 +794,29 @@ const RecommendationScreen: React.FC = () => {
   // Product modal state
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  
+  // Enhanced search state
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [showAssistantSuggestions, setShowAssistantSuggestions] = useState(false);
+  const [searchContainerExpanded, setSearchContainerExpanded] = useState(false);
+  
+  // Premium animation refs
+  const searchFocusAnim = useRef(new Animated.Value(0)).current;
+  const searchContainerAnim = useRef(new Animated.Value(0)).current;
+  const suggestionsAnim = useRef(new Animated.Value(0)).current;
+  const cancelButtonAnim = useRef(new Animated.Value(0)).current;
+  const overlayAnim = useRef(new Animated.Value(0)).current;
+  const headerGradientAnim = useRef(new Animated.Value(0)).current;
+  const categoryPressAnim = useRef<Animated.Value[]>(
+    TRENDING_CATEGORIES.map(() => new Animated.Value(1))
+  ).current;
 
   // Ref for scrolling to bottom of chat
   const chatScrollRef = useRef<ScrollView>(null);
+  // Ref for search input
+  const searchInputRef = useRef<TextInput>(null);
   
-  // Colors based on theme - using app's red theme
+  // Enhanced colors with premium glassmorphism and gradients
   const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
   const accentColor = isDarkMode ? '#FF6D8E' : '#FF3B5C'; // Red accent
   const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
@@ -580,6 +827,17 @@ const RecommendationScreen: React.FC = () => {
   const bubbleBgSystem = isDarkMode ? '#222232' : '#F2F2F7'; // System bubble - gray
   const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
   const inputBgColor = isDarkMode ? '#222232' : '#F5F5F5';
+  
+  // Premium glassmorphism colors
+  const { theme } = useTheme();
+  const glassBgColor = theme.glassmorphism.background;
+  const glassBorderColor = theme.glassmorphism.border;
+  const dimOverlayColor = isDarkMode ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.05)';
+  
+  // Fabric texture gradient colors
+  const fabricTextureColors = isDarkMode 
+    ? ['rgba(255, 255, 255, 0.02)', 'rgba(255, 255, 255, 0.01)', 'rgba(255, 255, 255, 0.02)']
+    : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.01)', 'rgba(0, 0, 0, 0.02)'];
   
   // Check API connection on component mount and fetch user profile
   useEffect(() => {
@@ -593,40 +851,45 @@ const RecommendationScreen: React.FC = () => {
     };
     
     checkConnection();
-    fetchUserProfile();
+    console.log('🔄 DEBUG: RecommendationScreen mounted, profile loading handled by useOptimizedProfile hook');
+    startPremiumAnimations();
   }, []);
 
-  // Fetch the user's profile and preferences
-  const fetchUserProfile = async () => {
-    const userId = auth().currentUser?.uid;
-    if (!userId) {
+  // Premium animations on mount
+  const startPremiumAnimations = () => {
+    // Header gradient animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(headerGradientAnim, {
+          toValue: 1,
+          duration: 3000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false
+        }),
+        Animated.timing(headerGradientAnim, {
+          toValue: 0,
+          duration: 3000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false
+        })
+      ])
+    ).start();
+  };
+
+
+
+  // Perform product search and add to chat
+  const handleSearch = async (searchTerm?: string) => {
+    const searchQuery = searchTerm || query;
+    if (!searchQuery.trim()) {
+      Alert.alert('Please enter a search term');
       return;
     }
 
-    try {
-      // Fetch user profile
-      const profileDoc = await db.collection('users').doc(userId).get();
-      const profileData = profileDoc.exists ? profileDoc.data() : null;
-      
-      // Fetch user preferences
-      const preferencesDoc = await db.collection('user_preferences').doc(userId).get();
-      const preferencesData = preferencesDoc.exists ? preferencesDoc.data() : null;
-      
-      // Combine profile and preferences
-      const combinedProfile = {
-        ...profileData,
-        ...preferencesData
-      };
-      setUserProfile(combinedProfile);
-    } catch (error) {
-      console.error('Error fetching user profile:', error);
-    }
-  };
-
-  // Perform product search and add to chat
-  const handleSearch = async () => {
-    if (!query.trim()) {
-      Alert.alert('Please enter a search term');
+    // Wait for profile to load before searching
+    if (profileLoading) {
+      console.log('⏳ DEBUG: Profile still loading, please wait...');
+      Alert.alert('Loading Profile', 'Please wait while we load your preferences...');
       return;
     }
 
@@ -638,7 +901,7 @@ const RecommendationScreen: React.FC = () => {
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       type: 'user',
-      text: query,
+      text: searchQuery,
       timestamp: Date.now()
     };
     
@@ -685,8 +948,10 @@ const RecommendationScreen: React.FC = () => {
       // Proceed with search
       let results;
       
+
+      
       try {
-        results = await searchProducts(query, [0, 1000], 10, userProfile);
+        results = await searchProducts(searchQuery, [0, 1000], 10, userProfile);
       } catch (apiError) {
         // If the API fails, use mock data for demo purposes
         console.log('Using mock data due to API error:', apiError);
@@ -698,8 +963,8 @@ const RecommendationScreen: React.FC = () => {
         id: `system-${Date.now()}`,
         type: 'system',
         text: results && results.length > 0 
-          ? `Here are some ${query.toLowerCase()} options I found for you:` 
-          : `I couldn't find any ${query.toLowerCase()} that match your style. Maybe try a different search?`,
+          ? `Here are some ${searchQuery.toLowerCase()} options I found for you:` 
+          : `I couldn't find any ${searchQuery.toLowerCase()} that match your style. Maybe try a different search?`,
         timestamp: Date.now(),
         products: results && results.length > 0 ? results : undefined
       };
@@ -707,8 +972,12 @@ const RecommendationScreen: React.FC = () => {
       // Add system message to chat
       setChatMessages(prev => [...prev, systemMessage]);
       
-      // Clear query field for next search
-      setQuery('');
+      // Clear query field for next search (only if no searchTerm was provided)
+      if (!searchTerm) {
+        setQuery('');
+      } else {
+        setQuery(searchTerm);
+      }
       
     } catch (err) {
       // Handle errors with a system message
@@ -733,8 +1002,207 @@ const RecommendationScreen: React.FC = () => {
 
   // Handle suggested search
   const handleSuggestedSearch = (searchTerm: string) => {
-    setQuery(searchTerm);
-    setTimeout(() => handleSearch(), 100);
+    handleSearch(searchTerm);
+  };
+
+  // Enhanced search focus handlers with smooth professional animations
+  const handleSearchFocus = () => {
+    setSearchFocused(true);
+    setSearchContainerExpanded(true);
+    
+    if (!query.trim()) {
+      setShowAssistantSuggestions(true);
+    }
+    
+    // Smooth coordinated animations
+    Animated.parallel([
+      // Search container expansion
+      Animated.timing(searchContainerAnim, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+        useNativeDriver: false
+      }),
+      // Focus state animation
+      Animated.timing(searchFocusAnim, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false
+      }),
+      // Cancel button slide in
+      Animated.spring(cancelButtonAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 8,
+        tension: 100
+      }),
+      // Overlay fade in
+      Animated.timing(overlayAnim, {
+        toValue: 1,
+        duration: 250,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true
+      })
+    ]).start();
+    
+    // Suggestions appear with delay
+    if (!query.trim()) {
+      setTimeout(() => {
+        Animated.spring(suggestionsAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 100
+        }).start();
+      }, 150);
+    }
+  };
+
+  const handleSearchBlur = () => {
+    // Don't blur if user is interacting with suggestions
+    if (showAssistantSuggestions) {
+      return;
+    }
+    
+    setSearchFocused(false);
+    setSearchContainerExpanded(false);
+    setShowAssistantSuggestions(false);
+    
+    // Smooth coordinated exit animations
+    Animated.parallel([
+      Animated.timing(searchContainerAnim, {
+        toValue: 0,
+        duration: 250,
+        easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+        useNativeDriver: false
+      }),
+      Animated.timing(searchFocusAnim, {
+        toValue: 0,
+        duration: 250,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false
+      }),
+      Animated.timing(cancelButtonAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true
+      }),
+      Animated.timing(overlayAnim, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true
+      }),
+      Animated.timing(suggestionsAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true
+      })
+    ]).start();
+  };
+
+  const handleAssistantSuggestion = (suggestion: any) => {
+    setQuery(suggestion.query);
+    setShowAssistantSuggestions(false);
+    
+    // Smooth collapse and then search
+    Animated.parallel([
+      Animated.timing(suggestionsAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true
+      }),
+      Animated.timing(searchContainerAnim, {
+        toValue: 0.3, // Partial collapse during search
+        duration: 300,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: false
+      })
+    ]).start(() => {
+      handleSearch(suggestion.query);
+    });
+  };
+
+  // Smooth cancel animation
+  const handleSearchCancel = () => {
+    searchInputRef.current?.blur();
+    setQuery('');
+    setSearchFocused(false);
+    setSearchContainerExpanded(false);
+    setShowAssistantSuggestions(false);
+    
+    // Smooth exit animations
+    Animated.parallel([
+      Animated.timing(searchContainerAnim, {
+        toValue: 0,
+        duration: 300,
+        easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+        useNativeDriver: false
+      }),
+      Animated.timing(cancelButtonAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true
+      }),
+      Animated.timing(overlayAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true
+      }),
+      Animated.timing(suggestionsAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true
+      })
+    ]).start();
+  };
+
+  // Premium pull-to-refresh
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Re-fetch user profile using optimized hook
+      await refreshProfile();
+      // Add haptic feedback (removed - not available)
+      // Simulate refresh delay for premium feel
+      await new Promise(resolve => setTimeout(() => resolve(undefined), 1000));
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Professional category interaction handlers
+  const handleCategoryPressIn = (index: number) => {
+    Animated.spring(categoryPressAnim[index], {
+      toValue: 0.98,
+      useNativeDriver: true,
+      friction: 8,
+      tension: 400
+    }).start();
+  };
+
+  const handleCategoryPressOut = (index: number) => {
+    Animated.spring(categoryPressAnim[index], {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 8,
+      tension: 400
+    }).start();
+  };
+
+  const handleCategoryLongPress = (category: any, index: number) => {
+    // Professional category preview
+    Alert.alert(
+      category.title,
+      `${category.description}\nGrowth: ${category.growth} this month\n\nExplore this category?`,
+      [
+        { text: 'Explore', onPress: () => handleSuggestedSearch(category.title) },
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    );
   };
 
   // Open product URL
@@ -870,40 +1338,172 @@ const RecommendationScreen: React.FC = () => {
     );
   };
 
-  // Render popular searches
-  const renderPopularSearches = () => (
-    <View style={styles.popularSearchesContainer}>
-      <Text style={[styles.sectionTitle, { color: textColor }]}>
-        Trending Searches
-      </Text>
-      <View style={styles.trendingTagsContainer}>
-        {TRENDY_SEARCHES.map((search, index) => (
-          <TouchableOpacity 
-            key={index}
-            style={[styles.trendingTag, { backgroundColor: inputBgColor, borderColor }]}
-            onPress={() => handleSuggestedSearch(search)}
-          >
-            <Icon name="search-outline" size={14} color={subTextColor} style={styles.trendingTagIcon} />
-            <Text style={[styles.trendingTagText, { color: textColor }]}>
-              {search}
+  // Professional trending categories with sophisticated design
+  const renderTrendingCategories = () => {
+    const personalizedRecs = getPersonalizedRecommendations(userProfile);
+    
+    return (
+      <View style={styles.categoriesContainer}>
+        {/* Personalized Recommendations */}
+        {personalizedRecs.length > 0 && (
+          <View style={styles.personalizedSection}>
+            <View style={styles.professionalSectionHeader}>
+              <Text style={[styles.sectionTitleProfessional, { color: textColor }]}>
+                Recommended for You
+              </Text>
+              <Text style={[styles.sectionSubtitle, { color: subTextColor }]}>
+                Based on your preferences and activity
+              </Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
+              {personalizedRecs.map((rec, index) => (
+                <TouchableOpacity 
+                  key={`rec-${index}`}
+                  style={[styles.recommendationCard, { backgroundColor: cardBgColor, borderColor }]}
+                  onPress={() => handleSuggestedSearch(rec.title)}
+                >
+                  <View style={styles.cardContent}>
+                    <View style={styles.cardHeader}>
+                      <Text style={[styles.cardTitle, { color: textColor }]}>
+                        {rec.title}
+                      </Text>
+                      <View style={[styles.confidenceBadge, { backgroundColor: accentColor + '20' }]}>
+                        <Text style={[styles.confidenceText, { color: accentColor }]}>
+                          {rec.confidence}%
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.cardDescription, { color: subTextColor }]}>
+                      {rec.description}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+        
+        {/* Trending Categories */}
+        <View style={styles.trendingSection}>
+          <View style={styles.professionalSectionHeader}>
+            <Text style={[styles.sectionTitleProfessional, { color: textColor }]}>
+              Trending Categories
             </Text>
-          </TouchableOpacity>
-        ))}
+            <Text style={[styles.sectionSubtitle, { color: subTextColor }]}>
+              Popular fashion categories this week
+            </Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 24 }}
+          >
+            {TRENDING_CATEGORIES.map((category, index) => (
+              <Animated.View
+                key={index}
+                style={{
+                  marginRight: 16,
+                  transform: [{ scale: categoryPressAnim[index] }]
+                }}
+              >
+                <TouchableOpacity 
+                  style={[styles.categoryCard, { backgroundColor: cardBgColor, borderColor }]}
+                  onPress={() => handleSuggestedSearch(category.title)}
+                  onPressIn={() => handleCategoryPressIn(index)}
+                  onPressOut={() => handleCategoryPressOut(index)}
+                  onLongPress={() => handleCategoryLongPress(category, index)}
+                  delayLongPress={800}
+                  activeOpacity={0.95}
+                >
+                  <View style={styles.categoryContent}>
+                    <View style={styles.categoryHeader}>
+                      <Text style={[styles.categoryTitle, { color: textColor }]}>
+                        {category.title}
+                      </Text>
+                      <View style={styles.trendIndicator}>
+                        {category.trend === 'rising' ? (
+                          <View style={styles.risingTrend}>
+                            <Icon name="trending-up" size={12} color={mainColor} />
+                            <Text style={[styles.growthText, { color: mainColor }]}>
+                              {category.growth}
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={styles.stableTrend}>
+                            <Icon name="remove" size={12} color={subTextColor} />
+                            <Text style={[styles.growthText, { color: subTextColor }]}>
+                              {category.growth}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    <Text style={[styles.categoryDescription, { color: subTextColor }]}>
+                      {category.description}
+                    </Text>
+                    <Text style={[styles.categoryTag, { color: accentColor }]}>
+                      {category.category.toUpperCase()}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </Animated.View>
+            ))}
+          </ScrollView>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       
-      {/* Header - Only visible when no chat is active */}
+      {/* Fabric texture background */}
+      <LinearGradient
+        colors={fabricTextureColors}
+        style={StyleSheet.absoluteFillObject}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        locations={[0, 0.5, 1]}
+      />
+      
+      {/* Professional Header - Only visible when no chat is active */}
       {chatMessages.length === 0 ? (
-        <View style={[styles.header, { borderBottomColor: borderColor }]}>
+        <View style={[styles.professionalHeader, { borderBottomColor: borderColor }]}>
           <View style={styles.headerContent}>
-            <Text style={[styles.headerTitle, { color: textColor }]}>
-              Discover
-            </Text>
+            <View style={styles.professionalHeaderContainer}>
+              {(() => {
+                const greeting = getProfessionalGreeting(userProfile?.firstName);
+                return (
+                  <>
+                    <Text style={[styles.professionalHeaderTitle, { color: textColor }]}>
+                      {greeting.primary}
+                    </Text>
+                    <Text style={[styles.professionalHeaderSubtitle, { color: subTextColor }]}>
+                      {greeting.secondary}
+                    </Text>
+                  </>
+                );
+              })()}
+              <Animated.View
+                style={[
+                  styles.professionalHeaderAccent,
+                  {
+                    opacity: headerGradientAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.6, 1.0]
+                    })
+                  }
+                ]}
+              >
+                <LinearGradient
+                  colors={[mainColor, accentColor]}
+                  style={StyleSheet.absoluteFillObject}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                />
+              </Animated.View>
+            </View>
           </View>
         </View>
       ) : (
@@ -935,7 +1535,22 @@ const RecommendationScreen: React.FC = () => {
           style={styles.chatContainer}
           contentContainerStyle={styles.chatContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="transparent"
+              colors={["transparent"]}
+              progressBackgroundColor="transparent"
+            />
+          }
         >
+          {/* Custom Measuring Tape Refresh Animation */}
+          <MeasuringTapeRefreshAnimation 
+            mainColor={mainColor} 
+            refreshing={refreshing} 
+          />
+          
           {chatMessages.length > 0 ? (
             <>
               {/* Welcome message removed when chat starts */}
@@ -954,41 +1569,49 @@ const RecommendationScreen: React.FC = () => {
               )}
             </>
           ) : (
-            // Initial state - show popular searches
-            <View style={styles.emptyStateContainer}>
-              <View style={styles.welcomeContainer}>
-                <Icon name="search-circle" size={80} color={mainColor} />
-                <Text style={[styles.welcomeTitle, { color: textColor }]}>
-                  Fashion Finder
+            // Professional initial state
+            <View style={styles.professionalEmptyState}>
+              <View style={styles.professionalWelcome}>
+                <View style={styles.searchIconContainer}>
+                  <Icon name="search" size={32} color={mainColor} />
+                </View>
+                <Text style={[styles.professionalWelcomeTitle, { color: textColor }]}>
+                  Discover Your Style
                 </Text>
-                <Text style={[styles.welcomeText, { color: subTextColor }]}>
-                  What are you looking for today?
+                <Text style={[styles.professionalWelcomeSubtitle, { color: subTextColor }]}>
+                  Search through thousands of curated fashion items
                 </Text>
               </View>
               
-              {renderPopularSearches()}
+              {renderTrendingCategories()}
               
-              <View style={styles.tipsContainer}>
-                <Text style={[styles.tipsTitle, { color: textColor }]}>
-                  Try searching for:
+              <View style={styles.professionalTipsContainer}>
+                <Text style={[styles.professionalTipsTitle, { color: textColor }]}>
+                  Try Natural Conversations
                 </Text>
-                <View style={styles.tipsList}>
-                  <View style={styles.tipItem}>
-                    <Icon name="shirt-outline" size={18} color={mainColor} style={styles.tipIcon} />
-                    <Text style={[styles.tipText, { color: subTextColor }]}>
-                      Specific items like "summer dress" or "leather jacket"
+                <View style={styles.professionalTipsList}>
+                  <View style={styles.professionalTipItem}>
+                    <View style={[styles.tipDot, { backgroundColor: mainColor }]} />
+                    <Text style={[styles.professionalTipText, { color: subTextColor }]}>
+                      "I need a bohemian outfit for a music festival"
                     </Text>
                   </View>
-                  <View style={styles.tipItem}>
-                    <Icon name="color-palette-outline" size={18} color={mainColor} style={styles.tipIcon} />
-                    <Text style={[styles.tipText, { color: subTextColor }]}>
-                      Styles like "minimalist", "vintage" or "street style"
+                  <View style={styles.professionalTipItem}>
+                    <View style={[styles.tipDot, { backgroundColor: mainColor }]} />
+                    <Text style={[styles.professionalTipText, { color: subTextColor }]}>
+                      "What should I wear to impress at a job interview?"
                     </Text>
                   </View>
-                  <View style={styles.tipItem}>
-                    <Icon name="albums-outline" size={18} color={mainColor} style={styles.tipIcon} />
-                    <Text style={[styles.tipText, { color: subTextColor }]}>
-                      Occasions like "office wear" or "date night outfit"
+                  <View style={styles.professionalTipItem}>
+                    <View style={[styles.tipDot, { backgroundColor: mainColor }]} />
+                    <Text style={[styles.professionalTipText, { color: subTextColor }]}>
+                      "Show me cozy fall outfits under $200"
+                    </Text>
+                  </View>
+                  <View style={styles.professionalTipItem}>
+                    <View style={[styles.tipDot, { backgroundColor: mainColor }]} />
+                    <Text style={[styles.professionalTipText, { color: subTextColor }]}>
+                      "I want to look trendy but professional"
                     </Text>
                   </View>
                 </View>
@@ -997,40 +1620,32 @@ const RecommendationScreen: React.FC = () => {
           )}
         </ScrollView>
         
-        {/* Search input */}
-        <View style={[styles.searchInputContainer, { borderTopColor: borderColor, backgroundColor: bgColor }]}>
-          <View style={[styles.searchInputWrapper, { backgroundColor: inputBgColor }]}>
-            <TextInput
-              style={[styles.searchInput, { color: textColor }]}
-              placeholder="Search for clothes, styles, trends..."
-              placeholderTextColor={subTextColor}
-              value={query}
-              onChangeText={setQuery}
-              returnKeyType="search"
-              onSubmitEditing={handleSearch}
-            />
-            {query.length > 0 && (
-              <TouchableOpacity 
-                style={styles.clearButton}
-                onPress={() => setQuery('')}
-              >
-                <Icon name="close-circle" size={16} color={subTextColor} />
-              </TouchableOpacity>
-            )}
-          </View>
+        {/* Enhanced Search with Integrated Assistant */}
+        {/* Simple Search Bar that navigates to Chat */}
+        <View style={[styles.searchNavigationContainer, { backgroundColor: bgColor }]}>
           <TouchableOpacity 
             style={[
-              styles.searchButton, 
-              { backgroundColor: mainColor },
-              !query.trim() && { opacity: 0.7 }
+              styles.searchNavigationButton,
+              {
+                backgroundColor: glassBgColor,
+                borderColor: glassBorderColor,
+                ...theme.elevation.medium,
+              }
             ]}
-            onPress={handleSearch}
-            disabled={!query.trim() || loading}
+            onPress={() => navigation.navigate('FashionAdvisorChat' as never, { initialQuery: query })}
+            activeOpacity={0.8}
           >
-            <Icon name="search" size={20} color="#FFFFFF" />
+            <Icon name="search" size={20} color={subTextColor} style={styles.searchIcon} />
+            <Text style={[styles.searchPlaceholder, { color: subTextColor }]}>
+              "I need an outfit for a dinner date..."
+            </Text>
+            <View style={[styles.chatIconContainer, { backgroundColor: mainColor + '15' }]}>
+              <Icon name="chatbubbles" size={18} color={mainColor} />
+            </View>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+      
       
       {/* Product Details Modal */}
       <ProductDetailsModal 
@@ -1053,19 +1668,76 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  // Professional Header Styles
   header: {
     paddingHorizontal: 20,
     paddingVertical: 15,
     borderBottomWidth: 1,
+  },
+  premiumHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+  },
+  professionalHeader: {
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    borderBottomWidth: 0.5,
   },
   headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  dynamicHeaderContainer: {
+    flex: 1,
+  },
+  professionalHeaderContainer: {
+    flex: 1,
+  },
   headerTitle: {
     fontSize: 28,
     fontWeight: '700',
+  },
+  dynamicHeaderTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  professionalHeaderTitle: {
+    fontSize: 32,
+    fontWeight: '300',
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
+  professionalHeaderSubtitle: {
+    fontSize: 16,
+    fontWeight: '400',
+    opacity: 0.8,
+    marginBottom: 16,
+  },
+  headerUnderline: {
+    height: 3,
+    width: '60%',
+    borderRadius: 2,
+    marginTop: 4,
+  },
+  professionalHeaderAccent: {
+    height: 2,
+    width: '100%',
+    borderRadius: 1,
+  },
+  // Section Title with Color Bar
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  sectionTitleBar: {
+    width: 4,
+    height: 20,
+    borderRadius: 2,
+    marginRight: 12,
   },
   chatHeaderContainer: {
     paddingHorizontal: 16,
@@ -1149,52 +1821,59 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   productCard: {
-    width: width * 0.75,
-    height: 240,
+    width: width * 0.72,
+    height: 300,
     marginRight: 20,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 8,
   },
   productCardContent: {
     flex: 1,
   },
   productImageContainer: {
-    height: 180,
+    height: 200,
     width: '100%',
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: 16,
+    margin: 8,
+    marginBottom: 4,
   },
   productCardImage: {
-    width: '90%',
-    height: '90%',
+    width: '85%',
+    height: '85%',
+    borderRadius: 16,
   },
   productCardDetails: {
-    padding: 12,
+    padding: 20,
     flex: 1,
+    justifyContent: 'space-between',
   },
   productCardName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 6,
-    lineHeight: 20,
+    marginBottom: 12,
+    lineHeight: 22,
   },
   productPriceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 8,
   },
   productCardPrice: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
   },
   productCardSite: {
-    fontSize: 13,
+    fontSize: 14,
+    opacity: 0.7,
   },
   priceTag: {
     position: 'absolute',
@@ -1241,15 +1920,71 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // Empty state and welcome
+  // Simple Search Navigation Styles
+  searchNavigationContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  searchNavigationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  searchIcon: {
+    marginRight: 12,
+  },
+  searchPlaceholder: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '400',
+  },
+  chatIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Professional Empty State and Welcome
   emptyStateContainer: {
     flex: 1,
     paddingVertical: 30,
+  },
+  professionalEmptyState: {
+    flex: 1,
+    paddingVertical: 32,
   },
   welcomeContainer: {
     alignItems: 'center',
     marginBottom: 30,
     paddingTop: 20,
+  },
+  professionalWelcome: {
+    alignItems: 'center',
+    marginBottom: 40,
+    paddingTop: 24,
+  },
+  searchIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(239, 61, 71, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+    shadowColor: '#EF3D47',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 6,
   },
   welcomeTitle: {
     fontSize: 24,
@@ -1257,15 +1992,54 @@ const styles = StyleSheet.create({
     marginTop: 15,
     marginBottom: 8,
   },
+  professionalWelcomeTitle: {
+    fontSize: 28,
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
   welcomeText: {
     fontSize: 16,
     textAlign: 'center',
     maxWidth: '80%',
     lineHeight: 22,
   },
-  // Popular searches
+  professionalWelcomeSubtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    maxWidth: '85%',
+    lineHeight: 24,
+    opacity: 0.8,
+  },
+  // Professional Categories and Sections
   popularSearchesContainer: {
     marginVertical: 20,
+  },
+  categoriesContainer: {
+    paddingHorizontal: 24,
+  },
+  personalizedSection: {
+    marginBottom: 32,
+  },
+  trendingSection: {
+    marginBottom: 24,
+  },
+  professionalSectionHeader: {
+    marginBottom: 20,
+  },
+  sectionTitleProfessional: {
+    fontSize: 22,
+    fontWeight: '600',
+    marginBottom: 4,
+    letterSpacing: -0.3,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    opacity: 0.7,
+    fontWeight: '400',
+  },
+  personalizedTrendsContainer: {
+    marginBottom: 24,
   },
   sectionTitle: {
     fontSize: 18,
@@ -1273,9 +2047,138 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     paddingHorizontal: 4,
   },
+  // Professional Recommendation Cards
+  horizontalScroll: {
+    marginHorizontal: -24,
+    paddingHorizontal: 24,
+  },
+  recommendationCard: {
+    width: 320,
+    minHeight: 160,
+    marginRight: 20,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  cardContent: {
+    flex: 1,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 18,
+  },
+  cardTitle: {
+    fontSize: 19,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+    lineHeight: 26,
+  },
+  confidenceBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  confidenceText: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  cardDescription: {
+    fontSize: 16,
+    lineHeight: 24,
+    opacity: 0.75,
+  },
   trendingTagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+  },
+  // Professional Category Grid
+  // categoriesGrid: {
+  //   flexDirection: 'row',
+  //   flexWrap: 'wrap',
+  //   justifyContent: 'space-between',
+  // },
+  categoryCard: {
+    width: CATEGORY_CARD_WIDTH,
+    minHeight: 180,
+    // marginBottom: 20, // removed for horizontal ScrollView
+    marginRight: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  categoryContent: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  categoryTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+    lineHeight: 24,
+  },
+  trendIndicator: {
+    alignItems: 'flex-end',
+  },
+  risingTrend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239, 61, 71, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  stableTrend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(117, 117, 117, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  growthText: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 4,
+  },
+  categoryDescription: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 20,
+    opacity: 0.75,
+    flex: 1,
+  },
+  categoryTag: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    opacity: 0.6,
+    textTransform: 'uppercase',
   },
   trendingTag: {
     flexDirection: 'row',
@@ -1294,9 +2197,69 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  // Tips
+  // Premium Trending Pill Styles
+  premiumTrendingTag: {
+    borderRadius: 24,
+    marginRight: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  trendingTagGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  trendingTagGlyph: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  premiumTrendingTagText: {
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+  },
+  liveIndicator: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  liveText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  // Personalized Trends Styles
+  personalizedTrendingTag: {
+    borderRadius: 24,
+    marginRight: 10,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+  },
+  personalizedBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  personalizedBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  // Professional Tips
   tipsContainer: {
     marginVertical: 20,
+  },
+  professionalTipsContainer: {
+    paddingHorizontal: 24,
+    marginTop: 32,
   },
   tipsTitle: {
     fontSize: 18,
@@ -1304,22 +2267,48 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     paddingHorizontal: 4,
   },
+  professionalTipsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
   tipsList: {
     marginTop: 10,
+  },
+  professionalTipsList: {
+    marginTop: 8,
   },
   tipItem: {
     flexDirection: 'row',
     marginBottom: 12,
     paddingHorizontal: 4,
   },
+  professionalTipItem: {
+    flexDirection: 'row',
+    marginBottom: 14,
+    alignItems: 'flex-start',
+  },
   tipIcon: {
     marginRight: 10,
     marginTop: 2,
+  },
+  tipDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 12,
+    marginTop: 7,
   },
   tipText: {
     fontSize: 15,
     flex: 1,
     lineHeight: 22,
+  },
+  professionalTipText: {
+    fontSize: 15,
+    flex: 1,
+    lineHeight: 22,
+    opacity: 0.8,
   },
   // Loading
   loadingContainer: {
@@ -1329,6 +2318,46 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
+  },
+  // Measuring Tape Refresh Animation Styles
+  measuringTapeContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    marginBottom: 10,
+  },
+  tapeBody: {
+    width: 200,
+    height: 30,
+    borderRadius: 15,
+    position: 'relative',
+    overflow: 'hidden',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  tapeMarker: {
+    position: 'absolute',
+    width: 4,
+    height: '100%',
+    top: 0,
+    left: '50%',
+    marginLeft: -2,
+  },
+  tapeNumbers: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingTop: 4,
+  },
+  tapeNumber: {
+    fontSize: 8,
+    fontWeight: '600',
+    opacity: 0.7,
+  },
+  measurementText: {
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   // Animation styles
   loadingAnimationContainer: {
@@ -1374,16 +2403,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   modalContent: {
-    width: '90%',
+    width: '92%',
     height: '85%', // Fixed height instead of maxHeight
     minHeight: 600, // Ensure minimum height on smaller screens
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: 'hidden',
-    elevation: 8,
+    elevation: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
   },
   modalScrollContainer: {
     flex: 1,
@@ -1412,7 +2441,7 @@ const styles = StyleSheet.create({
     height: 200, // Increased height
   },
   modalDetails: {
-    padding: 20, // Increased padding
+    padding: 24, // Increased padding
   },
   modalProductName: {
     fontSize: 20,
@@ -1532,6 +2561,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 6,
     fontWeight: '500',
+  },
+  // Cancel button styles
+  cancelButton: {
+    position: 'absolute',
+    right: 20,
+    top: 20,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

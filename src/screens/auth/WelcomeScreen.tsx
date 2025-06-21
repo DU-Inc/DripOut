@@ -13,7 +13,7 @@ import { auth } from '../../Config/firebaseconfig';
 import useGoogleAuth from '../../hooks/useGoogleAuth'; // Using stub implementation
 
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
-  const { theme } = useTheme();
+  const { theme, isDarkMode } = useTheme();
   const styles = createWelcomeStyles(theme);
   
   // Animation for welcome screen opacity

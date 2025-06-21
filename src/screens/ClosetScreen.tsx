@@ -23,7 +23,11 @@ import { useTheme } from "../styles/themeprovider";
 import { db, auth } from "../Config/firebaseconfig";
 import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from "@react-navigation/native";
+import { NavigationProp } from '@react-navigation/native';
 import { Linking } from 'react-native';
+import { RootStackParamList, MainTabParamList } from '../types/NavigationTypes';
+
+type NavigationType = NavigationProp<RootStackParamList>;
 
 // Define interfaces for our data models
 interface SavedOutfit {
@@ -71,7 +75,7 @@ interface Product {
   color?: string;
 }
 
-// Premium product details modal with modern design and UX principles
+// Modern product details modal with OutfitDetailScreen-inspired design
 const ProductDetailsModal = React.memo(({ 
   visible, 
   item, 
@@ -97,29 +101,40 @@ const ProductDetailsModal = React.memo(({
 }) => {
   const navigation = useNavigation();
   const { width, height } = Dimensions.get('window');
-  const isLargeScreen = width > 380;
   const { isDarkMode } = useTheme();
   
   if (!item) return null;
+
+  // Enhanced color palette following OutfitDetailScreen
+  const surfaceColor = isDarkMode ? '#15151F' : '#F9FAFB';
+  const successColor = isDarkMode ? '#10B981' : '#059669';
+  const warningColor = isDarkMode ? '#F59E0B' : '#D97706';
+  
+  // Format creation date
+  const formatCreationDate = useCallback((createdAt: any): string => {
+    try {
+      if (!createdAt) return 'Unknown date';
+      
+      const date = createdAt.toDate 
+        ? createdAt.toDate() 
+        : createdAt.seconds 
+          ? new Date(createdAt.seconds * 1000)
+          : new Date(createdAt);
+      
+      return new Date(date).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch (error) {
+      return 'Unknown date';
+    }
+  }, []);
   
   // Formatted price with proper precision
   const formattedPrice = typeof item.price === 'number' 
     ? `$${item.price.toFixed(2)}` 
     : (typeof item.price === 'string' ? `$${item.price}` : 'Price unavailable');
-  
-  // Format date for better readability
-  const formatDate = (dateString: any) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString(undefined, { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric' 
-      });
-    } catch {
-      return 'Unknown date';
-    }
-  };
   
   return (
     <Modal
@@ -129,174 +144,209 @@ const ProductDetailsModal = React.memo(({
       onRequestClose={onClose}
       statusBarTranslucent={true}
     >
-      <SafeAreaView style={[styles.modalSafeArea, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity 
-            style={styles.modalBackdrop} 
-            activeOpacity={1} 
-            onPress={onClose} 
-          />
-          
-          <View 
-            style={[
-              styles.modalContent,
-              { 
-                backgroundColor: cardBgColor,
-                maxHeight: height * 0.9,
-                width: isLargeScreen ? '92%' : '95%',
-              }
-            ]}
-          >
-            {/* Pull indicator for sheet-like feel */}
-            <View style={styles.pullIndicator}>
-              <View style={[styles.pullIndicatorBar, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }]} />
-            </View>
-            
-            {/* Header with product name and close button */}
-            <View style={[styles.modalHeader, { borderBottomColor: borderColor }]}>
-              <View style={{ flex: 1, paddingRight: 40 }}>
-                <Text style={[styles.modalProductName, { color: textColor }]} numberOfLines={1}>
-                  {item.name}
-                </Text>
-              </View>
-              <TouchableOpacity 
-                onPress={onClose} 
-                style={styles.closeButton}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Icon name="close" size={22} color={subTextColor} />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView 
-              style={styles.modalScrollContainer}
-              contentContainerStyle={styles.modalScrollContent}
-              showsVerticalScrollIndicator={false}
-              bounces={true}
+      <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+        <TouchableOpacity 
+          style={StyleSheet.absoluteFill} 
+          activeOpacity={1} 
+          onPress={onClose} 
+        />
+        
+        <View 
+          style={[
+            styles.modernModalContent,
+            { 
+              backgroundColor: cardBgColor,
+              maxHeight: height * 0.85,
+            }
+          ]}
+        >
+          {/* Modern Header */}
+          <View style={[styles.modernModalHeader]}>
+            <TouchableOpacity
+              style={[styles.modernHeaderButton, { backgroundColor: surfaceColor }]}
+              onPress={onClose}
             >
-              {/* Product image with brand banner */}
-              <View style={styles.productImageWrapper}>
-                <Image 
+              <Icon name="arrow-back" size={22} color={textColor} />
+            </TouchableOpacity>
+            
+            <View style={styles.modernHeaderCenter}>
+              <Text style={[styles.modernHeaderTitle, { color: textColor }]}>Product Details</Text>
+              <Text style={[styles.modernHeaderSubtitle, { color: subTextColor }]}>
+                Favorite Item
+              </Text>
+            </View>
+            
+            <TouchableOpacity
+              style={[styles.modernHeaderButton, { backgroundColor: surfaceColor }]}
+              onPress={() => item.url && Linking.openURL(item.url)}
+              disabled={!item.url}
+            >
+              <FeatherIcon name="external-link" size={20} color={item.url ? textColor : subTextColor} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.modernModalScrollView}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.modernModalScrollContent}
+          >
+            {/* Hero Image Section */}
+            <View style={[styles.modernHeroSection, { backgroundColor: surfaceColor }]}>
+              <View style={styles.modernImageContainer}>
+                <Image
                   source={{ uri: item.imageUrl }}
-                  style={styles.modalImage}
+                  style={styles.modernProductImage}
                   resizeMode="cover"
                 />
-                <View style={[styles.brandBanner, { backgroundColor: mainColor }]}>
-                  <Text style={styles.brandBannerText}>{item.brand}</Text>
+                
+                {/* Floating Brand Badge */}
+                <View style={styles.modernFloatingBadge}>
+                  <View style={[styles.modernBrandBadge, { backgroundColor: mainColor }]}>
+                    <FeatherIcon name="tag" size={14} color="#FFFFFF" />
+                    <Text style={styles.modernBrandBadgeText}>{item.brand}</Text>
+                  </View>
                 </View>
               </View>
-              
-              <View style={styles.modalDetails}>
-                {/* Price with subtle background */}
-                <View style={[styles.priceContainer, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }]}>
-                  <Text style={[styles.modalPrice, { color: mainColor }]}>
+            </View>
+
+            {/* Product Info Card */}
+            <View style={[styles.modernInfoCard, { backgroundColor: cardBgColor }]}>
+              <View style={styles.modernProductHeader}>
+                <View style={styles.modernProductTitleContainer}>
+                  <Text style={[styles.modernProductName, { color: textColor }]}>
+                    {item.name}
+                  </Text>
+                  <View style={[styles.modernProductMeta, { backgroundColor: surfaceColor }]}>
+                    <Icon name="calendar-outline" size={14} color={subTextColor} />
+                    <Text style={[styles.modernProductDate, { color: subTextColor }]}>
+                      Added {formatCreationDate(item.favorited)}
+                    </Text>
+                  </View>
+                </View>
+                
+                <View style={[styles.modernPriceTag, { backgroundColor: `${mainColor}15` }]}>
+                  <Text style={[styles.modernPriceText, { color: mainColor }]}>
                     {formattedPrice}
                   </Text>
                 </View>
-                
-                {/* Product specs/details */}
-                <View style={[styles.productSpecs, { borderColor: borderColor }]}>
-                  <View style={styles.specRow}>
-                    <View style={styles.specItem}>
-                      <Icon name="bookmark-outline" size={18} color={mainColor} style={styles.specIcon} />
-                      <Text style={[styles.specLabel, { color: subTextColor }]}>Brand</Text>
-                      <Text style={[styles.specValue, { color: textColor }]}>{item.brand}</Text>
-                    </View>
-                    
-                    <View style={styles.specItem}>
-                      <Icon name="time-outline" size={18} color={mainColor} style={styles.specIcon} />
-                      <Text style={[styles.specLabel, { color: subTextColor }]}>Added</Text>
-                      <Text style={[styles.specValue, { color: textColor }]}>{formatDate(item.favorited)}</Text>
-                    </View>
-                  </View>
-                  
-                  {item.url && (
-                    <View style={styles.specRow}>
-                      <View style={styles.specItem}>
-                        <Icon name="link-outline" size={18} color={mainColor} style={styles.specIcon} />
-                        <Text style={[styles.specLabel, { color: subTextColor }]}>Online</Text>
-                        <Text style={[styles.specValue, { color: mainColor }]}>Available</Text>
-                      </View>
-                      
-                      <View style={styles.specItem}>
-                        <Icon name="heart" size={18} color={mainColor} style={styles.specIcon} />
-                        <Text style={[styles.specLabel, { color: subTextColor }]}>Status</Text>
-                        <Text style={[styles.specValue, { color: textColor }]}>Favorited</Text>
-                      </View>
-                    </View>
-                  )}
-                </View>
-                
-                {/* Product description or placeholder message */}
-                <View style={styles.productDescription}>
-                  <Text style={[styles.descriptionHeading, { color: textColor }]}>
-                    About this item
-                  </Text>
-                  {item.description ? (
-                    <Text style={[styles.descriptionText, { color: textColor }]}>
-                      {item.description}
-                    </Text>
-                  ) : (
-                    <Text style={[styles.descriptionText, { color: subTextColor, fontStyle: 'italic' }]}>
-                      No product description available. This item was saved to your favorites for later viewing or try-on.
-                    </Text>
-                  )}
-                </View>
               </View>
-            </ScrollView>
-            
-            {/* Action button container (fixed at bottom) */}
-            <View style={[styles.actionButtonContainer, { 
-              borderTopColor: borderColor,
-              backgroundColor: cardBgColor
-            }]}>
-              {/* Main action row */}
-              <View style={styles.actionButtonRow}>
-                {/* Remove button */}
-                <TouchableOpacity 
-                  style={[styles.actionButton, styles.removeButton, { borderColor: mainColor }]}
-                  onPress={() => onRemoveFavorite(item)}
+
+              {/* Quick Actions */}
+              <View style={styles.modernQuickActions}>
+                <TouchableOpacity
+                  style={[styles.modernPrimaryAction, { backgroundColor: mainColor }]}
+                  onPress={() => item.url && onOpenProduct(item.url)}
+                  disabled={!item.url}
                 >
-                  <Icon name="heart-dislike-outline" size={22} color={mainColor} />
+                  <FeatherIcon name="shopping-cart" size={18} color="#FFFFFF" />
+                  <Text style={styles.modernPrimaryActionText}>
+                    {item.url ? 'Shop Now' : 'No Link'}
+                  </Text>
                 </TouchableOpacity>
                 
-                {/* Action buttons */}
-                <View style={styles.mainActionButtons}>
-                  {/* 3D Try-on button */}
-                  <TouchableOpacity 
-                    style={[styles.actionButton, styles.tryOnButton, { 
-                      backgroundColor: isDarkMode ? '#333344' : '#f0f0f5',
-                      flex: 1,
-                    }]}
-                    onPress={() => navigation.navigate('3DTab')}
-                  >
-                    <Icon name="cube-outline" size={20} color={subTextColor} style={{ marginRight: 8 }} />
-                    <Text style={[styles.buttonText, { color: textColor }]}>Try On</Text>
-                  </TouchableOpacity>
-                  
-                  {/* Shop/View button */}
-                  {item.url ? (
-                    <TouchableOpacity 
-                      style={[styles.actionButton, styles.shopButton, { 
-                        backgroundColor: mainColor,
-                        flex: 1.5,
-                      }]}
-                      onPress={() => onOpenProduct(item.url || '')}
-                    >
-                      <Text style={styles.shopButtonText}>Shop Online</Text>
-                      <Icon name="open-outline" size={18} color="#fff" style={{ marginLeft: 8 }} />
-                    </TouchableOpacity>
-                  ) : (
-                    <View style={[styles.actionButton, styles.disabledButton, { flex: 1.5 }]}>
-                      <Text style={styles.disabledButtonText}>No Link Available</Text>
+                <TouchableOpacity
+                  style={[styles.modernSecondaryAction, { backgroundColor: surfaceColor, borderColor: borderColor }]}
+                  onPress={() => navigation.navigate('3DTab')}
+                >
+                  <Icon name="cube-outline" size={16} color={textColor} />
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.modernSecondaryAction, { backgroundColor: surfaceColor, borderColor: borderColor }]}
+                  onPress={() => onRemoveFavorite(item)}
+                >
+                  <FeatherIcon name="heart" size={16} color="#FF4757" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Product Details */}
+            <View style={[styles.modernDetailsSection, { backgroundColor: cardBgColor }]}>
+              <View style={styles.modernSectionHeader}>
+                <Text style={[styles.modernSectionTitle, { color: textColor }]}>
+                  Product Details
+                </Text>
+                <Text style={[styles.modernSectionSubtitle, { color: subTextColor }]}>
+                  Information about this item
+                </Text>
+              </View>
+
+              <View style={styles.modernDetailsList}>
+                <View style={[styles.modernDetailItem, { backgroundColor: surfaceColor }]}>
+                  <View style={[styles.modernDetailIcon, { backgroundColor: `${mainColor}15` }]}>
+                    <FeatherIcon name="tag" size={18} color={mainColor} />
+                  </View>
+                  <View style={styles.modernDetailContent}>
+                    <Text style={[styles.modernDetailLabel, { color: subTextColor }]}>Brand</Text>
+                    <Text style={[styles.modernDetailValue, { color: textColor }]}>{item.brand}</Text>
+                  </View>
+                </View>
+                
+                <View style={[styles.modernDetailItem, { backgroundColor: surfaceColor }]}>
+                  <View style={[styles.modernDetailIcon, { backgroundColor: `${successColor}15` }]}>
+                    <Icon name="heart" size={18} color={successColor} />
+                  </View>
+                  <View style={styles.modernDetailContent}>
+                    <Text style={[styles.modernDetailLabel, { color: subTextColor }]}>Status</Text>
+                    <Text style={[styles.modernDetailValue, { color: textColor }]}>Favorited</Text>
+                  </View>
+                </View>
+                
+                {item.url && (
+                  <View style={[styles.modernDetailItem, { backgroundColor: surfaceColor }]}>
+                    <View style={[styles.modernDetailIcon, { backgroundColor: `${warningColor}15` }]}>
+                      <Icon name="link-outline" size={18} color={warningColor} />
                     </View>
-                  )}
+                    <View style={styles.modernDetailContent}>
+                      <Text style={[styles.modernDetailLabel, { color: subTextColor }]}>Availability</Text>
+                      <Text style={[styles.modernDetailValue, { color: textColor }]}>Available Online</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {/* Style Insights */}
+            <View style={[styles.modernInsightsSection, { backgroundColor: cardBgColor }]}>
+              <Text style={[styles.modernSectionTitle, { color: textColor }]}>
+                Style Notes
+              </Text>
+              
+              <View style={styles.modernInsightsList}>
+                <View style={[styles.modernInsightItem, { backgroundColor: surfaceColor }]}>
+                  <View style={[styles.modernInsightIcon, { backgroundColor: `${successColor}15` }]}>
+                    <Icon name="checkmark-circle-outline" size={18} color={successColor} />
+                  </View>
+                  <Text style={[styles.modernInsightText, { color: textColor }]}>
+                    Added to your favorites collection
+                  </Text>
+                </View>
+                
+                <View style={[styles.modernInsightItem, { backgroundColor: surfaceColor }]}>
+                  <View style={[styles.modernInsightIcon, { backgroundColor: `${mainColor}15` }]}>
+                    <Icon name="heart-outline" size={18} color={mainColor} />
+                  </View>
+                  <Text style={[styles.modernInsightText, { color: textColor }]}>
+                    Perfect for creating new outfits
+                  </Text>
+                </View>
+                
+                <View style={[styles.modernInsightItem, { backgroundColor: surfaceColor }]}>
+                  <View style={[styles.modernInsightIcon, { backgroundColor: `${warningColor}15` }]}>
+                    <Icon name="cube-outline" size={18} color={warningColor} />
+                  </View>
+                  <Text style={[styles.modernInsightText, { color: textColor }]}>
+                    Try on with 3D fitting room
+                  </Text>
                 </View>
               </View>
             </View>
-          </View>
+
+            {/* Bottom spacing */}
+            <View style={{ height: 32 }} />
+          </ScrollView>
         </View>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 });
@@ -344,7 +394,7 @@ const ClosetScreen: React.FC = () => {
   ).current;
   
   const { isDarkMode } = useTheme();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationType>();
   
   // Colors based on the app's design theme
   const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
@@ -355,6 +405,8 @@ const ClosetScreen: React.FC = () => {
   const surfaceColor = isDarkMode ? '#242535' : '#F5F5F5';
   const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
   const accentColor = isDarkMode ? '#564DFF' : '#4D41D0'; // Secondary color
+  const successColor = isDarkMode ? '#10B981' : '#059669';
+  const warningColor = isDarkMode ? '#F59E0B' : '#D97706';
 
   // Categories for filtering owned products
   const categories = ["All", "Tops", "Bottoms", "Outerwear", "Footwear", "Accessories"];
@@ -408,7 +460,7 @@ const ClosetScreen: React.FC = () => {
               closeProductDetails();
               
               // Remove from Firestore
-              await deleteDoc(doc(db, "user_favorite_products", product.id));
+              await db.collection("user_favorite_products").doc(product.id).delete();
               
               // Update state
               setFavoriteProducts(prev => prev.filter(p => p.id !== product.id));
@@ -617,7 +669,7 @@ const ClosetScreen: React.FC = () => {
         // Delete each duplicate document
         const deletePromises = duplicateIds.map(async (docId) => {
           try {
-            await deleteDoc(doc(db, "user_favorite_products", docId));
+            await db.collection("user_favorite_products").doc(docId).delete();
             console.log(`Deleted duplicate favorite with ID: ${docId}`);
             return { success: true, id: docId };
           } catch (deleteError) {
@@ -716,6 +768,45 @@ const ClosetScreen: React.FC = () => {
     return ownedProducts.filter(product => product.category === selectedCategory);
   }, [ownedProducts, selectedCategory]);
 
+  // Handle outfit deletion
+  const deleteOutfit = useCallback(async (outfitId: string, outfitName: string) => {
+    try {
+      const currentUser = auth().currentUser;
+      if (!currentUser) {
+        Alert.alert('Error', 'You must be logged in to delete outfits');
+        return;
+      }
+
+      Alert.alert(
+        'Delete Outfit',
+        `Are you sure you want to delete "${outfitName}"? This action cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await db.collection('saved_outfits').doc(outfitId).delete();
+                
+                // Update local state
+                setSavedOutfits(prev => prev.filter(outfit => outfit.id !== outfitId));
+                
+                Alert.alert('Success', 'Outfit deleted successfully');
+              } catch (error) {
+                console.error('Error deleting outfit:', error);
+                Alert.alert('Error', 'Failed to delete outfit. Please try again.');
+              }
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error in deleteOutfit:', error);
+      Alert.alert('Error', 'Failed to delete outfit. Please try again.');
+    }
+  }, []);
+
   // Render saved outfit item
   const renderOutfit = useCallback(({ item }: { item: SavedOutfit }) => (
     <TouchableOpacity
@@ -733,6 +824,8 @@ const ClosetScreen: React.FC = () => {
         setSelectedOutfit(item);
         setOutfitModalVisible(true);
       }}
+      onLongPress={() => deleteOutfit(item.id, item.name)}
+      delayLongPress={500}
     >
       <Image 
         source={{ uri: item.imageUrl }} 
@@ -744,7 +837,23 @@ const ClosetScreen: React.FC = () => {
         <Text style={styles.outfitItemCount}>{item.products.length} items</Text>
       </View>
     </TouchableOpacity>
-  ), [cardBgColor, isDarkMode]);
+  ), [cardBgColor, isDarkMode, deleteOutfit]);
+
+  // Handle favorite product deletion with confirmation
+  const deleteFavoriteProduct = useCallback(async (product: FavoritedProduct) => {
+    Alert.alert(
+      'Remove Favorite',
+      `Remove "${product.name}" from your favorites?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => removeFavorite(product)
+        }
+      ]
+    );
+  }, [removeFavorite]);
 
   // Render favorite product item
   const renderFavoriteProduct = useCallback(({ item }: { item: FavoritedProduct }) => (
@@ -757,6 +866,8 @@ const ClosetScreen: React.FC = () => {
         }
       ]}
       onPress={() => showProductDetails(item)}
+      onLongPress={() => deleteFavoriteProduct(item)}
+      delayLongPress={500}
     >
       <View style={styles.productImageContainer}>
         <Image 
@@ -784,7 +895,41 @@ const ClosetScreen: React.FC = () => {
       </View>
       {/* Shop button removed per request */}
     </TouchableOpacity>
-  ), [cardBgColor, borderColor, textColor, subTextColor, mainColor]);
+  ), [cardBgColor, borderColor, textColor, subTextColor, mainColor, deleteFavoriteProduct]);
+
+  // Handle owned product deletion
+  const deleteOwnedProduct = useCallback(async (product: OwnedProduct) => {
+    Alert.alert(
+      'Remove Item',
+      `Remove "${product.name}" from your closet?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const currentUser = auth().currentUser;
+              if (!currentUser) {
+                Alert.alert('Error', 'You must be logged in to remove items');
+                return;
+              }
+
+              await db.collection('user_owned_products').doc(product.id).delete();
+              
+              // Update local state
+              setOwnedProducts(prev => prev.filter(item => item.id !== product.id));
+              
+              Alert.alert('Success', 'Item removed from your closet');
+            } catch (error) {
+              console.error('Error deleting owned product:', error);
+              Alert.alert('Error', 'Failed to remove item. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  }, []);
 
   // Render owned product item
   const renderOwnedProduct = useCallback(({ item }: { item: OwnedProduct }) => (
@@ -800,6 +945,8 @@ const ClosetScreen: React.FC = () => {
         // Show product details
         Alert.alert("Product Details", `${item.name} by ${item.brand}\nCategory: ${item.category}\nWorn ${item.timesWorn || 0} times`);
       }}
+      onLongPress={() => deleteOwnedProduct(item)}
+      delayLongPress={500}
     >
       <View style={styles.productImageContainer}>
         <Image 
@@ -835,7 +982,7 @@ const ClosetScreen: React.FC = () => {
         </Text>
       </View>
     </TouchableOpacity>
-  ), [cardBgColor, borderColor, textColor, subTextColor, mainColor]);
+  ), [cardBgColor, borderColor, textColor, subTextColor, mainColor, deleteOwnedProduct]);
 
   // Render category filter chip
   const renderCategoryChip = useCallback((category: string) => (
@@ -1000,129 +1147,244 @@ const ClosetScreen: React.FC = () => {
         borderColor={borderColor}
       />
       
-      {/* Outfit Components Modal */}
+      {/* Outfit Detail Modal - Exact Mirror of OutfitDetailScreen */}
       <Modal
         transparent={true}
         animationType="slide"
         visible={outfitModalVisible}
-        onRequestClose={() => {
-          setOutfitModalVisible(false);
-          setSelectedOutfit(null);
-        }}
+        onRequestClose={() => setOutfitModalVisible(false)}
+        statusBarTranslucent={true}
       >
-        <View style={[styles.modalContainer, {backgroundColor: 'rgba(0,0,0,0.5)'}]}>
-          <View 
-            style={[
-              styles.modalContent, 
-              { 
-                backgroundColor: bgColor,
-                borderColor
-              }
-            ]}
-          >
-            <View 
-              style={styles.dragIndicator} 
-              {...panResponder.panHandlers}
-            >
-              <View style={[styles.dragIndicatorBar, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.2)' }]} />
-            </View>
-            
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: textColor }]}>
-                {selectedOutfit?.name || "Outfit Details"}
-              </Text>
+        <View style={[styles.container, { backgroundColor: bgColor }]}>
+          {/* Custom Header - Exact match */}
+          <SafeAreaView>
+            <View style={[styles.outfitDetailHeader, { backgroundColor: cardBgColor }]}>
               <TouchableOpacity
-                style={styles.modalCloseButton}
+                style={[styles.outfitDetailHeaderButton, { backgroundColor: cardBgColor }]}
+                onPress={() => setOutfitModalVisible(false)}
+              >
+                <Icon name="arrow-back" size={22} color={textColor} />
+              </TouchableOpacity>
+              
+              <View style={styles.outfitDetailHeaderCenter}>
+                <Text style={[styles.outfitDetailHeaderTitle, { color: textColor }]}>Outfit Details</Text>
+                <Text style={[styles.outfitDetailHeaderSubtitle, { color: subTextColor }]}>
+                  {selectedOutfit?.products?.length || 0} pieces
+                </Text>
+              </View>
+              
+              <TouchableOpacity
+                style={[styles.outfitDetailHeaderButton, { backgroundColor: cardBgColor }]}
                 onPress={() => {
-                  setOutfitModalVisible(false);
-                  setSelectedOutfit(null);
+                  // Share functionality
+                  Alert.alert("Share", "Share outfit functionality coming soon!");
                 }}
               >
-                <Icon name="close" size={24} color={textColor} />
+                <FeatherIcon name="share" size={20} color={textColor} />
               </TouchableOpacity>
             </View>
-            
-            {/* Outfit image */}
-            {selectedOutfit?.imageUrl && (
-              <Image
-                source={{ uri: selectedOutfit.imageUrl }}
-                style={styles.modalOutfitImage}
-                resizeMode="contain"
-              />
-            )}
-            
-            {/* Products list */}
-            <View style={styles.outfitProductsContainer}>
-              <Text style={[styles.outfitProductsTitle, { color: textColor }]}>
-                Components ({
-                  selectedOutfit?.products 
-                    ? (Array.isArray(selectedOutfit.products) 
-                        ? selectedOutfit.products.length 
-                        : (typeof selectedOutfit.products === 'number' 
-                            ? selectedOutfit.products 
-                            : 0))
-                    : 0
-                })
+          </SafeAreaView>
+
+          <ScrollView
+            style={styles.outfitDetailScrollView}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.outfitDetailScrollContent}
+          >
+            {/* Hero Image Section - Exact match */}
+            <View style={[styles.outfitDetailHeroSection, { backgroundColor: cardBgColor }]}>
+              <View style={styles.outfitDetailImageContainer}>
+                <Image
+                  source={{ uri: selectedOutfit?.imageUrl }}
+                  style={styles.outfitDetailImage}
+                  resizeMode="contain"
+                />
+              </View>
+            </View>
+
+            {/* Outfit Info Card - Exact match */}
+            <View style={[styles.outfitDetailInfoCard, { backgroundColor: cardBgColor }]}>
+              <View style={styles.outfitDetailOutfitHeader}>
+                <View style={styles.outfitDetailTitleContainer}>
+                  <Text style={[styles.outfitDetailName, { color: textColor }]}>
+                    {selectedOutfit?.name || 'Untitled Outfit'}
+                  </Text>
+                  <View style={[styles.outfitDetailMeta, { backgroundColor: surfaceColor }]}>
+                    <Icon name="calendar-outline" size={14} color={subTextColor} />
+                    <Text style={[styles.outfitDetailDate, { color: subTextColor }]}>
+                      Created {selectedOutfit?.createdAt?.toDate ? 
+                        selectedOutfit.createdAt.toDate().toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        }) : 'Unknown date'}
+                    </Text>
+                  </View>
+                </View>
+                
+                <View style={[styles.outfitDetailItemsCounter, { backgroundColor: `${mainColor}15` }]}>
+                  <Text style={[styles.outfitDetailItemsCountText, { color: mainColor }]}>
+                    {selectedOutfit?.products?.length || 0}
+                  </Text>
+                  <Text style={[styles.outfitDetailItemsLabel, { color: mainColor }]}>
+                    pieces
+                  </Text>
+                </View>
+              </View>
+
+              {/* Quick Actions - Exact match */}
+              <View style={styles.outfitDetailQuickActions}>
+                <TouchableOpacity
+                  style={[styles.outfitDetailPrimaryAction, { backgroundColor: mainColor }]}
+                  onPress={() => {
+                    setOutfitModalVisible(false);
+                    navigation.navigate('MainTabs', {
+                      screen: '3DTab',
+                      params: {
+                        preloadedOutfit: selectedOutfit ? {
+                          id: selectedOutfit.id,
+                          name: selectedOutfit.name,
+                          products: selectedOutfit.products
+                        } : undefined
+                      }
+                    });
+                  }}
+                >
+                  <Icon name="camera-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.outfitDetailPrimaryActionText}>Try On</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.outfitDetailSecondaryAction, { backgroundColor: surfaceColor, borderColor: borderColor }]}
+                  onPress={() => {
+                    Alert.alert("Delete", "Delete outfit functionality");
+                  }}
+                >
+                  <FeatherIcon name="trash-2" size={16} color="#FF4757" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Outfit Pieces - Exact match */}
+            <View style={[styles.outfitDetailPiecesSection, { backgroundColor: cardBgColor }]}>
+              <View style={styles.outfitDetailSectionHeader}>
+                <View>
+                  <Text style={[styles.outfitDetailSectionTitle, { color: textColor }]}>
+                    Outfit Pieces
+                  </Text>
+                  <Text style={[styles.outfitDetailSectionSubtitle, { color: subTextColor }]}>
+                    Tap to view product details
+                  </Text>
+                </View>
+                <View style={[styles.outfitDetailPiecesCount, { backgroundColor: surfaceColor }]}>
+                  <Text style={[styles.outfitDetailPiecesCountText, { color: textColor }]}>
+                    {selectedOutfit?.products?.length || 0}
+                  </Text>
+                </View>
+              </View>
+
+              {selectedOutfit?.products && selectedOutfit.products.length > 0 ? (
+                <View style={styles.outfitDetailPiecesList}>
+                  {selectedOutfit.products.map((product: Product, index: number) => (
+                    <TouchableOpacity
+                      key={product.id || index}
+                      style={[styles.outfitDetailPieceItem, { backgroundColor: surfaceColor }]}
+                      onPress={() => {
+                        if (product.url) {
+                          openProductUrl(product.url);
+                        } else {
+                          Alert.alert('Product Info', `${product.name} by ${product.brand}`);
+                        }
+                      }}
+                      activeOpacity={product.url ? 0.7 : 1}
+                    >
+                      <View style={[styles.outfitDetailPieceIconContainer, { backgroundColor: `${mainColor}15` }]}>
+                        <Icon 
+                          name="shirt-outline"
+                          size={22} 
+                          color={mainColor} 
+                        />
+                      </View>
+                      
+                      <View style={styles.outfitDetailPieceContent}>
+                        <Text style={[styles.outfitDetailPieceName, { color: textColor }]} numberOfLines={1}>
+                          {product.name || 'Unknown Item'}
+                        </Text>
+                        <View style={styles.outfitDetailPieceMetaRow}>
+                          <Text style={[styles.outfitDetailPieceBrand, { color: subTextColor }]}>
+                            {product.brand || 'Unknown Brand'}
+                          </Text>
+                          {product.price && (
+                            <Text style={[styles.outfitDetailPiecePrice, { color: mainColor }]}>
+                              ${typeof product.price === 'number' ? product.price.toFixed(2) : product.price}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+
+                      {product.url && (
+                        <View style={styles.outfitDetailExternalLinkIndicator}>
+                          <FeatherIcon 
+                            name="external-link" 
+                            size={16} 
+                            color={subTextColor} 
+                          />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.outfitDetailEmptyPieces}>
+                  <Icon name="shirt-outline" size={48} color={subTextColor} style={{opacity: 0.5}} />
+                  <Text style={[styles.outfitDetailEmptyPiecesText, { color: subTextColor }]}>
+                    No pieces information available
+                  </Text>
+                  <Text style={[styles.outfitDetailEmptyPiecesSubtext, { color: subTextColor }]}>
+                    This outfit was created before piece tracking
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Style Insights - Exact match */}
+            <View style={[styles.outfitDetailInsightsSection, { backgroundColor: cardBgColor }]}>
+              <Text style={[styles.outfitDetailSectionTitle, { color: textColor }]}>
+                Style Insights
               </Text>
               
-              {(() => {
-                // Add some diagnostic logging
-                console.log("Products display logic:");
-                console.log("- selectedOutfit?.products exists:", !!selectedOutfit?.products);
-                console.log("- Type of products:", selectedOutfit?.products ? typeof selectedOutfit.products : "undefined");
-                console.log("- Is array:", selectedOutfit?.products ? Array.isArray(selectedOutfit.products) : "N/A");
-                console.log("- Array length:", selectedOutfit?.products && Array.isArray(selectedOutfit.products) ? selectedOutfit.products.length : "N/A");
+              <View style={styles.outfitDetailInsightsList}>
+                <View style={[styles.outfitDetailInsightItem, { backgroundColor: surfaceColor }]}>
+                  <View style={[styles.outfitDetailInsightIcon, { backgroundColor: `${successColor}15` }]}>
+                    <Icon name="time-outline" size={18} color={successColor} />
+                  </View>
+                  <Text style={[styles.outfitDetailInsightText, { color: textColor }]}>
+                    Perfect for casual day outings
+                  </Text>
+                </View>
                 
-                if (!selectedOutfit?.products || 
-                    typeof selectedOutfit.products === 'number' || 
-                    !Array.isArray(selectedOutfit.products) || 
-                    selectedOutfit.products.length === 0) {
-                  return (
-                    <View style={styles.noProductsContainer}>
-                      <Text style={[styles.noProductsText, { color: subTextColor }]}>
-                        No detailed product information available for this outfit.
-                      </Text>
-                      <Text style={[styles.noProductsSubText, { color: subTextColor }]}>
-                        This may be because the outfit was saved before product tracking was implemented.
-                      </Text>
-                    </View>
-                  );
-                } else {
-                  console.log("Rendering FlatList with products:", selectedOutfit.products.length);
-                  return (
-                    <FlatList
-                      data={selectedOutfit.products}
-                      renderItem={renderOutfitProduct}
-                      keyExtractor={(item, index) => item.id || `product-${index}`}
-                      ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: borderColor }]} />}
-                      contentContainerStyle={styles.outfitProductsList}
-                      showsVerticalScrollIndicator={true}
-                      initialNumToRender={10}
-                      maxToRenderPerBatch={5}
-                      windowSize={5}
-                      removeClippedSubviews={false}
-                      style={{flexGrow: 1}}
-                    />
-                  );
-                }
-              })()}
-            </View>
-            
-            <TouchableOpacity 
-              style={[styles.tryOnButton, { backgroundColor: mainColor }]}
-              onPress={() => {
-                // Close modal and navigate to 3D screen
-                setOutfitModalVisible(false);
-                navigation.navigate('3DTab');
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                <Icon name="cube-outline" size={18} color="#FFF" style={{marginRight: 8}} />
-                <Text style={styles.tryOnButtonText}>Try On Again</Text>
+                <View style={[styles.outfitDetailInsightItem, { backgroundColor: surfaceColor }]}>
+                  <View style={[styles.outfitDetailInsightIcon, { backgroundColor: `${warningColor}15` }]}>
+                    <Icon name="sunny-outline" size={18} color={warningColor} />
+                  </View>
+                  <Text style={[styles.outfitDetailInsightText, { color: textColor }]}>
+                    Great for spring/summer weather
+                  </Text>
+                </View>
+                
+                <View style={[styles.outfitDetailInsightItem, { backgroundColor: surfaceColor }]}>
+                  <View style={[styles.outfitDetailInsightIcon, { backgroundColor: `${mainColor}15` }]}>
+                    <Icon name="people-outline" size={18} color={mainColor} />
+                  </View>
+                  <Text style={[styles.outfitDetailInsightText, { color: textColor }]}>
+                    Ideal for social gatherings
+                  </Text>
+                </View>
               </View>
-            </TouchableOpacity>
-          </View>
+            </View>
+
+            {/* Bottom spacing */}
+            <View style={{ height: 32 }} />
+          </ScrollView>
         </View>
       </Modal>
       
@@ -1995,5 +2257,795 @@ const styles = StyleSheet.create({
     color: '#8e8e93',
     fontWeight: '500',
     fontSize: 14,
+  },
+  
+  // Modern Modal Styles (OutfitDetailScreen-inspired)
+  modernModalContent: {
+    width: '95%',
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
+    alignSelf: 'center',
+    marginVertical: 'auto',
+  },
+  modernModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  modernHeaderButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  modernHeaderCenter: {
+    alignItems: 'center',
+  },
+  modernHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  modernHeaderSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  modernModalScrollView: {
+    flex: 1,
+  },
+  modernModalScrollContent: {
+    paddingBottom: 20,
+  },
+  
+  // Hero Section
+  modernHeroSection: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 16,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  modernImageContainer: {
+    position: 'relative',
+  },
+  modernProductImage: {
+    width: '100%',
+    height: 280,
+  },
+  modernFloatingBadge: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+  },
+  modernBrandBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modernBrandBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  
+  // Info Card
+  modernInfoCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  modernProductHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  modernProductTitleContainer: {
+    flex: 1,
+    marginRight: 16,
+  },
+  modernProductName: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+    lineHeight: 26,
+  },
+  modernProductMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  modernProductDate: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  modernPriceTag: {
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    minWidth: 60,
+  },
+  modernPriceText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  
+  // Quick Actions
+  modernQuickActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  modernPrimaryAction: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  modernPrimaryActionText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  modernSecondaryAction: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  
+  // Details Section
+  modernDetailsSection: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  modernSectionHeader: {
+    marginBottom: 16,
+  },
+  modernSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  modernSectionSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  modernDetailsList: {
+    gap: 12,
+  },
+  modernDetailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+  },
+  modernDetailIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  modernDetailContent: {
+    flex: 1,
+  },
+  modernDetailLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  modernDetailValue: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  
+  // Insights Section
+  modernInsightsSection: {
+    marginHorizontal: 20,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  modernInsightsList: {
+    marginTop: 16,
+    gap: 12,
+  },
+  modernInsightItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+  },
+  modernInsightIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  modernInsightText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
+  // Modern Outfit Modal Styles
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  modernOutfitModalContent: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 25,
+    borderTopRightRadius: 25,
+    overflow: 'hidden',
+    maxHeight: '90%',
+  },
+  modernOutfitImage: {
+    width: '100%',
+    height: 300,
+    resizeMode: 'contain',
+  },
+  modernOutfitQuickActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    gap: 10,
+  },
+  modernOutfitPrimaryAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#000000',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    gap: 8,
+  },
+  modernOutfitPrimaryActionText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modernOutfitSecondaryAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F0F0',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    gap: 8,
+  },
+  modernOutfitSecondaryActionText: {
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modernOutfitInfo: {
+    padding: 20,
+  },
+  modernOutfitTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    marginBottom: 5,
+  },
+  modernOutfitSubtitle: {
+    fontSize: 16,
+    color: '#666666',
+    marginBottom: 15,
+  },
+  modernOutfitPiecesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modernOutfitPiecesTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  modernOutfitPiecesCount: {
+    fontSize: 16,
+    color: '#666666',
+  },
+  modernOutfitEmptyPieces: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+
+  // New Outfit Detail Modal Styles (matching OutfitDetailScreen)
+  outfitDetailModalContent: {
+    flex: 1,
+    marginTop: 50,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  outfitDetailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  outfitDetailScrollView: {
+    flex: 1,
+  },
+  outfitDetailScrollContent: {
+    paddingBottom: 20,
+  },
+  outfitDetailHeroSection: {
+    margin: 20,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  outfitDetailImageContainer: {
+    position: 'relative',
+  },
+  outfitDetailImage: {
+    width: '100%',
+    height: 280,
+  },
+  outfitDetailInfoCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  outfitDetailTitleContainer: {
+    flex: 1,
+    marginRight: 16,
+  },
+  outfitDetailName: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 8,
+    lineHeight: 30,
+  },
+  outfitDetailMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  outfitDetailDate: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  outfitDetailItemsCounter: {
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    minWidth: 60,
+  },
+  outfitDetailItemsCountText: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  outfitDetailItemsLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  outfitDetailQuickActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  outfitDetailPrimaryAction: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  outfitDetailPrimaryActionText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  outfitDetailSecondaryAction: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  outfitDetailPiecesSection: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  outfitDetailSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  outfitDetailSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  outfitDetailSectionSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  outfitDetailPiecesCount: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outfitDetailPiecesCountText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  outfitDetailPiecesList: {
+    gap: 12,
+  },
+  outfitDetailPieceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+  },
+  outfitDetailPieceIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  outfitDetailPieceContent: {
+    flex: 1,
+  },
+  outfitDetailPieceName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  outfitDetailPieceMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  outfitDetailPieceBrand: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  outfitDetailPiecePrice: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  outfitDetailExternalLinkIndicator: {
+    marginLeft: 8,
+  },
+  outfitDetailEmptyPieces: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  outfitDetailEmptyPiecesText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  outfitDetailEmptyPiecesSubtext: {
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  outfitDetailInsightsSection: {
+    marginHorizontal: 20,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  outfitDetailInsightsList: {
+    marginTop: 16,
+    gap: 12,
+  },
+  outfitDetailInsightItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+  },
+  outfitDetailInsightIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  outfitDetailInsightText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
+  // Modern Outfit Modal Product List Styles
+  modernOutfitPieceImageContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  modernOutfitProductsList: {
+    gap: 12,
+    marginTop: 16,
+  },
+  modernOutfitProductItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  modernProductImageContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  modernProductImage: {
+    width: '100%',
+    height: '100%',
+  },
+  modernNoImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+  },
+  modernProductContent: {
+    flex: 1,
+  },
+  modernProductHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 4,
+  },
+  modernProductBrand: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    flex: 1,
+    marginRight: 8,
+  },
+  modernProductPrice: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  modernProductName: {
+    fontSize: 15,
+    fontWeight: '500',
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  modernProductColor: {
+    fontSize: 12,
+    fontWeight: '400',
+  },
+  modernProductAction: {
+    marginLeft: 12,
+    padding: 8,
+  },
+  modernNoProductsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    marginTop: 16,
+  },
+  modernNoProductsText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 12,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  modernNoProductsSubText: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+
+  // Additional missing styles for outfit products
+  outfitProductHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 4,
+  },
+  outfitProductColor: {
+    fontSize: 12,
+    fontWeight: '400',
+    marginTop: 2,
+  },
+  outfitProductAction: {
+    marginLeft: 12,
+    padding: 8,
+  },
+
+  // OutfitDetailScreen Mirror Styles - Header
+  outfitDetailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 0,
+  },
+  outfitDetailHeaderButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outfitDetailHeaderCenter: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 16,
+  },
+  outfitDetailHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  outfitDetailHeaderSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  outfitDetailScrollView: {
+    flex: 1,
+  },
+  outfitDetailScrollContent: {
+    paddingBottom: 20,
+  },
+  outfitDetailHeroSection: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  outfitDetailImageContainer: {
+    width: '100%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outfitDetailImage: {
+    width: '100%',
+    height: '100%',
+  },
+  outfitDetailInfoCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  outfitDetailOutfitHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
   },
 });

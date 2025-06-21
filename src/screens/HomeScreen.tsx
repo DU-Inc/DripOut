@@ -19,6 +19,7 @@ import {
   PanResponder,
   RefreshControl,
   ImageBackground,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -951,9 +952,28 @@ const HomeScreen: React.FC = () => {
           {/* Header Content */}
           <View style={styles.header}>
             <View style={styles.headerTitleContainer}>
-              <Text style={[styles.headerTitle, { color: textColor }]}>
-                DripOut
-              </Text>
+              <View style={styles.titleRow}>
+                <Text style={[styles.headerTitle, { color: textColor }]}>
+                  DripOut
+                </Text>
+                
+                {/* Right aligned buttons */}
+                <View style={styles.titleRightActions}>
+                  <TouchableOpacity 
+                    style={styles.headerButton}
+                    onPress={() => Alert.alert('Search', 'Coming soon!')}
+                  >
+                    <Icon name="search-outline" size={24} color={textColor} />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.headerButton}
+                    onPress={() => Alert.alert('Notifications', 'Coming soon!')}
+                  >
+                    <Icon name="notifications-outline" size={24} color={textColor} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
               <View style={styles.headerSubtitleRow}>
                 <Text style={[styles.headerSubtitle, { color: subTextColor }]}>
                   Your Style Feed
@@ -974,12 +994,6 @@ const HomeScreen: React.FC = () => {
                 onPress={() => navigation.navigate('ResetAuth')}
               >
                 <Icon name="refresh-circle-outline" size={24} color={textColor} />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.headerButton}>
-                <Icon name="notifications-outline" size={24} color={textColor} />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.headerButton}>
-                <Icon name="search-outline" size={24} color={textColor} />
               </TouchableOpacity>
             </View>
           </View>
@@ -1471,6 +1485,15 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  titleRightActions: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
 });

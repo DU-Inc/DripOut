@@ -105,13 +105,20 @@ export async function searchProducts(
   userProfile?: any // Accept user profile data if available
 ): Promise<Product[]> {
   console.log('🔎 Starting product search for query:', query);
+  console.log('🔍 DEBUG: Received userProfile parameter:', userProfile);
+  console.log('🔍 DEBUG: userProfile type:', typeof userProfile);
+  console.log('🔍 DEBUG: userProfile keys:', userProfile ? Object.keys(userProfile) : 'N/A');
+  console.log('🔍 DEBUG: userProfile stringified:', JSON.stringify(userProfile, null, 2));
+  
   try {
     // Initialize user profile data object
     const userProfileData: any = {};
 
     // Integrate relevant fields from the provided userProfile object
     if (userProfile) {
-      console.log('👤 User profile data available, integrating preferences');
+      console.log('👤 DEBUG: User profile data available, integrating preferences');
+      console.log('👤 DEBUG: Profile keys received:', Object.keys(userProfile));
+      console.log('👤 DEBUG: Full profile data received:', JSON.stringify(userProfile, null, 2));
 
       // Map age if available
       if (typeof userProfile.userAge === 'number') {
@@ -163,7 +170,10 @@ export async function searchProducts(
       console.log('💰 Budget object:', userProfileData.budget);
 
     } else {
-      console.log('ℹ️ No user profile available, sending minimal profile data');
+      console.log('❌ DEBUG: No user profile available, sending minimal profile data');
+      console.log('❌ DEBUG: userProfile is:', userProfile);
+      console.log('❌ DEBUG: userProfile type:', typeof userProfile);
+      console.log('❌ DEBUG: userProfile truthiness:', !!userProfile);
       // Send at least the budget if required, even without full profile
       userProfileData.budget = {
          min: priceRange[0],
@@ -228,6 +238,20 @@ export async function searchProducts(
             }
             
             console.log('✅ Successfully received', result.products.length, 'recommendations');
+            
+            // Debug logging for API response products
+            console.log('🔍 DEBUG: API Response Products:');
+            result.products.forEach((product: any, index: number) => {
+              console.log(`📦 Product ${index + 1}:`, {
+                name: product.name,
+                price: product.price,
+                priceType: typeof product.price,
+                brand: product.brand,
+                url: product.url,
+                fullProduct: JSON.stringify(product, null, 2)
+              });
+            });
+            
             resolve(result.products);
             
           } else if (status === 'FAILURE') {
@@ -803,6 +827,31 @@ export const userTryOn = async (
     };
     
     console.log('📦 User try-on payload prepared with', userImages.length, 'user images and', products.length, 'products');
+    
+    // Log detailed product information
+    console.log('👕 Products being tried on:');
+    products.forEach((product, index) => {
+      console.log(`  ${index + 1}. ${product.name || 'Unnamed Product'}`);
+      console.log(`     Brand: ${product.brand || 'Unknown'}`);
+      console.log(`     URL: ${product.url || 'No URL'}`);
+      console.log(`     Images: ${product.images && product.images.length > 0 ? product.images.length + ' images' : 'No images'}`);
+      if (product.images && product.images.length > 0) {
+        product.images.forEach((img, imgIndex) => {
+          console.log(`       Image ${imgIndex + 1}: ${img}`);
+        });
+      }
+      console.log('     ---');
+    });
+    
+    // Log user images being sent
+    console.log('👤 User images being sent:');
+    userImages.forEach((img, index) => {
+      console.log(`  ${index + 1}. ${img}`);
+    });
+    
+    // Log the complete payload being sent to the API
+    console.log('📋 Complete try-on payload being sent to API:');
+    console.log(JSON.stringify(tryOnRequestData, null, 2));
     
     // Step 1: Initiate the try-on task
     console.log('⏳ Sending request to start try-on task:', `${API_BASE_URL}/user_try_on`);

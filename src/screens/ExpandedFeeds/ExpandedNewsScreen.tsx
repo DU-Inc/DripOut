@@ -40,7 +40,7 @@ import { getArticleById, getArticles, fetchFashionNews } from '../../services/ne
 import axios from 'axios';
 import RenderHtml from 'react-native-render-html';
 import { decode } from 'html-entities';
-import { useTheme } from '../../styles/theme/ThemeContext';
+import { useTheme } from '../../styles/themeprovider';
 import { OPENAI_API_KEY } from '@env';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');

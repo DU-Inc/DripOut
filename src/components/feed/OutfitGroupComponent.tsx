@@ -707,10 +707,10 @@ const styles = StyleSheet.create({
   swipeableWrapper: {
     overflow: 'visible', // Allow shadow to be visible
     borderRadius: 14,
-    marginVertical: 12, // Increased vertical margin for shadow visibility
-    marginHorizontal: 1, // Increased horizontal margin for shadow visibility
-    backgroundColor: 'transparent', // Required for shadow on iOS
-    alignSelf: 'center', // Center in parent container
+    marginVertical: 12,
+    marginHorizontal: 1,
+    backgroundColor: '#FFFFFF', // Change from transparent to white for shadow calculation
+    alignSelf: 'center',
     width: DEFAULT_GROUP_WIDTH,
   },
   container: {
@@ -747,6 +747,7 @@ const styles = StyleSheet.create({
     top: 8,
     left: 8,
     zIndex: 10,
+    backgroundColor: 'transparent', // Add background color
   },
   collageContainer: {
     flex: 1,

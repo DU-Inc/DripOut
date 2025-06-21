@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, TouchableOpacity, StyleSheet, Dimensions, Text, Alert } from 'react-native';
-import { useTheme } from '../../styles/theme/ThemeContext';
+import { useTheme } from '../../styles/themeprovider';
 import { NavigationProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../types/NavigationTypes';
 import AsyncStorage from '@react-native-async-storage/async-storage';

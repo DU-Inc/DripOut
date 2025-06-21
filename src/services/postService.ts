@@ -1,5 +1,4 @@
-import { db, auth, Timestamp, FieldValue } from '../Config/firebaseconfig';
-import { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+import { db, auth, Timestamp, FieldValue, firestore } from '../Config/firebaseconfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { uploadImageAndGetURL } from './storageService';
 
@@ -11,6 +10,17 @@ export interface OutfitItem {
   brand: string;
   type?: 'shirt' | 'pants' | 'shoes' | 'watch' | 'jewelry' | 'accessory'; // Simplified type options
   affiliateLink?: string; // Optional affiliate link for purchasing the item
+  scrapedProduct?: {
+    id: string;
+    name: string;
+    brand?: string;
+    price?: number;
+    currency?: string;
+    images: Array<{ url: string; id: string }>;
+    description?: string;
+    productUrl?: string;
+    site?: string;
+  }; // Scraped product data if available
 }
 
 /**
@@ -120,7 +130,7 @@ export const createPost = async (
       outfitItems: postData.outfitItems || [], // Add outfit items if provided
       likes: 0,
       comments: 0,
-      createdAt: FieldValue.serverTimestamp(),
+      createdAt: firestore.FieldValue.serverTimestamp(),
     };
 
     const docRef = await db.collection('posts').add(newPost);

@@ -13,7 +13,7 @@ import {
   Easing,
   PanResponder
 } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Button from './Button';
 import { text } from '../../text';

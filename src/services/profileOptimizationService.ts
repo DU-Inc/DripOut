@@ -5,7 +5,8 @@ import { getPostsByUser, Post } from './postService';
 import { getFollowCounts } from './followService';
 
 // Cache configuration
-const CACHE_EXPIRY_TIME = 60 * 60 * 1000; // 1 hour
+const CACHE_EXPIRY_TIME = 7 * 24 * 60 * 60 * 1000; // 7 days for most data
+const POSTS_CACHE_EXPIRY_TIME = 30 * 24 * 60 * 60 * 1000; // 30 days for posts
 const BATCH_SIZE = 10; // For pagination
 
 // Cache key generators
@@ -14,6 +15,7 @@ const getCacheKeys = (userId: string) => ({
   profileTimestamp: `user_profile_cache_timestamp_${userId}`,
   posts: `user_posts_cache_${userId}`,
   postsTimestamp: `user_posts_cache_timestamp_${userId}`,
+  postsLastFetch: `user_posts_last_fetch_${userId}`, // New key for tracking last fetch
   preferences: `user_preferences_cache_${userId}`,
   preferencesTimestamp: `user_preferences_cache_timestamp_${userId}`,
   followCounts: `user_follow_counts_cache_${userId}`,
@@ -67,6 +69,7 @@ interface LoadingStates {
 
 class ProfileOptimizationService {
   private static instance: ProfileOptimizationService;
+  private postUpdateListeners: Map<string, () => void> = new Map();
 
   private constructor() {}
 
@@ -80,18 +83,95 @@ class ProfileOptimizationService {
   /**
    * Check if cached data is still valid
    */
-  private async isCacheValid(timestampKey: string): Promise<boolean> {
+  private async isCacheValid(timestampKey: string, isPostsCache: boolean = false): Promise<boolean> {
     try {
-      const cachedTimestamp = await AsyncStorage.getItem(timestampKey);
-      if (!cachedTimestamp) return false;
+      const cachedTimestampStr = await AsyncStorage.getItem(timestampKey);
+      if (!cachedTimestampStr) return false;
       
-      const timestamp = parseInt(cachedTimestamp, 10);
+      const timestamp = parseInt(cachedTimestampStr, 10);
       const now = Date.now();
+      const expiryTime = isPostsCache ? POSTS_CACHE_EXPIRY_TIME : CACHE_EXPIRY_TIME;
       
-      return (now - timestamp) < CACHE_EXPIRY_TIME;
+      return (now - timestamp) < expiryTime;
     } catch (error) {
       console.warn('Error checking cache validity:', error);
       return false;
+    }
+  }
+
+  /**
+   * Check if posts need to be fetched based on conditions
+   */
+  private async shouldFetchPosts(userId: string, isRefresh: boolean = false): Promise<boolean> {
+    if (isRefresh) return true; // Always fetch on manual refresh
+    
+    const cacheKeys = getCacheKeys(userId);
+    try {
+      const [lastFetchStr, postsStr] = await Promise.all([
+        AsyncStorage.getItem(cacheKeys.postsLastFetch),
+        AsyncStorage.getItem(cacheKeys.posts)
+      ]);
+
+      // Fetch if:
+      // 1. No last fetch time (first app open)
+      // 2. No cached posts
+      // 3. Cache is invalid
+      if (!lastFetchStr || !postsStr) return true;
+
+      const lastFetch = parseInt(lastFetchStr, 10);
+      const now = Date.now();
+      
+      // Check if cache is still valid
+      const cacheValid = await this.isCacheValid(cacheKeys.postsTimestamp, true);
+      if (!cacheValid) return true;
+
+      return false;
+    } catch (error) {
+      console.warn('Error checking if posts should be fetched:', error);
+      return true;
+    }
+  }
+
+  /**
+   * Subscribe to post updates
+   */
+  subscribeToPostUpdates(userId: string, callback: () => void): () => void {
+    const key = `post_updates_${userId}`;
+    this.postUpdateListeners.set(key, callback);
+    return () => this.postUpdateListeners.delete(key);
+  }
+
+  /**
+   * Notify listeners of post updates
+   */
+  private notifyPostUpdate(userId: string) {
+    const key = `post_updates_${userId}`;
+    const callback = this.postUpdateListeners.get(key);
+    if (callback) callback();
+  }
+
+  /**
+   * Handle new post creation
+   */
+  async handleNewPost(userId: string): Promise<void> {
+    const cacheKeys = getCacheKeys(userId);
+    
+    try {
+      // Fetch new posts from network
+      const posts = await this.fetchPostsFromNetwork(userId);
+      
+      // Update cache
+      const now = Date.now().toString();
+      await this.batchCacheOperations([
+        [cacheKeys.posts, JSON.stringify(posts)],
+        [cacheKeys.postsTimestamp, now],
+        [cacheKeys.postsLastFetch, now]
+      ]);
+
+      // Notify listeners
+      this.notifyPostUpdate(userId);
+    } catch (error) {
+      console.error('Error handling new post:', error);
     }
   }
 
@@ -196,13 +276,15 @@ class ProfileOptimizationService {
   /**
    * Load secondary data (posts, follows, outfits, products)
    */
-  async loadSecondaryData(userId: string, page: number = 1): Promise<Partial<ProfileData>> {
+  async loadSecondaryData(userId: string, isRefresh: boolean = false): Promise<Partial<ProfileData>> {
     const cacheKeys = getCacheKeys(userId);
     
     try {
-      // Check cache validity for all secondary data
-      const [postsValid, followCountsValid, outfitsValid, productsValid] = await Promise.all([
-        this.isCacheValid(cacheKeys.postsTimestamp),
+      // Check if posts need to be fetched
+      const shouldFetch = await this.shouldFetchPosts(userId, isRefresh);
+      
+      // Check cache validity for other secondary data
+      const [followCountsValid, outfitsValid, productsValid] = await Promise.all([
         this.isCacheValid(cacheKeys.followCountsTimestamp),
         this.isCacheValid(cacheKeys.savedOutfitsTimestamp),
         this.isCacheValid(cacheKeys.favoriteProductsTimestamp)
@@ -210,7 +292,7 @@ class ProfileOptimizationService {
 
       // Load from cache where valid
       const cachePromises = [
-        postsValid ? AsyncStorage.getItem(cacheKeys.posts) : Promise.resolve(null),
+        AsyncStorage.getItem(cacheKeys.posts),
         followCountsValid ? AsyncStorage.getItem(cacheKeys.followCounts) : Promise.resolve(null),
         outfitsValid ? AsyncStorage.getItem(cacheKeys.savedOutfits) : Promise.resolve(null),
         productsValid ? AsyncStorage.getItem(cacheKeys.favoriteProducts) : Promise.resolve(null)
@@ -227,8 +309,8 @@ class ProfileOptimizationService {
       // Fetch missing data from network
       const networkPromises = [];
       
-      if (!postsValid) {
-        networkPromises.push(this.fetchPostsFromNetwork(userId, page));
+      if (shouldFetch) {
+        networkPromises.push(this.fetchPostsFromNetwork(userId));
       } else {
         networkPromises.push(Promise.resolve(posts));
       }
@@ -257,10 +339,11 @@ class ProfileOptimizationService {
       const cacheOperations: Array<[string, string]> = [];
       const now = Date.now().toString();
 
-      if (!postsValid && networkPosts) {
+      if (shouldFetch && networkPosts) {
         posts = networkPosts;
         cacheOperations.push([cacheKeys.posts, JSON.stringify(networkPosts)]);
         cacheOperations.push([cacheKeys.postsTimestamp, now]);
+        cacheOperations.push([cacheKeys.postsLastFetch, now]);
       }
 
       if (!followCountsValid && networkFollowCounts) {
@@ -400,7 +483,7 @@ class ProfileOptimizationService {
     }
   }
 
-  private async fetchPostsFromNetwork(userId: string, page: number = 1): Promise<Post[]> {
+  private async fetchPostsFromNetwork(userId: string): Promise<Post[]> {
     try {
       return await getPostsByUser(userId);
     } catch (error) {

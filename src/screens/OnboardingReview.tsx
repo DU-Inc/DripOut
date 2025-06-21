@@ -17,7 +17,7 @@ import {
 import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
-import { useTheme } from '../styles/theme/ThemeContext';
+import { useTheme } from '../styles/themeprovider';
 import { useOnboardingContext } from '../context/OnboardingContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';

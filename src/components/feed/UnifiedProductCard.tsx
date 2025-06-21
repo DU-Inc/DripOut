@@ -242,6 +242,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    backgroundColor: '#FFFFFF',
   },
   imageContainer: {
     position: 'relative',
@@ -285,6 +286,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     right: 8,
+    backgroundColor: 'transparent',
   },
   saveButtonBackground: {
     borderRadius: 12,

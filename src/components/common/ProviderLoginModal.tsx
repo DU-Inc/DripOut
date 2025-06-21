@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { View, Text, Animated, TouchableOpacity, Modal, StyleSheet, Dimensions, ActivityIndicator, Platform } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createAuthStyles } from '../../styles/components/auth.styles';
 // Import the stub version of useGoogleAuth that doesn't use @react-native-google-signin/google-signin

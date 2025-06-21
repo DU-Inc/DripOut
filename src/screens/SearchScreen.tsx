@@ -25,7 +25,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useTheme } from '../styles/theme/ThemeContext';
+import { useTheme } from '../styles/themeprovider';
 import Fuse from 'fuse.js';
 import { searchUsers, getUserProfileByUsername, UserProfile } from '../services/firestoreService';
 import { auth } from '../Config/firebaseconfig';

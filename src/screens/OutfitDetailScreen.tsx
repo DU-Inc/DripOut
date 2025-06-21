@@ -92,7 +92,7 @@ const OutfitDetailScreen: React.FC = () => {
     if (type === 'shirt' || name.includes('shirt') || name.includes('top') || name.includes('blouse')) {
       return 'tshirt-crew';
     } else if (type === 'pants' || name.includes('pants') || name.includes('jeans') || name.includes('trouser')) {
-      return 'pants';
+      return 'tights';
     } else if (type === 'shoes' || name.includes('shoe') || name.includes('sneaker') || name.includes('boot')) {
       return 'shoe-sneaker';
     } else if (type === 'watch' || name.includes('watch')) {

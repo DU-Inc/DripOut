@@ -32,6 +32,26 @@ export type RootStackParamList = {
   MainTabs: undefined;
   UserPreferencesScreen: undefined;
   SettingsScreen: undefined;
+  FollowersFollowingScreen: {
+    initialTab?: 'followers' | 'following';
+    userId: string;
+  };
+  PostDetailScreen: {
+    postId: string;
+    userId: string;
+    initialPostIndex?: number;
+  };
+  OutfitDetailScreen: {
+    outfitId: string;
+    outfit: {
+      id: string;
+      userId: string;
+      name: string;
+      imageUrl: string;
+      products: any[];
+      createdAt: any;
+    };
+  };
   
   // Onboarding screens
   OnboardingFlow: undefined;

@@ -103,6 +103,7 @@ const ContentAction: React.FC<ContentActionProps> = ({
   
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<{action: SubAction, index: number} | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   // Animation values
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -123,12 +124,33 @@ const ContentAction: React.FC<ContentActionProps> = ({
   
   // Ensure animation refs are created for all actions
   useEffect(() => {
-    // Initialize animation refs for each sub-action
-    subActionAnims.current = limitedActions.map(() => ({
-      scale: new Animated.Value(0),
-      opacity: new Animated.Value(0),
-      translateY: new Animated.Value(0),
-    }));
+    // Clean up existing animations first
+    animationsRef.current.forEach(anim => anim.stop());
+    animationsRef.current = [];
+    
+    // Only recreate if the number of actions changed
+    if (subActionAnims.current.length !== limitedActions.length) {
+      // Clean up old animation values
+      subActionAnims.current.forEach(anim => {
+        anim.scale.removeAllListeners();
+        anim.opacity.removeAllListeners();
+        anim.translateY.removeAllListeners();
+      });
+      
+      // Initialize animation refs for each sub-action
+      subActionAnims.current = limitedActions.map(() => ({
+        scale: new Animated.Value(0),
+        opacity: new Animated.Value(0),
+        translateY: new Animated.Value(0),
+      }));
+    } else {
+      // Reset existing values instead of creating new ones
+      subActionAnims.current.forEach(anim => {
+        anim.scale.setValue(0);
+        anim.opacity.setValue(0);
+        anim.translateY.setValue(0);
+      });
+    }
     
     // Cleanup function for component unmount
     return () => {
@@ -141,7 +163,7 @@ const ContentAction: React.FC<ContentActionProps> = ({
         interactionRef.current.cancel();
       }
     };
-  }, [actions, limitedActions]);
+  }, [limitedActions.length]);
   
   // Helper to store and track animations
   const trackAnimation = (animation: Animated.CompositeAnimation) => {
@@ -187,10 +209,17 @@ const ContentAction: React.FC<ContentActionProps> = ({
         }),
       ]);
       
-      trackAnimation(primaryAnimation).start();
+      trackAnimation(primaryAnimation).start((finished) => {
+        if (!finished) {
+          // Animation was cancelled, clean up
+          clearAnimations();
+        }
+      });
       
-      // Animate sub-actions
+      // Animate sub-actions with bounds checking
       limitedActions.forEach((_, index) => {
+        if (index >= subActionAnims.current.length) return;
+        
         const offset = -(spacing + subActionSize) * (index + 1);
         const delay = index * (animationDuration * 0.05);
         
@@ -218,7 +247,12 @@ const ContentAction: React.FC<ContentActionProps> = ({
           }),
         ]);
         
-        trackAnimation(subActionAnimation).start();
+        trackAnimation(subActionAnimation).start((finished) => {
+          if (!finished) {
+            // Animation was cancelled, clean up
+            clearAnimations();
+          }
+        });
       });
     } else {
       // Animate button back to normal
@@ -228,10 +262,16 @@ const ContentAction: React.FC<ContentActionProps> = ({
         useNativeDriver: true,
       });
       
-      trackAnimation(primaryAnimation).start();
+      trackAnimation(primaryAnimation).start((finished) => {
+        if (!finished) {
+          clearAnimations();
+        }
+      });
       
-      // Hide sub-actions
+      // Hide sub-actions with bounds checking
       limitedActions.forEach((_, index) => {
+        if (index >= subActionAnims.current.length) return;
+        
         const subActionAnimation = Animated.parallel([
           Animated.timing(subActionAnims.current[index].scale, {
             toValue: 0,
@@ -246,7 +286,11 @@ const ContentAction: React.FC<ContentActionProps> = ({
           }),
         ]);
         
-        trackAnimation(subActionAnimation).start();
+        trackAnimation(subActionAnimation).start((finished) => {
+          if (!finished) {
+            clearAnimations();
+          }
+        });
       });
       
       // Delay hiding sub-actions to allow the fade animation to complete
@@ -254,31 +298,36 @@ const ContentAction: React.FC<ContentActionProps> = ({
         interactionRef.current.cancel();
       }
       
-      // Shorter delay for hiding sub-actions
-      interactionRef.current = InteractionManager.runAfterInteractions(() => {
-        // Direct state update instead of setTimeout
+      // Use setTimeout with proper cleanup instead of InteractionManager
+      const timeoutId = setTimeout(() => {
         setAreSubActionsVisible(false);
-      });
+      }, animationDuration * 0.3);
+      
+      // Store timeout reference for cleanup
+      interactionRef.current = {
+        cancel: () => clearTimeout(timeoutId)
+      };
     }
     
     // Clean up animations when the effect is re-run or when component unmounts
     return () => {
+      clearAnimations();
       if (interactionRef.current) {
         interactionRef.current.cancel();
       }
     };
-  }, [isExpanded, animationDuration, spacing, subActionSize, limitedActions]);
+  }, [isExpanded, animationDuration, spacing, subActionSize, limitedActions.length]);
   
   // Handle the timeout for action click
   useEffect(() => {
     if (pendingAction) {
-      // Cancel any existing interaction
+      // Cancel any existing timeout
       if (interactionRef.current) {
         interactionRef.current.cancel();
       }
       
-      // Execute the click action more quickly
-      interactionRef.current = InteractionManager.runAfterInteractions(() => {
+      // Execute the click action with setTimeout for better cleanup
+      const timeoutId = setTimeout(() => {
         // Update internal state if isActive is not provided
         if (isActive === undefined) {
           setInternalIsExpanded(false);
@@ -295,17 +344,22 @@ const ContentAction: React.FC<ContentActionProps> = ({
           pendingAction.action.onClick();
         }
         
-        // Reset the pending action
+        // Reset the pending action and processing state
         setPendingAction(null);
-      });
+        setIsProcessing(false);
+      }, 100); // Small delay for better UX
       
-      // Cleanup function
-      return () => {
-        if (interactionRef.current) {
-          interactionRef.current.cancel();
-        }
+      // Store timeout reference for cleanup
+      interactionRef.current = {
+        cancel: () => clearTimeout(timeoutId)
       };
     }
+    
+    return () => {
+      if (interactionRef.current) {
+        interactionRef.current.cancel();
+      }
+    };
   }, [pendingAction, isActive, onExpandChange]);
   
   // Toggle expanded state
@@ -330,32 +384,46 @@ const ContentAction: React.FC<ContentActionProps> = ({
   
   // Handle pressing on a sub-action
   const handleSubActionPress = (action: SubAction, index: number) => {
+    // Prevent rapid multiple presses
+    if (isProcessing) return;
+    
+    setIsProcessing(true);
+    
     // Clear any running animations first
     clearAnimations();
     
     setActiveIndex(index);
     
-    // Animate the pressed action - faster feedback
-    const pressAnimation = Animated.sequence([
-      Animated.timing(subActionAnims.current[index].scale, {
-        toValue: 1.2,
-        duration: animationDuration * 0.05,
-        useNativeDriver: true,
-      }),
-      Animated.timing(subActionAnims.current[index].scale, {
-        toValue: 0.95,
-        duration: animationDuration * 0.05,
-        useNativeDriver: true,
-      }),
-    ]);
-    
-    trackAnimation(pressAnimation).start();
+    // Bounds check before animating
+    if (index < subActionAnims.current.length) {
+      // Animate the pressed action - faster feedback
+      const pressAnimation = Animated.sequence([
+        Animated.timing(subActionAnims.current[index].scale, {
+          toValue: 1.2,
+          duration: animationDuration * 0.05,
+          useNativeDriver: true,
+        }),
+        Animated.timing(subActionAnims.current[index].scale, {
+          toValue: 0.95,
+          duration: animationDuration * 0.05,
+          useNativeDriver: true,
+        }),
+      ]);
+      
+      trackAnimation(pressAnimation).start((finished) => {
+        if (!finished) {
+          clearAnimations();
+        }
+      });
+    }
     
     // Set the pending action - this will trigger the useEffect
     setPendingAction({ action, index });
     
-    // Hide all sub-actions - faster collapse
+    // Hide all sub-actions - faster collapse with bounds checking
     limitedActions.forEach((_, i) => {
+      if (i >= subActionAnims.current.length) return;
+      
       const hideAnimation = Animated.parallel([
         Animated.timing(subActionAnims.current[i].scale, {
           toValue: 0,
@@ -370,7 +438,11 @@ const ContentAction: React.FC<ContentActionProps> = ({
         }),
       ]);
       
-      trackAnimation(hideAnimation).start();
+      trackAnimation(hideAnimation).start((finished) => {
+        if (!finished) {
+          clearAnimations();
+        }
+      });
     });
     
     // Always ensure we reset expanded state in our component

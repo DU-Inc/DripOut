@@ -1,0 +1,11 @@
+Billabong Font Setup
+
+Font Family Name: Billabong
+File Names: Billabong.ttf
+Usage: Instagram-style headers
+
+React Native Usage:
+fontFamily: Platform.OS === 'ios' ? 'Billabong' : 'Billabong'
+
+Note: The exact font family name might vary depending on the font file.
+You can check the actual name using font inspection tools.

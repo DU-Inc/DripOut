@@ -1,0 +1,37 @@
+
+implement limit on try-on to 5 free per day
+
+
+in my closet, pressing and holding any item 9 either in saved outfits or my items should show an option to delete ( and should actually delete from database as well)
+implement option to delete posts as well in optimizedUserProfileScreen ( only valid if the user == post.author)
+DONE: the detail screen (my closet > saved otufits > tapping any saved outfits ) could be made more beautiful. The try on again button looks terrible - revamp. Overall idea is good though, just need to fix the placements of the outfit Id, the style of the button, the sizing of all components on the card,etc
+
+DONE: In Discover page, when a chip is selected under trending searches, the chip is pasted to the typing area - which is good. however a dialog box is displayed telling the user to "please enter a search term" - which
+is terrible because the user just selected a chip but hasnt yet clicked the search button. needs fixing
+
+
+DONE: In social feed - i think the post card can be revamped. all elements in the card are important but the arrangement and look are distasteful and doesnt feel the same level of class as other parts of the application. 
+Also - when a user makes a post, if user adds links for items in post, trigger on_demand_scraping to get those items from web and save to db. Also, save items along with post for easy retrieval
+Also - images uploaded in the create post screen > details look cropped. allow user to pinch in/out  to choose sizing
+furthermore, if a post has a link, maybe add a subtle glowy highlight to the featured pieces so users know it is clickable. and when clicked, instead of taking users directly to the website, maybe display
+a pop-up dialog box of product detail page * exactly like product detail page from home screen * and there if the user wants to, they can choose to go to the website
+
+
+social Feed loads slowly. Not terribly slowly but not user friendly like apps like instagram even though there are significantly less posts
+
+fix invalid prop type- invalid prop name
+
+home page -  move search and notification buttons to the far right but keep alignment with title. When a user clicks on notification button - display some message like * feature coming soon . same for search button
+
+rename files to be more sensible and general cleanup - example expandedproductscreen and expandedproductscreen2 ( very confusing )
+
+*food for thought
+How do i create algorithm to cater feed to user profile and what they like?
+How do i best add filters for products on home page
+Improve on social scene by allowing users to see other users saved outfits, like and comment on them. Also just see favorite products but not like and commment? give user option to put this behind a paywall 
+
+Possible improvment - history for fashion advisor
+
+Post picture cropped? 
+
+Fix home screen and splash screen

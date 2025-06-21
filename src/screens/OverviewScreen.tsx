@@ -20,9 +20,10 @@ import {
   RefreshControl,
   ImageBackground,
   Pressable,
+  Alert,
 } from 'react-native';
 import { useNavigation, CommonActions } from '@react-navigation/native';
-import { useTheme } from "../styles/theme/ThemeContext";
+import { useTheme } from "../styles/themeprovider";
 import Icon from 'react-native-vector-icons/Ionicons';
 import UnifiedProductCard, { UnifiedProductCardProps } from '../components/feed/UnifiedProductCard';
 import OutfitGroupComponent from '../components/feed/OutfitGroupComponent';
@@ -1073,10 +1074,10 @@ const OverviewScreen: React.FC = () => {
         }
       ]}>
         <View style={styles.headerContent}>
-          <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>
-            DripOut
-          </Text>
-          <View style={styles.headerActions}>
+          <View style={styles.leftSection}>
+            <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>
+              DripOut
+            </Text>
             <TouchableOpacity 
               style={styles.headerButton}
               onPress={() => {
@@ -1096,16 +1097,25 @@ const OverviewScreen: React.FC = () => {
                 color={themeColors.text.primary} 
               />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerButton}>
+          </View>
+          
+          <View style={styles.rightSection}>
+            <TouchableOpacity 
+              style={styles.headerButton}
+              onPress={() => Alert.alert('Search', 'Coming soon!')}
+            >
               <Icon 
-                name="notifications-outline" 
+                name="search-outline" 
                 size={24} 
                 color={themeColors.text.primary} 
               />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerButton}>
+            <TouchableOpacity 
+              style={styles.headerButton}
+              onPress={() => Alert.alert('Notifications', 'Coming soon!')}
+            >
               <Icon 
-                name="search-outline" 
+                name="notifications-outline" 
                 size={24} 
                 color={themeColors.text.primary} 
               />
@@ -1257,6 +1267,15 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  leftSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rightSection: {
     flexDirection: 'row',
     alignItems: 'center',
   },

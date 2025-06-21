@@ -247,8 +247,9 @@ const MessagingScreen: React.FC = () => {
 
   // Render message bubble
   const renderMessage = ({ item, index }: { item: Message, index: number }) => {
-    // Simply check if senderId matches receiverId (messages from the other user have different IDs)
-    const isSentByMe = item.senderId !== (otherUserId || selectedConversation?.otherUserId);
+    // Correctly check if the current user sent this message
+    const currentUser = auth().currentUser;
+    const isSentByMe = currentUser ? item.senderId === currentUser.uid : false;
     const senderName = isSentByMe ? 'You' : item.senderName || selectedConversation?.otherUserName || otherUserName || 'User';
     
     // Check if this message is from the same sender as the previous message

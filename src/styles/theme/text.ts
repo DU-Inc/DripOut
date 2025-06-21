@@ -5,7 +5,7 @@ export const text = {
     dash: '-',
   },
   welcome: {
-    title: 'Welcome to Àfit',
+    title: 'Welcome to DripOut',
     subtitle: 'Discover and Share a Fit—Your Style, Your Way.',
     buttons: {
       getStarted: "Let's Get Started",

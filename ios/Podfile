@@ -8,7 +8,7 @@ require Pod::Executable.execute_command('node', ['-p',
 {paths: [process.argv[1]]},
 )', __dir__]).strip
 
-platform :ios, min_ios_version_supported
+platform :ios, '13.4'
 prepare_react_native_project!
 
 # Use static linkage for frameworks
@@ -59,7 +59,7 @@ target 'DripOutApp' do
         config.build_settings['CLANG_WARN_DOCUMENTATION_COMMENTS'] = "NO"
         config.build_settings['GCC_WARN_UNDECLARED_SELECTOR'] = "NO"
         config.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '11.0'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
         
         if target.respond_to?(:product_type) && target.product_type == "com.apple.product-type.bundle"
           config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'

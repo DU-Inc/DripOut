@@ -41,6 +41,7 @@ import OptimizedUserProfileScreen from '../screens/profiles/OptimizedUserProfile
 import FollowersFollowingScreen from '../screens/profiles/FollowersFollowingScreen';
 import PostDetailScreen from '../screens/PostDetailScreen';
 import OutfitDetailScreen from '../screens/OutfitDetailScreen';
+import FashionAdvisorChatScreen from '../screens/FashionAdvisorChatScreen';
 
 // Add global setTimeout type
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -985,6 +986,15 @@ const AppNavigator: React.FC = () => {
           <Stack.Screen 
             name="MessagingScreen" 
             component={MessagingScreen} 
+            options={{ 
+              headerShown: false,
+              presentation: 'card',
+              animation: 'slide_from_right' 
+            }} 
+          />
+          <Stack.Screen 
+            name="FashionAdvisorChat" 
+            component={FashionAdvisorChatScreen} 
             options={{ 
               headerShown: false,
               presentation: 'card',

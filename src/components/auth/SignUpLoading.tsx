@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import { Dimensions } from 'react-native';
 import AnimatedLoadingIndicator from '../common/AnimatedLoadingIndicator';
 

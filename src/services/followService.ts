@@ -2,6 +2,17 @@ import { db } from '../Config/firebaseconfig';
 import firestore from '@react-native-firebase/firestore';
 
 /**
+ * Interface for user preview data
+ */
+export interface UserPreview {
+  id: string;
+  username: string;
+  userDisplayName?: string;
+  fullName?: string;
+  profilePictureURL?: string;
+}
+
+/**
  * Interface for follow relationship
  */
 export interface FollowRelationship {
@@ -262,4 +273,116 @@ export const getFollowCounts = async (
     console.error('Error getting follow counts:', error);
     throw error;
   }
+};
+
+/**
+ * Get users that are following a specified user with full profile data
+ * @param userId - The user ID to check
+ * @returns Promise with array of UserPreview objects of users following userId
+ */
+export const getFollowersWithProfile = async (userId: string): Promise<UserPreview[]> => {
+  try {
+    const querySnapshot = await db
+      .collection('follows')
+      .where('followedId', '==', userId)
+      .get();
+    
+    // Extract the follower user IDs
+    const followerIds = querySnapshot.docs.map(doc => doc.data().followerId);
+    
+    if (followerIds.length === 0) {
+      return [];
+    }
+    
+    // Fetch user profiles in batches (Firestore 'in' query limit is 10)
+    const userProfiles: UserPreview[] = [];
+    const batchSize = 10;
+    
+    for (let i = 0; i < followerIds.length; i += batchSize) {
+      const batch = followerIds.slice(i, i + batchSize);
+      
+      const usersSnapshot = await db
+        .collection('users')
+        .where(firestore.FieldPath.documentId(), 'in', batch)
+        .get();
+      
+      usersSnapshot.docs.forEach(doc => {
+        const userData = doc.data();
+        userProfiles.push({
+          id: doc.id,
+          username: userData.username || '',
+          userDisplayName: userData.userDisplayName,
+          fullName: userData.fullName,
+          profilePictureURL: userData.profilePictureURL,
+        });
+      });
+    }
+    
+    return userProfiles;
+  } catch (error) {
+    console.error('Error getting followers with profile:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get users that a specified user is following with full profile data
+ * @param userId - The user ID to check
+ * @returns Promise with array of UserPreview objects that userId is following
+ */
+export const getFollowingWithProfile = async (userId: string): Promise<UserPreview[]> => {
+  try {
+    const querySnapshot = await db
+      .collection('follows')
+      .where('followerId', '==', userId)
+      .get();
+    
+    // Extract the followed user IDs
+    const followedIds = querySnapshot.docs.map(doc => doc.data().followedId);
+    
+    if (followedIds.length === 0) {
+      return [];
+    }
+    
+    // Fetch user profiles in batches (Firestore 'in' query limit is 10)
+    const userProfiles: UserPreview[] = [];
+    const batchSize = 10;
+    
+    for (let i = 0; i < followedIds.length; i += batchSize) {
+      const batch = followedIds.slice(i, i + batchSize);
+      
+      const usersSnapshot = await db
+        .collection('users')
+        .where(firestore.FieldPath.documentId(), 'in', batch)
+        .get();
+      
+      usersSnapshot.docs.forEach(doc => {
+        const userData = doc.data();
+        userProfiles.push({
+          id: doc.id,
+          username: userData.username || '',
+          userDisplayName: userData.userDisplayName,
+          fullName: userData.fullName,
+          profilePictureURL: userData.profilePictureURL,
+        });
+      });
+    }
+    
+    return userProfiles;
+  } catch (error) {
+    console.error('Error getting following with profile:', error);
+    throw error;
+  }
+};
+
+// Create a combined service object for easier imports
+export const followService = {
+  followUser,
+  unfollowUser,
+  isUserFollowing,
+  getFollowing,
+  getFollowers,
+  getFollowCounts,
+  getFollowersWithProfile,
+  getFollowingWithProfile,
 };

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, TouchableOpacity, Platform, Easing } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import Button from './Button';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createAuthStyles } from '../../styles/components/auth.styles';

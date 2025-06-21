@@ -17,7 +17,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import ExpandedPartialProductFeed from '../../components/ExpandedFeed/ExpandedPartialProductFeed';
-import { useTheme } from '../../styles/theme/ThemeContext';
+import { useTheme } from '../../styles/themeprovider';
 import { colors } from '../../styles/theme/colors';
 
 // Create a simplified version for outfit carousel that doesn't use hooks from ExpandedProductScreen

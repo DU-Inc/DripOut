@@ -105,7 +105,7 @@ export const sendMessage = async (receiverId: string, text: string): Promise<str
     const messageDoc = await db.collection('messages').add({
       senderId,
       receiverId,
-      participants: [senderId, receiverId], // Add participants array for querying
+      participants: [senderId, receiverId].sort(), // Ensure consistent ordering for efficient querying
       text,
       createdAt: timestamp,
       read: false,
@@ -135,45 +135,38 @@ export const getMessages = async (otherUserId: string, messageLimit = 100): Prom
     }
 
     const userId = currentUser.uid;
+    const participants = [userId, otherUserId].sort(); // Ensure consistent ordering
     
-    // Simple query with just a time filter to avoid index requirements
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    console.log(`💬 Loading messages between ${userId.substring(0, 8)}... and ${otherUserId.substring(0, 8)}...`);
     
+    // Use efficient query with participants array
     const querySnapshot = await db
       .collection('messages')
-      .where('createdAt', '>', firestore.Timestamp.fromDate(thirtyDaysAgo))
-      .limit(200) // Get more messages to filter from
+      .where('participants', '==', participants)
+      .orderBy('createdAt', 'asc')
+      .limit(messageLimit)
       .get();
     
-    // Filter messages to only include those between these two users
-    const allMessages = querySnapshot.docs.map(doc => ({
+    const messages = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data() as Message
     }));
     
-    // Filter and sort messages
-    const filteredMessages = allMessages
-      .filter(message => 
-        (message.senderId === userId && message.receiverId === otherUserId) || 
-        (message.senderId === otherUserId && message.receiverId === userId)
-      )
-      .sort((a, b) => {
-        // Sort by createdAt timestamp
-        const aTime = a.createdAt?.toDate?.() || new Date(0);
-        const bTime = b.createdAt?.toDate?.() || new Date(0);
-        return aTime.getTime() - bTime.getTime();
-      });
-    
-    // Mark messages as read if they were sent to the current user
-    filteredMessages.forEach(async (message) => {
-      if (message.receiverId === userId && !message.read && message.id) {
-        await db.collection('messages').doc(message.id).update({ read: true });
-      }
-    });
+    console.log(`✅ Found ${messages.length} messages`);
 
-    // Return messages (already sorted by createdAt ascending)
-    return filteredMessages;
+    // Mark messages as read if they were sent to the current user
+    const markAsReadPromises = messages
+      .filter(message => message.receiverId === userId && !message.read && message.id)
+      .map(message => 
+        db.collection('messages').doc(message.id!).update({ read: true })
+          .catch(error => console.error(`Failed to mark message ${message.id} as read:`, error))
+      );
+    
+    if (markAsReadPromises.length > 0) {
+      await Promise.all(markAsReadPromises);
+    }
+
+    return messages;
   } catch (error) {
     console.error('Error getting messages:', error);
     throw error;
@@ -233,8 +226,8 @@ export const getConversations = async (): Promise<ConversationWithDetails[]> => 
         conversations.push({
           ...conversation,
           id: docSnapshot.id,
-          otherUserName: userData.displayName || userData.username || 'Unknown User',
-          otherUserAvatar: userData.photoURL || null,
+          otherUserName: userData?.displayName || userData?.username || 'Unknown User',
+          otherUserAvatar: userData?.photoURL || null,
           otherUserId,
           lastMessageTime: timeAgo
         });
@@ -335,43 +328,25 @@ export const subscribeToMessages = (
   }
 
   const userId = currentUser.uid;
+  const participants = [userId, otherUserId].sort(); // Ensure consistent ordering
   
-  // Simple query with just a time filter to avoid index issues
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  console.log(`🔔 Setting up real-time subscription for ${userId.substring(0, 8)}... and ${otherUserId.substring(0, 8)}...`);
   
-  // Use a simple query that doesn't require complex indexes
+  // Use efficient query with participants array
   const messagesQuery = db
     .collection('messages')
-    .where('createdAt', '>', firestore.Timestamp.fromDate(thirtyDaysAgo))
-    .limit(200); // Limit to recent messages
-  
-  // Filter function to include only messages between these two users
-  const filterMessagesBetweenUsers = (messages: Message[]) => {
-    return messages.filter(message => 
-      (message.senderId === userId && message.receiverId === otherUserId) || 
-      (message.senderId === otherUserId && message.receiverId === userId)
-    );
-  };
-  
+    .where('participants', '==', participants)
+    .orderBy('createdAt', 'asc')
+    .limit(100);
+
   // Set up the listener
   const unsubscribe = messagesQuery.onSnapshot((snapshot) => {
-    const allMessages = snapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data() as Message
-      }));
+    const messages = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data() as Message
+    }));
     
-    // Apply the filter to get only messages between these two users
-    const filteredMessages = filterMessagesBetweenUsers(allMessages)
-      .sort((a, b) => {
-        // Sort by createdAt timestamp in ascending order (oldest first)
-        const aTime = a.createdAt?.toDate?.() || new Date(0);
-        const bTime = b.createdAt?.toDate?.() || new Date(0);
-        return aTime.getTime() - bTime.getTime();
-      });
-    
-    callback(filteredMessages);
+    callback(messages);
     
     // Mark new messages as read
     snapshot.docChanges().forEach(async (change) => {
@@ -452,8 +427,8 @@ export const subscribeToConversations = (
             conversations.push({
               ...conversation,
               id: docSnapshot.id,
-              otherUserName: userData.displayName || userData.username || 'Unknown User',
-              otherUserAvatar: userData.photoURL || null,
+              otherUserName: userData?.displayName || userData?.username || 'Unknown User',
+              otherUserAvatar: userData?.photoURL || null,
               otherUserId,
               lastMessageTime: timeAgo
             });

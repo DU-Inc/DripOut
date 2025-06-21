@@ -3,7 +3,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { View, Animated, StyleSheet } from 'react-native';
 import AnimatedSplashScreen from './src/components/common/AnimatedSplashScreen';
-import { ThemeProvider } from './src/styles/theme/ThemeContext';
+import { ThemeProvider } from './src/styles/themeprovider';
 import AppNavigator from './src/navigations/AppNavigator';
 import { appStateManager } from './src/utils/appStateManager';
 import { testApiConnectivity } from './src/services/productService';

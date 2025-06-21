@@ -255,7 +255,23 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   useEffect(() => {
     if (initialProduct) {
       // Process product data synchronously for immediate display
-      console.log('Processing provided product data:', initialProduct);
+      console.log('[ExpandedProductScreen] Processing provided product data:', initialProduct);
+      
+      // Log all available image URLs
+      console.log('[ExpandedProductScreen] Available image URLs:');
+      if (initialProduct.images) {
+        initialProduct.images.forEach((img: any, index: number) => {
+          console.log(`  Image ${index}: ${typeof img === 'string' ? img : img.url}`);
+        });
+      }
+      if (initialProduct.productImage) {
+        console.log(`  Product Image: ${initialProduct.productImage}`);
+      }
+      if (initialProduct.additionalImages) {
+        initialProduct.additionalImages.forEach((url: string, index: number) => {
+          console.log(`  Additional Image ${index}: ${url}`);
+        });
+      }
       
       // Format the product data to match the expected structure
       const formattedProduct = {
@@ -1425,11 +1441,15 @@ const styles = StyleSheet.create({
   websiteButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: '#FFFFFF', // Add background color for shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
   websiteButtonText: {
     color: '#FFFFFF',
@@ -1619,6 +1639,45 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH,
     height: '100%',
     resizeMode: 'cover',
+  },
+  miniProductContainer: {
+    position: 'relative',
+    width: 46,
+    height: 56,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF', // Already has background color
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF', // Add background color for shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  contentActionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF', // Add background color for shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
   },
 });
 

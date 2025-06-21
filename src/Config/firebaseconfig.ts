@@ -1,14 +1,19 @@
-import auth from '@react-native-firebase/auth';
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
+import storage from '@react-native-firebase/storage';
 
-// Export auth function directly
-export { auth };
+// Initialize Firebase instances
+const db = firestore();
 
-// Export firestore instance
-export const db = firestore();
+// Export Firebase instances, types and commonly used values
+export { 
+  db,
+  auth,
+  storage,
+  firestore,
+  FirebaseFirestoreTypes
+};
 
-// Export Timestamp for convenience - use the correct path
-export const Timestamp = FirebaseFirestoreTypes.Timestamp;
-
-// Also export FieldValue for convenience
-export const FieldValue = FirebaseFirestoreTypes.FieldValue;
+// Export commonly used Firebase values
+export const FieldValue = firestore.FieldValue;
+export const Timestamp = firestore.Timestamp;

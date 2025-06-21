@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing } from 'react-native';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import { createAnimatedFormContainerStyles } from '../../styles/components/animatedFormContainer.styles';
 import { AnimatedFormContainerProps } from '../../types/components';
 

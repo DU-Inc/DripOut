@@ -19,10 +19,13 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import MaterialIcon from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FontAwesome5 from 'react-native-vector-icons/FontAwesome5';
-import { useTheme } from '../styles/theme/ThemeContext';
+import { useTheme } from '../styles/themeprovider';
 import { createPost } from '../services/postService';
 import { selectImageFromLibrary, takePhotoWithCamera, ImageAsset } from '../services/imagePickerService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth } from '../Config/firebaseconfig';
+import { scrapeProductFromUrl, Product } from '../services/recommendationService';
+import firestore from '@react-native-firebase/firestore';
 
 // Cache keys matching those in UserProfileScreen
 const POSTS_CACHE_KEY = 'user_posts_cache';
@@ -89,18 +92,20 @@ const CreatePostScreen: React.FC = () => {
         const result = await takePhotoWithCamera({
           maxHeight: 2400,
           maxWidth: 2400,
-          quality: 0.95,
+          quality: 1,
           includeBase64: false,
-          saveToPhotos: false
+          saveToPhotos: false,
+          mediaType: 'photo'
         });
         
         if (result) {
           setSelectedImage(result);
         }
-      } catch (error) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         Alert.alert(
           'Camera Error', 
-          `Failed to take photo: ${error.message || 'Unknown error'}. Please try again.`
+          `Failed to take photo: ${errorMessage}. Please try again.`
         );
       }
     }, 300);
@@ -118,18 +123,20 @@ const CreatePostScreen: React.FC = () => {
         const result = await selectImageFromLibrary({
           maxHeight: 2400,
           maxWidth: 2400,
-          quality: 0.95,
+          quality: 1,
           selectionLimit: 1,
-          includeBase64: false
+          includeBase64: false,
+          mediaType: 'photo'
         });
         
         if (result) {
           setSelectedImage(result);
         }
-      } catch (error) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         Alert.alert(
           'Gallery Error', 
-          `Failed to select image: ${error.message || 'Unknown error'}. Please try again.`
+          `Failed to select image: ${errorMessage}. Please try again.`
         );
       }
     }, 300);
@@ -173,7 +180,7 @@ const CreatePostScreen: React.FC = () => {
             style: 'cancel',
           },
           {
-            text: 'Go to Details',
+            text: 'Done',
             onPress: () => setCurrentTab('details'),
           },
         ]
@@ -201,7 +208,7 @@ const CreatePostScreen: React.FC = () => {
       case 'shoes':
         return 'shoe-formal';
       case 'accessory':
-        return 'watch';
+        return 'sunglasses';
       default:
         return 'hanger';
     }
@@ -224,9 +231,86 @@ const CreatePostScreen: React.FC = () => {
       await AsyncStorage.removeItem(postsCacheKey);
       await AsyncStorage.removeItem(postsTimestampKey);
       console.log(`Posts cache cleared for user ${userId} after creating new post`);
-    } catch (error) {
-      console.warn('Error clearing posts cache:', error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.warn('Error clearing posts cache:', errorMessage);
       // Non-critical error - continue even if cache clear fails
+    }
+  };
+
+  // Background function to scrape product data and update the post
+  const handleBackgroundScraping = async (postId: string, outfitItems: any[]) => {
+    try {
+      console.log('🔍 Starting background scraping for post:', postId);
+      
+      // Extract URLs from outfit items that have affiliate links
+      const urlsToScrape = outfitItems
+        .filter(item => item.affiliateLink && item.affiliateLink.trim() !== '')
+        .map(item => item.affiliateLink.trim());
+      
+      if (urlsToScrape.length === 0) {
+        console.log('📭 No URLs to scrape for post:', postId);
+        return;
+      }
+      
+      console.log(`🔗 Found ${urlsToScrape.length} URLs to scrape:`, urlsToScrape);
+      
+      // Call the scraping API
+      const scrapedProducts = await scrapeProductFromUrl(
+        urlsToScrape,
+        (progress) => {
+          // Silent progress tracking - no UI updates
+          console.log(`🚀 Scraping progress for post ${postId}: ${Math.round(progress * 100)}%`);
+        }
+      ) as Product[];
+      
+      console.log(`✅ Successfully scraped ${scrapedProducts.length} products for post ${postId}`);
+      
+      // Create a map of URL to scraped product for easy lookup
+      const urlToProductMap: Record<string, Product> = {};
+      scrapedProducts.forEach((product, index) => {
+        if (urlsToScrape[index]) {
+          urlToProductMap[urlsToScrape[index]] = product;
+        }
+      });
+      
+      // Update outfit items with scraped product data
+      const enhancedOutfitItems = outfitItems.map(item => {
+        if (item.affiliateLink && urlToProductMap[item.affiliateLink]) {
+          return {
+            ...item,
+            scrapedProduct: urlToProductMap[item.affiliateLink]
+          };
+        }
+        return item;
+      });
+      
+      // Update the post in Firebase with enhanced outfit items
+      await firestore()
+        .collection('posts')
+        .doc(postId)
+        .update({
+          outfitItems: enhancedOutfitItems,
+          lastScrapedAt: firestore.FieldValue.serverTimestamp()
+        });
+      
+      console.log(`🎯 Successfully updated post ${postId} with scraped product data`);
+      
+      // Clear cache to ensure fresh data is loaded
+      await clearPostsCache();
+      console.log('🧹 Cache cleared after product scraping update');
+      
+    } catch (error) {
+      // Silent error handling - just log, don't show to user
+      console.error('❌ Error during background scraping for post:', postId);
+      console.error('Error details:', error);
+      
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
+      
+      // Leave original data as-is, no user notification
     }
   };
 
@@ -259,7 +343,7 @@ const CreatePostScreen: React.FC = () => {
           name: piece.name,
           brand: piece.brand,
           type: piece.type, // Use the simplified type system
-          affiliateLink: piece.link || null // Include affiliate link if provided, use null instead of undefined
+          affiliateLink: piece.link || undefined // Include affiliate link if provided
         };
       });
       
@@ -282,6 +366,18 @@ const CreatePostScreen: React.FC = () => {
       await clearPostsCache();
       
       setIsUploading(false);
+      
+      // Start background scraping if there are outfit items with links
+      // This runs asynchronously and doesn't block the user experience
+      if (outfitItems.length > 0) {
+        const hasLinks = outfitItems.some(item => item.affiliateLink && item.affiliateLink.trim() !== '');
+        if (hasLinks) {
+          console.log('🚀 Starting background product scraping for new post');
+          // Run in background - don't await this
+          handleBackgroundScraping(newPost.id, outfitItems);
+        }
+      }
+      
       Alert.alert(
         'Post Created',
         'Your post has been successfully created!',
@@ -299,7 +395,7 @@ const CreatePostScreen: React.FC = () => {
       
       // More detailed error message
       let errorMessage = 'Failed to create post. Please try again.';
-      if (error.message) {
+      if (error instanceof Error && error.message) {
         errorMessage = `Error: ${error.message}`;
       }
       
@@ -673,7 +769,7 @@ const CreatePostScreen: React.FC = () => {
                 <View style={styles.inputGroup}>
                   <View style={styles.labelContainer}>
                     <Text style={[styles.inputLabel, { color: textColor }]}>
-                      Affiliate Link
+                      Product Link 
                     </Text>
                     <Text style={[styles.optionalText, { color: subTextColor }]}>
                       (Optional)

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Linking } from 'react-native';
-import { useTheme } from '../styles/theme/ThemeContext';
+import { useTheme } from '../styles/themeprovider';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { testApiConnectivity } from '../services/productService';
 

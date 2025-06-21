@@ -53,6 +53,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Keyboard,
+  Modal,
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -110,7 +111,6 @@ interface FashionPost {
   userAvatar?: string;
   title?: string;
   gallery: string[];
-  aesthetic?: string;
   caption: string;
   tags: string[];
   outfitItems: OutfitItem[];
@@ -155,24 +155,8 @@ const generateSampleComments = (postId: string) => {
   }));
 };
 
-// These are style aesthetics to assign to posts
-const STYLE_AESTHETICS = [
-  'Minimalist',
-  'Vintage Revival',
-  'Modern Classic',
-  'Scandinavian',
-  'Tech Streetwear',
-  'Sustainable Luxury',
-  'Urban Chic',
-  'Boho',
-  'Preppy',
-  'Athleisure'
-];
+// Removed STYLE_AESTHETICS constants - now using user-inputted tags for styling
 
-// Trending topics for the filter chips
-const TRENDING_TOPICS = [
-  'All', 'Minimalism', 'Summer', 'Workwear', 'Vintage', 'Sustainable', 'Streetwear'
-];
 
 const { width } = Dimensions.get('window');
 const swipeThreshold = width * 0.3; // 30% of screen width
@@ -186,13 +170,430 @@ type SocialScreenParams = {
   messageUsername?: string;
 };
 
+// Product Details Modal Component using similar styling to ExpandedProductScreen
+const ProductDetailsModal: React.FC<{
+  visible: boolean;
+  product: OutfitItem | null;
+  onClose: () => void;
+  onOpenProduct: (url: string) => void;
+  isDarkMode: boolean;
+  mainColor: string;
+  cardBgColor: string;
+  textColor: string;
+  subTextColor: string;
+  borderColor: string;
+}> = ({ 
+  visible, 
+  product, 
+  onClose, 
+  onOpenProduct, 
+  isDarkMode, 
+  mainColor, 
+  cardBgColor, 
+  textColor, 
+  subTextColor, 
+  borderColor 
+}) => {
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+
+    // Helper function to get valid and deduplicated image URLs
+  const getValidImageUrls = (images: any[]): string[] => {
+    const validUrls = images
+      .map(img => {
+        // Handle both string URLs and objects with url property
+        const url = typeof img === 'string' ? img : img?.url;
+        return url;
+      })
+      .filter(url => {
+        // Filter out invalid URLs (like product page URLs)
+        return url && 
+               typeof url === 'string' && 
+               (url.includes('.jpg') || url.includes('.jpeg') || url.includes('.png') || url.includes('.webp')) &&
+               !url.includes('/products/') &&
+               url.startsWith('http');
+      });
+
+    // Deduplicate by extracting base filename and keeping highest quality
+    const imageMap = new Map<string, { url: string; width: number; quality: number }>();
+    
+    validUrls.forEach(url => {
+      try {
+        // Extract base filename (remove query params and size variations)
+        const baseUrl = url.split('?')[0];
+        const filename = baseUrl.split('/').pop() || '';
+        const baseFilename = filename.replace(/_\d+x\d+|_grande|_large|_medium|_small|_compact|_thumb/g, '');
+        
+        // Extract width from URL params for quality scoring
+        const widthMatch = url.match(/[?&]width=(\d+)/);
+        const width = widthMatch ? parseInt(widthMatch[1]) : 1000; // Default width if not specified
+        
+        // Quality scoring: prefer larger images, penalize tiny thumbnails
+        let quality = width;
+        if (width < 100) quality = width * 0.1; // Heavily penalize tiny thumbnails
+        else if (width < 300) quality = width * 0.5; // Penalize small images
+        else if (width > 1200) quality = width * 1.2; // Prefer high-res images
+        
+        // Prefer URLs without size params (usually original size)
+        if (!url.includes('width=')) quality += 500;
+        
+        // Check if we already have this image
+        const existing = imageMap.get(baseFilename);
+        if (!existing || quality > existing.quality) {
+          imageMap.set(baseFilename, { url, width, quality });
+        }
+      } catch (error) {
+        console.log('🎭 Error processing image URL:', url, error);
+      }
+    });
+    
+    // Sort by quality (highest first) and return URLs
+    const deduplicatedUrls = Array.from(imageMap.values())
+      .sort((a, b) => b.quality - a.quality)
+      .map(item => item.url)
+      .slice(0, 10); // Limit to max 10 images for better UX
+    
+    console.log('🎭 Deduplicated images:', validUrls.length, '→', deduplicatedUrls.length);
+    console.log('🎭 Selected image URLs:', deduplicatedUrls.map(url => {
+      const widthMatch = url.match(/[?&]width=(\d+)/);
+      const width = widthMatch ? widthMatch[1] : 'original';
+      return `${url.split('/').pop()?.split('?')[0]} (${width}px)`;
+    }));
+    
+    return deduplicatedUrls;
+  };
+
+  // Navigation functions for image carousel
+  const navigateToNextImage = (validImages: string[]) => {
+    const currentIndex = Math.min(selectedImageIndex, validImages.length - 1);
+    if (currentIndex < validImages.length - 1) {
+      console.log('🎭 Navigating to next image:', currentIndex + 1);
+      setSelectedImageIndex(currentIndex + 1);
+    }
+  };
+
+  const navigateToPreviousImage = (validImages: string[]) => {
+    const currentIndex = Math.min(selectedImageIndex, validImages.length - 1);
+    if (currentIndex > 0) {
+      console.log('🎭 Navigating to previous image:', currentIndex - 1);
+      setSelectedImageIndex(currentIndex - 1);
+    }
+  };
+
+  useEffect(() => {
+    console.log('🎭 ProductModal visibility changed:', visible);
+    if (visible) {
+      setSelectedImageIndex(0);
+      console.log('🎭 Starting modal open animation');
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        console.log('🎭 Modal open animation completed');
+      });
+    } else {
+      console.log('🎭 Starting modal close animation');
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: Dimensions.get('window').height,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        console.log('🎭 Modal close animation completed');
+      });
+    }
+  }, [visible]);
+
+  if (!visible || !product?.scrapedProduct) {
+    console.log('🎭 Modal not rendering - visible:', visible, 'product:', !!product, 'scrapedProduct:', !!product?.scrapedProduct);
+    return null;
+  }
+
+  const { scrapedProduct } = product;
+  const surfaceColor = isDarkMode ? '#2C2C2E' : '#F2F2F7';
+  
+  console.log('🎭 Rendering ProductModal - product:', product.name, 'visible:', visible);
+
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="none"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={[styles.productModalOverlay, { backgroundColor: isDarkMode ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.6)' }]}>
+        <Animated.View 
+          style={[
+            StyleSheet.absoluteFill,
+            { 
+              opacity: fadeAnim 
+            }
+          ]}
+        >
+          <TouchableOpacity 
+            style={StyleSheet.absoluteFill} 
+            activeOpacity={1} 
+            onPress={onClose} 
+          />
+        </Animated.View>
+        
+        <Animated.View 
+          style={[
+            styles.productModalContent,
+            { 
+              backgroundColor: cardBgColor,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+          onLayout={(event) => {
+            const { height, width } = event.nativeEvent.layout;
+            console.log('🎭 Modal content layout - height:', height, 'width:', width);
+          }}
+        >
+          {/* Header */}
+          <View style={[styles.productModalHeader, { borderBottomColor: borderColor }]}>
+            <TouchableOpacity
+              style={[styles.productModalHeaderButton, { backgroundColor: surfaceColor }]}
+              onPress={onClose}
+            >
+              <Icon name="arrow-back" size={22} color={textColor} />
+            </TouchableOpacity>
+            
+            <View style={styles.productModalHeaderCenter}>
+              <Text style={[styles.productModalHeaderTitle, { color: textColor }]}>
+                Product Details
+              </Text>
+              <Text style={[styles.productModalHeaderSubtitle, { color: subTextColor }]}>
+                Featured Item
+              </Text>
+            </View>
+            
+            <TouchableOpacity
+              style={[styles.productModalHeaderButton, { backgroundColor: surfaceColor }]}
+              onPress={() => {
+                if (scrapedProduct.productUrl) {
+                  onOpenProduct(scrapedProduct.productUrl);
+                } else if (product.affiliateLink) {
+                  onOpenProduct(product.affiliateLink);
+                }
+              }}
+              disabled={!scrapedProduct.productUrl && !product.affiliateLink}
+            >
+              <FeatherIcon 
+                name="external-link" 
+                size={20} 
+                color={(scrapedProduct.productUrl || product.affiliateLink) ? textColor : subTextColor} 
+              />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.productModalScrollView}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.productModalScrollContent}
+            scrollEnabled={true}
+          >
+            {/* Hero Image Section */}
+            <View style={[styles.productModalHeroSection, { backgroundColor: surfaceColor }]}>
+                        <View style={styles.productModalImageContainer}>
+            {(() => {
+              const validImages = getValidImageUrls(scrapedProduct.images || []);
+              console.log('🎭 Valid images found:', validImages.length, 'out of', scrapedProduct.images?.length || 0);
+              console.log('🎭 First few valid images:', validImages.slice(0, 3));
+              console.log('🎭 All deduplicated images:', validImages.map((url, i) => `${i}: ${url.split('/').pop()}`));
+              
+              if (validImages.length > 0) {
+                const currentImageIndex = Math.min(selectedImageIndex, validImages.length - 1);
+                
+                return (
+                  <>
+                    <View style={styles.productModalImageWrapper}>
+                      <Image
+                        source={{ uri: validImages[currentImageIndex] }}
+                        style={styles.productModalProductImage}
+                        resizeMode="cover"
+                        onError={(error) => {
+                          console.log('🎭 Image failed to load:', validImages[currentImageIndex], error.nativeEvent.error);
+                        }}
+                        onLoad={() => {
+                          console.log('🎭 Image loaded successfully:', validImages[currentImageIndex]);
+                        }}
+                      />
+                    </View>
+                    
+                    {/* Navigation arrows */}
+                    {validImages.length > 1 && (
+                      <>
+                        {/* Previous image button */}
+                        {currentImageIndex > 0 && (
+                          <TouchableOpacity 
+                            style={[styles.productModalNavButton, styles.productModalNavButtonLeft]}
+                            onPress={() => navigateToPreviousImage(validImages)}
+                            activeOpacity={0.7}
+                          >
+                            <FeatherIcon name="chevron-left" size={24} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        )}
+                        
+                        {/* Next image button */}
+                        {currentImageIndex < validImages.length - 1 && (
+                          <TouchableOpacity 
+                            style={[styles.productModalNavButton, styles.productModalNavButtonRight]}
+                            onPress={() => navigateToNextImage(validImages)}
+                            activeOpacity={0.7}
+                          >
+                            <FeatherIcon name="chevron-right" size={24} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        )}
+                      </>
+                    )}
+                    
+                    {/* Debug info */}
+                    {__DEV__ && (
+                      <View style={{
+                        position: 'absolute',
+                        top: 10,
+                        right: 10,
+                        backgroundColor: 'rgba(0,0,0,0.7)',
+                        padding: 8,
+                        borderRadius: 4,
+                        zIndex: 10
+                      }}>
+                        <Text style={{ color: 'white', fontSize: 12 }}>
+                          {currentImageIndex + 1} / {validImages.length}
+                        </Text>
+                      </View>
+                    )}
+                    
+                    {/* Image pagination dots */}
+                    {validImages.length > 1 && (
+                      <View style={styles.productModalImageDots}>
+                        {validImages.map((_, index) => (
+                          <TouchableOpacity
+                            key={index}
+                            style={[
+                              styles.productModalImageDot,
+                              {
+                                backgroundColor: index === currentImageIndex 
+                                  ? mainColor 
+                                  : 'rgba(255, 255, 255, 0.5)'
+                              }
+                            ]}
+                            onPress={() => {
+                              console.log('🎭 Dot pressed - changing to image', index);
+                              setSelectedImageIndex(index);
+                            }}
+                          />
+                        ))}
+                      </View>
+                    )}
+                  </>
+                );
+              } else {
+                return (
+                  <View style={[styles.productModalProductImage, { backgroundColor: surfaceColor, justifyContent: 'center', alignItems: 'center' }]}>
+                    <Icon name="image-outline" size={60} color={subTextColor} />
+                    <Text style={[{ color: subTextColor, marginTop: 8, fontSize: 14 }]}>No valid images found</Text>
+                  </View>
+                );
+                             }
+             })()}
+                
+                {/* Floating Brand Badge */}
+                <View style={styles.productModalFloatingBadge}>
+                                  <View style={[styles.productModalBrandBadge, { backgroundColor: mainColor }]}>
+                  <FeatherIcon name="tag" size={14} color="#FFFFFF" />
+                  <Text style={styles.productModalBrandBadgeText}>
+                    {product.brand || scrapedProduct.brand}
+                  </Text>
+                </View>
+                </View>
+              </View>
+            </View>
+
+            {/* Product Info Card */}
+            <View style={[styles.productModalInfoCard, { backgroundColor: cardBgColor, borderColor }]}>
+              <View style={styles.productModalTitleContainer}>
+                <Text style={[styles.productModalProductName, { color: textColor }]}>
+                  {scrapedProduct.name || product.name}
+                </Text>
+                
+                {scrapedProduct.price !== undefined && (
+                  <Text style={[styles.productModalPrice, { color: mainColor }]}>
+                    {scrapedProduct.currency || '$'}{scrapedProduct.price.toFixed(2)}
+                  </Text>
+                )}
+              </View>
+
+              {/* Store Info */}
+              {scrapedProduct.site && (
+                <View style={styles.productModalStoreInfo}>
+                  <FeatherIcon name="shopping-bag" size={16} color={subTextColor} />
+                  <Text style={[styles.productModalStoreText, { color: subTextColor }]}>
+                    Available at {scrapedProduct.site}
+                  </Text>
+                </View>
+              )}
+
+              {/* Description */}
+              {scrapedProduct.description && (
+                <View style={styles.productModalDescriptionContainer}>
+                  <Text style={[styles.productModalSectionTitle, { color: textColor }]}>
+                    Description
+                  </Text>
+                  <Text style={[styles.productModalDescription, { color: subTextColor }]}>
+                    {scrapedProduct.description}
+                  </Text>
+                </View>
+              )}
+
+              {/* Action Buttons */}
+              <View style={styles.productModalActionButtons}>
+                <TouchableOpacity
+                  style={[styles.productModalPrimaryButton, { backgroundColor: mainColor }]}
+                  onPress={() => {
+                    if (scrapedProduct.productUrl) {
+                      onOpenProduct(scrapedProduct.productUrl);
+                    } else if (product.affiliateLink) {
+                      onOpenProduct(product.affiliateLink);
+                    }
+                  }}
+                  disabled={!scrapedProduct.productUrl && !product.affiliateLink}
+                >
+                  <Text style={styles.productModalPrimaryButtonText}>Shop Now</Text>
+                  <FeatherIcon name="shopping-bag" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+};
+
 const SocialScreen: React.FC = () => {
   const navigation = useNavigation<SocialScreenNavigationProp>();
   const route = useRoute<RouteProp<Record<string, SocialScreenParams>, string>>();
   const { isDarkMode } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedTopic, setSelectedTopic] = useState('All');
   const [expandedPost, setExpandedPost] = useState<string | null>(null);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState<Record<string, number>>({});
   const [expandedComments, setExpandedComments] = useState<string | null>(null);
@@ -211,6 +612,10 @@ const SocialScreen: React.FC = () => {
   const [messageText, setMessageText] = useState('');
   const [selectedConversation, setSelectedConversation] = useState<ConversationWithDetails | null>(null);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  
+  // Product details modal state
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<OutfitItem | null>(null);
   
   // Use individual animation values for simplicity
   const [commentHeights] = useState<Record<string, number>>({});
@@ -254,8 +659,7 @@ const SocialScreen: React.FC = () => {
           console.log('Error formatting date:', dateError);
         }
         
-        // Generate random values for UI elements that don't exist in the database yet
-        const aesthetic = STYLE_AESTHETICS[Math.floor(Math.random() * STYLE_AESTHETICS.length)];
+        // No longer generating random aesthetic values - using user tags instead
         // Real data for likes and saves
         const upvotes = post.likes || 0;
         const saves = Math.floor(Math.random() * 200) + 50; // In the future, we'd count the actual saves
@@ -303,7 +707,16 @@ const SocialScreen: React.FC = () => {
         }
         
         // Initialize with empty comments array - we'll only use generated comments for mock posts
-        let comments = [];
+        let comments: Array<{
+          id: string;
+          username: string;
+          text: string;
+          timeAgo: string;
+          likes: number;
+          userId?: string;
+          userAvatar?: string;
+          createdAt?: any;
+        }> = [];
         let commentCount = 0;
         
         // For real posts, check the actual comment count
@@ -378,7 +791,6 @@ const SocialScreen: React.FC = () => {
           ...post,
           title,
           gallery,
-          aesthetic,
           tags: formattedTags,
           publishedDate,
           outfitItems,
@@ -427,7 +839,7 @@ const SocialScreen: React.FC = () => {
         });
       } else {
         // Navigate to general messaging screen without specific conversation
-        navigation.navigate('MessagingScreen');
+        navigation.navigate('MessagingScreen', {});
       }
     }
   }, [route?.params]);
@@ -739,6 +1151,27 @@ const SocialScreen: React.FC = () => {
     }
   };
   
+  // Handle opening product in browser
+  const handleOpenProduct = async (url: string) => {
+    try {
+      console.log(`Opening product URL: ${url}`);
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+        // Close modal after opening link
+        setShowProductModal(false);
+      } else {
+        throw new Error(`Cannot open URL: ${url}`);
+      }
+    } catch (err) {
+      console.error('Error opening product link:', err);
+      Alert.alert(
+        'Could not open link',
+        'The link cannot be opened. It may be invalid or your device does not support opening this type of link.'
+      );
+    }
+  };
+
   // Handle adding a new comment
   const handleAddComment = async (postId: string, text: string) => {
     // Validate input
@@ -1004,17 +1437,14 @@ const SocialScreen: React.FC = () => {
     return (
       <Animated.View 
         style={[
-          styles.inspirationCard, 
+          styles.inspirationCard,
+          isDarkMode && styles.darkInspirationCard,
           { 
             backgroundColor: cardBgColor,
             borderColor: borderColor,
             opacity,
             transform: [{ translateY }],
-            shadowColor: isDarkMode ? '#7C6BFF' : '#000000',
-            shadowOffset: { width: 0, height: isDarkMode ? 4 : 2 },
-            shadowOpacity: isDarkMode ? 0.15 : 0.05,
-            shadowRadius: isDarkMode ? 12 : 8,
-            elevation: isDarkMode ? 8 : 3
+            // Enhanced dynamic shadows are now handled in the styles themselves
           }
         ]}
       >
@@ -1056,11 +1486,10 @@ const SocialScreen: React.FC = () => {
                   } else {
                     // If it's a real user, navigate to UserDetailScreen
                     console.log('This is another user, navigating to UserDetailScreen');
-                    navigation.navigate('UserDetailScreen', { 
-                      userId: item.userId, 
-                      username: item.username,
-                      userDisplayName: item.userDisplayName
-                    });
+                                            navigation.navigate('UserDetailScreen', { 
+                          userId: item.userId, 
+                          username: item.username
+                        });
                   }
                 }
               }}
@@ -1143,8 +1572,7 @@ const SocialScreen: React.FC = () => {
                       console.log('This is another user, navigating to UserDetailScreen');
                       navigation.navigate('UserDetailScreen', { 
                         userId: item.userId, 
-                        username: item.username,
-                        userDisplayName: item.userDisplayName
+                        username: item.username
                       });
                     }
                   }
@@ -1233,6 +1661,15 @@ const SocialScreen: React.FC = () => {
             style={styles.galleryImage}
           />
           
+          {/* Subtle overlay for depth */}
+          <View style={styles.galleryOverlay} />
+          
+          {/* Inner shadow/border for refinement */}
+          <View style={[
+            styles.galleryInnerShadow,
+            isDarkMode && { borderColor: 'rgba(124, 107, 255, 0.15)' }
+          ]} />
+          
           {/* Image navigation dots */}
           {item.gallery.length > 1 && (
             <View style={styles.galleryDots}>
@@ -1242,7 +1679,7 @@ const SocialScreen: React.FC = () => {
                   style={[
                     styles.galleryDot, 
                     i === currentImageIndex && {
-                      backgroundColor: '#FFFFFF',
+                      backgroundColor: isDarkMode ? '#FFFFFF' : '#000000',
                       width: 8,
                     }
                   ]} 
@@ -1307,41 +1744,32 @@ const SocialScreen: React.FC = () => {
           )}
         </Animated.View>
 
-        {/* Aesthetic Tag */}
-        <View style={styles.aestheticContainer}>
-          <View style={[
-            styles.aestheticPill, 
-            { 
-              backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.12)' : 'rgba(82, 69, 204, 0.08)',
-              borderColor: isDarkMode ? 'rgba(124, 107, 255, 0.25)' : 'rgba(82, 69, 204, 0.15)'
-            }
-          ]}>
-            <Text style={[styles.aestheticText, { color: mainColor }]}>
-              {item.aesthetic}
-            </Text>
-          </View>
-        </View>
+        {/* Removed aesthetic section - styling moved to user tags */}
 
         {/* Caption Section */}
         <View style={styles.captionContainer}>
-          <Text style={[styles.captionText, { color: subTextColor }]}>
-            {isExpanded ? item.caption : (
-              item.caption.length > 120 ? 
-                item.caption.substring(0, 120) + '... ' : 
-                item.caption + ' '
-            )}
-            {!isExpanded && item.caption.length > 120 && (
-              <Text 
-                style={[styles.readMoreText, { color: mainColor }]}
-                onPress={() => toggleExpandPost(item.id)}
-              >
-                Read More
-              </Text>
-            )}
-          </Text>
+                  <Text style={[
+          styles.captionText, 
+          isDarkMode && styles.darkCaptionText,
+          { color: subTextColor }
+        ]}>
+          {isExpanded ? item.caption : (
+            item.caption.length > 120 ? 
+              item.caption.substring(0, 120) + '... ' : 
+              item.caption + ' '
+          )}
+          {!isExpanded && item.caption.length > 120 && (
+            <Text 
+              style={[styles.readMoreText, { color: mainColor }]}
+              onPress={() => toggleExpandPost(item.id)}
+            >
+              Read More
+            </Text>
+          )}
+        </Text>
         </View>
 
-        {/* Tags Section */}
+        {/* Tags Section - Now with enhanced aesthetic styling */}
         <View style={styles.tagsContainer}>
           <FlatList
             data={item.tags}
@@ -1352,14 +1780,16 @@ const SocialScreen: React.FC = () => {
               <TouchableOpacity 
                 key={`tag-${index}`}
                 style={[
-                  styles.tagPill,
+                  styles.aestheticPill, // Using the beautiful aesthetic pill styling
+                  isDarkMode && styles.darkAestheticPill,
                   { 
-                    backgroundColor: isDarkMode ? 'rgba(40, 40, 60, 0.4)' : 'rgba(240, 240, 240, 0.8)',
-                    borderColor: isDarkMode ? 'rgba(70, 70, 90, 0.3)' : 'rgba(210, 210, 210, 1)'
+                    backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.12)' : 'rgba(82, 69, 204, 0.08)',
+                    borderColor: isDarkMode ? 'rgba(124, 107, 255, 0.25)' : 'rgba(82, 69, 204, 0.15)',
+                    marginRight: 8, // Space between tags
                   }
                 ]}
               >
-                <Text style={[styles.tagText, { color: textColor }]}>
+                <Text style={[styles.aestheticText, { color: mainColor }]}>
                   {tag}
                 </Text>
               </TouchableOpacity>
@@ -1368,8 +1798,11 @@ const SocialScreen: React.FC = () => {
         </View>
 
         {/* Featured Pieces Section */}
-        <View style={styles.piecesContainer}>
-          <Text style={[styles.piecesHeading, { color: textColor }]}>Featured Pieces</Text>
+                  <View style={[
+            styles.piecesContainer,
+            isDarkMode && styles.darkPiecesContainer
+          ]}>
+            <Text style={[styles.piecesHeading, { color: textColor }]}>Featured Pieces</Text>
           
           {item.outfitItems.length > 0 ? (
             <View>
@@ -1403,7 +1836,7 @@ const SocialScreen: React.FC = () => {
                     if (piece.type === 'shirt') {
                       iconName = 'tshirt-crew';
                     } else if (piece.type === 'pants') {
-                      iconName = 'pants';
+                      iconName = 'tights';
                     } else if (piece.type === 'shoes') {
                       iconName = 'shoe-heel';
                     } else if (piece.type === 'watch') {
@@ -1439,26 +1872,47 @@ const SocialScreen: React.FC = () => {
                     }
                   } else {
                     // Fallback if no type
-                    iconName = ['tshirt-crew', 'pants', 'shoe-heel', 'watch'][i % 4];
+                    iconName = ['tshirt-crew', 'tights', 'shoe-heel', 'watch'][i % 4];
                   }
                   
-                  // Determine if piece has affiliate link to style accordingly
+                  // Determine if piece has affiliate link and/or scraped product data
                   const hasLink = !!piece.affiliateLink;
+                  const hasScrapedProduct = !!piece.scrapedProduct;
+                  const shouldShowModal = hasLink && hasScrapedProduct;
                   
                   return (
                     <TouchableOpacity 
                       key={`piece-${i}`}
                       style={[
                         styles.pieceItem,
+                        isDarkMode && styles.darkPieceItem,
                         { borderColor: hasLink ? mainColor : borderColor },
                         hasLink && { 
                           backgroundColor: isDarkMode 
                             ? 'rgba(124, 107, 255, 0.08)' 
                             : 'rgba(82, 69, 204, 0.04)' 
+                        },
+                        // Add red glowy outline for pieces with scraped product data
+                        shouldShowModal && {
+                          borderWidth: 2,
+                          borderColor: mainColor,
+                          shadowColor: mainColor,
+                          shadowOffset: { width: 0, height: 0 },
+                          shadowOpacity: 0.3,
+                          shadowRadius: 8,
+                          elevation: 8,
                         }
                       ]}
                       onPress={() => {
-                        if (hasLink) {
+                        if (shouldShowModal) {
+                          // Show product details modal for pieces with scraped data
+                          console.log(`🎭 Opening product modal for: ${piece.name}`);
+                          console.log(`🎭 Piece object:`, piece);
+                          console.log(`🎭 Has scraped product:`, !!piece.scrapedProduct);
+                          setSelectedProduct(piece);
+                          setShowProductModal(true);
+                        } else if (hasLink) {
+                          // Open link directly for pieces without scraped data
                           console.log(`Opening link: ${piece.affiliateLink}`);
                           // Open link in browser
                           Linking.canOpenURL(piece.affiliateLink!)
@@ -1524,6 +1978,8 @@ const SocialScreen: React.FC = () => {
             <TouchableOpacity 
               style={[
                 styles.actionButton,
+                item.isUpvoted && styles.actionButtonActive,
+                item.isUpvoted && isDarkMode && styles.darkActionButtonActive,
                 item.isUpvoted && { backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.15)' : 'rgba(82, 69, 204, 0.08)' }
               ]}
               onPress={() => handleUpvoteToggle(item.id)}
@@ -1544,6 +2000,8 @@ const SocialScreen: React.FC = () => {
             <TouchableOpacity 
               style={[
                 styles.actionButton,
+                expandedComments === item.id && styles.actionButtonActive,
+                expandedComments === item.id && isDarkMode && styles.darkActionButtonActive,
                 expandedComments === item.id && { 
                   backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.15)' : 'rgba(82, 69, 204, 0.08)',
                 }
@@ -1570,6 +2028,8 @@ const SocialScreen: React.FC = () => {
           <TouchableOpacity 
             style={[
               styles.saveButton,
+              item.isSaved && styles.saveButtonActive,
+              item.isSaved && isDarkMode && styles.darkActionButtonActive,
               item.isSaved && { backgroundColor: isDarkMode ? 'rgba(255, 186, 13, 0.15)' : 'rgba(255, 177, 0, 0.08)' }
             ]}
             onPress={() => handleSaveToggle(item.id)}
@@ -1593,21 +2053,26 @@ const SocialScreen: React.FC = () => {
           <View 
             style={[
               styles.commentsSection,
+              isDarkMode && styles.darkCommentsSection,
               { borderTopColor: borderColor, borderTopWidth: 1 }
             ]}
           >
             {/* Comments header with collapse button */}
-            <View style={styles.commentsHeader}>
-              <Text style={[styles.commentsTitle, { color: textColor }]}>
+            <View style={[
+              styles.commentsHeader,
+              isDarkMode && styles.darkCommentsHeader
+            ]}>
+              <Text style={[
+                styles.commentsTitle, 
+                isDarkMode && styles.darkCommentsTitle,
+                { color: textColor }
+              ]}>
                 Comments ({item.commentCount})
               </Text>
               <TouchableOpacity 
                 style={[
                   styles.collapseButton,
-                  { 
-                    backgroundColor: isDarkMode ? 'rgba(22, 23, 31, 0.8)' : 'rgba(240, 240, 240, 0.8)',
-                    borderColor: isDarkMode ? 'rgba(70, 70, 90, 0.3)' : 'rgba(210, 210, 210, 1)'
-                  }
+                  isDarkMode && styles.darkCollapseButton
                 ]}
                 onPress={() => toggleComments(item.id)}
               >
@@ -1632,9 +2097,11 @@ const SocialScreen: React.FC = () => {
                   <View 
                     style={[
                       styles.commentItem,
+                      { backgroundColor: cardBgColor },
+                      isDarkMode && styles.darkCommentItem,
                       index !== item.comments.length - 1 && { 
                         borderBottomWidth: 1, 
-                        borderBottomColor: 'rgba(150, 150, 150, 0.1)'
+                        borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(150, 150, 150, 0.1)'
                       }
                     ]}
                   >
@@ -1655,7 +2122,7 @@ const SocialScreen: React.FC = () => {
                               (currentUser.email && comment.username === currentUser.email.split('@')[0]))) {
                             // If comment is from current user, navigate to ProfileTab
                             console.log('This is the current user comment, navigating to ProfileTab');
-                            navigation.navigate('ProfileTab');
+                            (navigation as any).jumpTo('ProfileTab');
                           } else {
                             // Comments are typically generated/demo users
                             // We'll show an alert for these generated comment users
@@ -1699,7 +2166,7 @@ const SocialScreen: React.FC = () => {
                             return;
                           }
                           
-                          if (post.id.includes('mock') || !isRealUserId(post.userId)) {
+                          if (item.id.includes('mock') || !isRealUserId(item.userId)) {
                             alert('Cannot like comments on demo posts');
                             return;
                           }
@@ -1770,17 +2237,18 @@ const SocialScreen: React.FC = () => {
             </View>
             
             {/* Add comment input */}
-            <View style={styles.addCommentRow}>
+            <View style={[
+              styles.addCommentRow,
+              { backgroundColor: cardBgColor },
+              isDarkMode && styles.darkAddCommentRow
+            ]}>
               <TextInput
                 placeholder="Add a comment..."
                 placeholderTextColor={subTextColor}
                 style={[
                   styles.commentInput,
-                  { 
-                    color: textColor,
-                    backgroundColor: isDarkMode ? 'rgba(22, 23, 31, 0.8)' : 'rgba(240, 240, 240, 0.8)',
-                    borderColor: isDarkMode ? 'rgba(70, 70, 90, 0.3)' : 'rgba(210, 210, 210, 1)'
-                  }
+                  isDarkMode && styles.darkCommentInput,
+                  { color: textColor }
                 ]}
                 onChangeText={(text) => {
                   // Add a comment text state variable for each post
@@ -1837,32 +2305,6 @@ const SocialScreen: React.FC = () => {
     textColor, subTextColor, cardBgColor, borderColor, mainColor, isDarkMode, 
     navigation, isAddingComment, commentsText, expandedComments]);
 
-  // Render a trending topic chip - memoized for performance
-  const renderTrendingTopic = useCallback(({ item }: { item: string }) => (
-    <TouchableOpacity
-      style={[
-        styles.topicChip,
-        selectedTopic === item && { 
-          backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.15)' : 'rgba(82, 69, 204, 0.08)',
-          borderColor: mainColor,
-        },
-        isDarkMode && selectedTopic !== item && {
-          backgroundColor: 'rgba(22, 23, 31, 0.8)',
-          borderColor: 'rgba(70, 70, 90, 0.3)',
-        }
-      ]}
-      onPress={() => setSelectedTopic(item)}
-    >
-      <Text 
-        style={[
-          styles.topicText, 
-          { color: selectedTopic === item ? mainColor : subTextColor }
-        ]}
-      >
-        {item}
-      </Text>
-    </TouchableOpacity>
-  ), [selectedTopic, isDarkMode, mainColor, subTextColor]);
 
   // Messages modal components
   const renderMessagesModal = () => {
@@ -1873,11 +2315,18 @@ const SocialScreen: React.FC = () => {
     
     return (
       <KeyboardAvoidingView
-        style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+        style={[
+          styles.modalOverlay, 
+          { backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.5)' }
+        ]}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
       >
-        <View style={[styles.messagesModal, { backgroundColor: cardBgColor }]}>
+        <View style={[
+          styles.messagesModal, 
+          { backgroundColor: cardBgColor },
+          isDarkMode && { borderColor: '#2C2C2E', borderWidth: 1 }
+        ]}>
           <View style={styles.messagesHeader}>
             {isConversationSelected ? (
               // Show back button and conversation name
@@ -1996,7 +2445,7 @@ const SocialScreen: React.FC = () => {
                       }}
                     >
                       <Image
-                        source={getAvatarSource(item.otherUserAvatar, undefined, item.otherUserName)}
+                        source={getAvatarSource(item.otherUserAvatar || undefined, undefined, item.otherUserName)}
                         style={styles.messageAvatar}
                       />
                       <View style={styles.messageContent}>
@@ -2058,64 +2507,82 @@ const SocialScreen: React.FC = () => {
   };
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: bgColor }}>
       <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
         <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
 
-      {/* Header - Enhanced for dark mode with subtle gradient effect */}
+      {/* Header - Clean Apple-style design */}
       <View 
-        style={[
-          styles.header, 
-          isDarkMode && { 
-            backgroundColor: 'rgba(22, 23, 31, 0.8)', 
-            borderBottomWidth: 1, 
-            borderBottomColor: 'rgba(239, 61, 71, 0.1)'
-          }
-        ]}
+                  style={[
+            styles.header,
+            { 
+              backgroundColor: isDarkMode ? 'rgba(28, 28, 30, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+              borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+            }
+          ]}
       >
-        <View>
-          <Text style={[
-            styles.headerTitle, 
-            { color: textColor },
-            isDarkMode && { textShadowColor: 'rgba(239, 61, 71, 0.3)', textShadowOffset: {width: 0, height: 0}, textShadowRadius: 8 }
-          ]}>
-            Fashion Feed
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: subTextColor }]}>Community inspiration</Text>
-        </View>
-        <View style={styles.headerRightContainer}>
-          <TouchableOpacity 
-            style={styles.headerIconButton}
-            onPress={() => {
-              const currentUser = auth().currentUser;
-              if (!currentUser) {
-                Alert.alert('Sign In Required', 'You need to be signed in to view messages');
-                return;
-              }
-              // Navigate to full-screen messaging instead of using modal
-              navigation.navigate('MessagingScreen');
-            }}
-          >
-            <FeatherIcon 
-              name="message-circle" 
-              size={22} 
-              color={isDarkMode ? '#B8B8CC' : textColor} 
-            />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[
-              styles.searchButton,
-              isDarkMode && { 
-                backgroundColor: 'rgba(40, 40, 60, 0.4)', 
-                borderWidth: 1,
-                borderColor: 'rgba(124, 107, 255, 0.2)'
-              }
-            ]}
-            onPress={() => navigation.navigate('SearchScreen')}
-          >
-            <FeatherIcon name="search" size={22} color={isDarkMode ? '#B8B8CC' : textColor} />
-          </TouchableOpacity>
-        </View>
+        <View style={styles.headerTop}>
+          <View style={styles.headerTitleContainer}>
+                          <Text style={[
+                styles.headerTitle, 
+                { color: isDarkMode ? '#FFFFFF' : '#202020' }
+              ]}>
+                Feed
+              </Text>
+              <Text style={[
+                styles.headerSubtitle, 
+                { color: isDarkMode ? '#B8B8CC' : '#757575' }
+              ]}>
+                Community inspiration
+              </Text>
+          </View>
+          <View style={styles.headerRightContainer}>
+            <TouchableOpacity 
+              style={styles.searchButton}
+              onPress={() => navigation.navigate('SearchScreen')}
+            >
+                                              <FeatherIcon 
+                  name="search" 
+                  size={22} 
+                  color={isDarkMode ? '#007AFF' : '#007AFF'} 
+                />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.headerIconButton}
+                onPress={() => {
+                  const currentUser = auth().currentUser;
+                  if (!currentUser) {
+                    Alert.alert('Sign In Required', 'You need to be signed in to create a post');
+                    return;
+                  }
+                  navigation.navigate('CreatePostScreen');
+                }}
+              >
+                <FeatherIcon 
+                  name="plus" 
+                  size={22} 
+                  color={isDarkMode ? '#007AFF' : '#007AFF'} 
+                />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.headerIconButton}
+                onPress={() => {
+                  const currentUser = auth().currentUser;
+                  if (!currentUser) {
+                    Alert.alert('Sign In Required', 'You need to be signed in to view messages');
+                    return;
+                  }
+                  navigation.navigate('MessagingScreen', {});
+                }}
+              >
+                <FeatherIcon 
+                  name="message-circle" 
+                  size={22} 
+                  color={isDarkMode ? '#007AFF' : '#007AFF'} 
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
       </View>
 
       {/* Main Content */}
@@ -2132,10 +2599,13 @@ const SocialScreen: React.FC = () => {
           renderItem={renderFashionPost}
           keyExtractor={item => item.id}
           showsVerticalScrollIndicator={false}
+          style={{ backgroundColor: 'transparent' }}
           contentContainerStyle={[
             styles.listContent,
+            { backgroundColor: 'transparent' },
             isDarkMode && { paddingTop: 4 }
           ]}
+          
           onScroll={Animated.event(
             [{ nativeEvent: { contentOffset: { y: scrollY } } }],
             { useNativeDriver: false }
@@ -2156,29 +2626,12 @@ const SocialScreen: React.FC = () => {
           })}
           ListHeaderComponent={
             <>
-              {/* Trending Topics Filter */}
-              <View style={styles.topicsContainer}>
-                <Text style={[styles.topicsHeading, { color: textColor }]}>
-                  Trending Inspiration
-                </Text>
-                <FlatList
-                  data={TRENDING_TOPICS}
-                  renderItem={renderTrendingTopic}
-                  keyExtractor={item => item}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.topicsList}
-                  // Horizontal list performance optimizations
-                  removeClippedSubviews={true}
-                  initialNumToRender={5}
-                  maxToRenderPerBatch={5}
-                  windowSize={5}
-                  disableVirtualization={false}
-                />
-              </View>
 
               {refreshing && (
-                <View style={styles.refreshIndicator}>
+                <View style={[
+                  styles.refreshIndicator,
+                  { backgroundColor: isDarkMode ? 'transparent' : 'transparent' }
+                ]}>
                   <ActivityIndicator size="small" color={isDarkMode ? '#FF6B6B' : mainColor} />
                   <Text style={[
                     styles.refreshText, 
@@ -2191,7 +2644,10 @@ const SocialScreen: React.FC = () => {
             </>
           }
           ListEmptyComponent={
-            <View style={styles.emptyContainer}>
+            <View style={[
+              styles.emptyContainer,
+              { backgroundColor: isDarkMode ? 'transparent' : 'transparent' }
+            ]}>
               <FeatherIcon name="instagram" size={60} color={subTextColor} style={{ opacity: 0.5 }} />
               <Text style={[styles.emptyTitle, { color: textColor }]}>
                 No Posts Yet
@@ -2242,6 +2698,23 @@ const SocialScreen: React.FC = () => {
       {/* Messages Modal */}
       {renderMessagesModal()}
 
+      {/* Product Details Modal */}
+      <ProductDetailsModal
+        visible={showProductModal}
+        product={selectedProduct}
+        onClose={() => {
+          setShowProductModal(false);
+          setSelectedProduct(null);
+        }}
+        onOpenProduct={handleOpenProduct}
+        isDarkMode={isDarkMode}
+        mainColor={mainColor}
+        cardBgColor={cardBgColor}
+        textColor={textColor}
+        subTextColor={subTextColor}
+        borderColor={borderColor}
+      />
+
       {/* No longer need custom bottom navigation bar - using Tab Navigator */}
       </SafeAreaView>
     </GestureHandlerRootView>
@@ -2253,6 +2726,7 @@ export default SocialScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    // Don't set backgroundColor here - it should come from the dynamic prop
   },
   loadingContainer: {
     flex: 1,
@@ -2297,11 +2771,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+    flexDirection: 'column',
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  headerTitleContainer: {
+    flex: 1,
   },
   headerTitle: {
     ...defaultTextStyle,
@@ -2309,21 +2793,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
+
   headerSubtitle: {
     ...defaultTextStyle,
     fontSize: 14,
     marginTop: 2,
+    letterSpacing: 0.2,
   },
   headerRightContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
   },
   headerIconButton: {
     width: 40,
     height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
   },
   searchButton: {
     width: 40,
@@ -2331,67 +2818,36 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(150, 150, 150, 0.1)',
   },
   createPostButton: {
-    position: 'absolute',
-    right: 90, // Moved to the left to avoid conflict with message button
-    bottom: 20, // Same level as message button
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#007AFF', // Add background color for shadow optimization
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    zIndex: 1000,
+    display: 'none',
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 0,
+    paddingTop: 16,
+    paddingBottom: 100,
   },
   
-  // Trending topics section
-  topicsContainer: {
-    marginBottom: 20,
-  },
-  topicsHeading: {
-    ...defaultTextStyle,
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  topicsList: {
-    paddingVertical: 4,
-  },
-  topicChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(150, 150, 150, 0.3)',
-  },
-  topicText: {
-    ...defaultTextStyle,
-    fontSize: 14,
-    fontWeight: '500',
-  },
   
-  // Fashion inspiration card styling
+  // Fashion inspiration card styling - Enhanced depth and shadows
   inspirationCard: {
+    marginHorizontal: 16,
+    marginBottom: 20,
     borderRadius: 24,
     overflow: 'hidden',
-    borderWidth: 1,
-    marginBottom: 24,
+    borderWidth: 0,
+    // Enhanced multi-layered shadow system
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    // backgroundColor will be set dynamically via cardBgColor
   },
   inspirationHeader: {
-    paddingHorizontal: 18,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
     gap: 12,
   },
   userInfoContainer: {
@@ -2399,12 +2855,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   profileImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.8)',
+    // Enhanced shadow for profile images
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   userTextInfo: {
     flex: 1,
@@ -2416,30 +2878,40 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   followButton: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    marginRight: 6,
+    marginRight: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#007AFF',
   },
   followingButton: {
-    borderWidth: 1,
-    borderColor: '#FF4870',
+    backgroundColor: '#F2F2F7',
+    borderWidth: 0,
   },
   followButtonText: {
     ...defaultTextStyle,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
+    letterSpacing: 0,
+    color: '#FFFFFF',
+  },
+  followingButtonText: {
+    ...defaultTextStyle,
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0,
+    color: '#8E8E93',
   },
   messageButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(150, 150, 150, 0.1)',
+    backgroundColor: '#F2F2F7',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 2,
+    marginRight: 4,
   },
   moreOptionsButton: {
     padding: 8,
@@ -2450,9 +2922,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   username: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
-    letterSpacing: 0.2,
+    letterSpacing: 0,
   },
   verifiedBadge: {
     marginLeft: 4,
@@ -2461,26 +2933,59 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   inspirationTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-    lineHeight: 24,
+    fontSize: 17,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+    lineHeight: 22,
   },
   publishDate: {
     fontSize: 12,
-    marginTop: 1,
+    marginTop: 2,
+    fontWeight: '400',
+    color: '#8E8E93',
   },
   
-  // Gallery
+  // Gallery - Enhanced with overlays and depth
   galleryContainer: {
     position: 'relative',
-    height: width * 1.1,
-    backgroundColor: '#e0e0e0',
+    height: width * 0.8,
+    backgroundColor: 'transparent',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 20,
+    overflow: 'hidden',
+    // Inner shadow effect for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
   },
   galleryImage: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+  },
+  galleryOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    pointerEvents: 'none',
+  },
+  galleryInnerShadow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    pointerEvents: 'none',
   },
   galleryDots: {
     position: 'absolute',
@@ -2533,71 +3038,72 @@ const styles = StyleSheet.create({
     right: 16,
   },
   
-  // Aesthetic section
-  aestheticContainer: {
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
+  // Aesthetic section removed - styling moved to user tags
   aestheticPill: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    borderWidth: 0,
+    backgroundColor: '#F2F2F7',
+    // Subtle shadow for aesthetic pill
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   aestheticText: {
     ...defaultTextStyle,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
+    color: '#8E8E93',
+    letterSpacing: 0,
   },
   
   // Caption section
   captionContainer: {
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   captionText: {
     ...defaultTextStyle,
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 20,
+    letterSpacing: 0,
+    color: '#1C1C1E',
   },
   readMoreText: {
     ...defaultTextStyle,
     fontWeight: '600',
+    color: '#007AFF',
+    letterSpacing: 0,
   },
   
   // Tags section
   tagsContainer: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     paddingBottom: 16,
+    marginTop: 0,
   },
-  tagPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    marginHorizontal: 6,
-    borderWidth: 1,
-  },
-  tagText: {
-    ...defaultTextStyle,
-    fontSize: 13,
-    fontWeight: '500',
-  },
+  // Old tag styles removed - now using aesthetic pill styling for user tags
   
   // Featured pieces section
   piecesContainer: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(150, 150, 150, 0.15)',
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(0, 0, 0, 0.05)',
     marginTop: 8,
+    backgroundColor: 'transparent',
   },
   piecesHeading: {
     ...defaultTextStyle,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 14,
+    marginBottom: 12,
+    letterSpacing: 0,
+    color: '#1C1C1E',
   },
   piecesCountHeader: {
     flexDirection: 'row',
@@ -2628,13 +3134,20 @@ const styles = StyleSheet.create({
   pieceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: width * 0.4, // Wider items for horizontal scroll
+    width: width * 0.4,
     marginRight: 12,
     marginBottom: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: 16,
+    backgroundColor: '#F2F2F7',
+    // Enhanced shadow for piece items
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
   pieceDetails: {
     marginLeft: 8,
@@ -2644,11 +3157,13 @@ const styles = StyleSheet.create({
     ...defaultTextStyle,
     fontSize: 13,
     fontWeight: '500',
+    color: '#1C1C1E',
   },
   pieceBrand: {
     ...defaultTextStyle,
-    fontSize: 12,
-    marginTop: 3,
+    fontSize: 11,
+    marginTop: 2,
+    color: '#8E8E93',
   },
   pieceBrandRow: {
     flexDirection: 'row',
@@ -2674,120 +3189,179 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   
-  // Post actions
+  // Post actions - Apple-style clean design
   postActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 16,
-    borderTopWidth: 1,
-    marginTop: 0,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(0, 0, 0, 0.05)',
+    marginTop: 8,
+    backgroundColor: 'transparent',
   },
   actionGroup: {
     flexDirection: 'row',
+    alignItems: 'center',
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
-    marginRight: 12,
+    marginRight: 16,
+    backgroundColor: 'transparent',
+    // Subtle shadow for buttons
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  actionButtonActive: {
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 122, 255, 0.2)',
+    // Enhanced shadow when active
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
   saveButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
+  },
+  saveButtonActive: {
+    backgroundColor: 'transparent',
   },
   actionText: {
     ...defaultTextStyle,
     fontSize: 13,
+    fontWeight: '400',
+    marginLeft: 6,
+    letterSpacing: 0,
+    color: '#8E8E93',
+  },
+  actionTextActive: {
+    color: '#007AFF',
     fontWeight: '600',
-    marginLeft: 8,
   },
   
-  // Comments section
+  // Comments section - Enhanced design
   commentsSection: {
     overflow: 'hidden',
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(248, 248, 248, 0.5)',
+    marginTop: 8,
+    borderRadius: 16,
+    marginHorizontal: 16,
   },
   commentsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(150, 150, 150, 0.1)',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
   },
   commentsTitle: {
     ...defaultTextStyle,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
+    color: '#1C1C1E',
   },
   collapseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
+    backgroundColor: '#F2F2F7',
+    borderWidth: 0,
   },
   commentsScrollView: {
-    maxHeight: 200,
+    maxHeight: 240,
   },
   commentsList: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingTop: 8,
+    paddingBottom: 8,
   },
   commentItem: {
     paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    // backgroundColor will be set dynamically
   },
   commentHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   commentUsername: {
     ...defaultTextStyle,
     fontWeight: '600',
     fontSize: 14,
+    color: '#1C1C1E',
   },
   commentTime: {
     ...defaultTextStyle,
     fontSize: 12,
+    color: '#8E8E93',
   },
   commentText: {
     ...defaultTextStyle,
     fontSize: 14,
     lineHeight: 20,
+    color: '#1C1C1E',
   },
   commentActions: {
     flexDirection: 'row',
     marginTop: 8,
+    alignItems: 'center',
   },
   commentLike: {
     flexDirection: 'row',
     alignItems: 'center',
     marginRight: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
   },
   commentLikeCount: {
     ...defaultTextStyle,
     fontSize: 12,
     marginLeft: 4,
+    color: '#8E8E93',
   },
   commentReply: {
     ...defaultTextStyle,
     fontSize: 12,
     fontWeight: '500',
+    color: '#007AFF',
   },
   addCommentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 16,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(0, 0, 0, 0.05)',
+    // backgroundColor will be set dynamically
   },
   commentInput: {
     ...defaultTextStyle,
@@ -2797,7 +3371,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderWidth: 1,
+    borderColor: '#E5E5EA',
+    backgroundColor: '#F2F2F7',
     fontSize: 14,
+    color: '#1C1C1E',
   },
   postCommentButton: {
     width: 40,
@@ -2805,7 +3382,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 10,
+    marginLeft: 12,
+    backgroundColor: '#007AFF',
   },
   
   // Refresh indicator
@@ -3004,6 +3582,290 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  
+  // Dark mode styles - Enhanced shadows for dark theme
+  darkInspirationCard: {
+    backgroundColor: '#1C1C1E',
+    borderColor: '#2C2C2E',
+    // Enhanced shadow for dark mode with color tint
+    shadowColor: '#7C6BFF',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 32,
+    elevation: 12,
+  },
+  darkCaptionText: {
+    color: '#FFFFFF',
+  },
+  darkAestheticPill: {
+    backgroundColor: '#2C2C2E',
+  },
+  // darkTagPill removed - now using darkAestheticPill for user tags
+  darkPiecesContainer: {
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  darkPieceItem: {
+    backgroundColor: '#2C2C2E',
+  },
+  darkFollowingButton: {
+    backgroundColor: '#2C2C2E',
+  },
+  darkMessageButton: {
+    backgroundColor: '#2C2C2E',
+  },
+  // Dark mode comments styles
+  darkCommentsSection: {
+    backgroundColor: 'rgba(44, 44, 46, 0.5)',
+  },
+  darkCommentsHeader: {
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  darkCommentsTitle: {
+    color: '#FFFFFF',
+  },
+  darkCollapseButton: {
+    backgroundColor: '#2C2C2E',
+  },
+  darkCommentItem: {
+    backgroundColor: '#1C1C1E',
+  },
+  darkCommentUsername: {
+    color: '#FFFFFF',
+  },
+  darkCommentText: {
+    color: '#FFFFFF',
+  },
+  darkAddCommentRow: {
+    backgroundColor: '#1C1C1E',
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  darkCommentInput: {
+    backgroundColor: '#2C2C2E',
+    borderColor: '#3A3A3C',
+    color: '#FFFFFF',
+  },
+  darkActionButtonActive: {
+    backgroundColor: 'rgba(0, 122, 255, 0.2)',
+    borderColor: 'rgba(0, 122, 255, 0.4)',
+  },
+  
+  // Product Details Modal Styles
+  productModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  productModalContent: {
+    height: '90%',
+    width: '100%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 15,
+  },
+  productModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  productModalHeaderButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  productModalHeaderCenter: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 16,
+  },
+  productModalHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  productModalHeaderSubtitle: {
+    fontSize: 14,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  productModalScrollView: {
+    flex: 1,
+  },
+  productModalScrollContent: {
+    paddingBottom: 30,
+  },
+  productModalHeroSection: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  productModalImageContainer: {
+    position: 'relative',
+    borderRadius: 20,
+    overflow: 'hidden',
+    aspectRatio: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  productModalImageWrapper: {
+    width: '100%',
+    height: '100%',
+  },
+  productModalProductImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+  },
+  productModalImageDots: {
+    position: 'absolute',
+    bottom: 16,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  productModalImageDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  productModalFloatingBadge: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+  },
+  productModalBrandBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  productModalBrandBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  productModalInfoCard: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    padding: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  productModalTitleContainer: {
+    marginBottom: 16,
+  },
+  productModalProductName: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 8,
+    lineHeight: 28,
+  },
+  productModalPrice: {
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  productModalStoreInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderRadius: 12,
+  },
+  productModalStoreText: {
+    fontSize: 14,
+    marginLeft: 8,
+    fontWeight: '500',
+  },
+  productModalDescriptionContainer: {
+    marginBottom: 24,
+  },
+  productModalSectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  productModalDescription: {
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  productModalActionButtons: {
+    gap: 12,
+  },
+  productModalPrimaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  productModalPrimaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  productModalNavButton: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  productModalNavButtonLeft: {
+    left: 16,
+  },
+  productModalNavButtonRight: {
+    right: 16,
   },
 });
 

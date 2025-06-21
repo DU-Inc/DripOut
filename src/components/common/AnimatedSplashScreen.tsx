@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Animated, Text, Image } from 'react-native';
 import { createStyles, PANEL_WIDTH } from '../../styles/components/AnimatedSplashScreen.styles';
 import { text } from '../../styles/theme/text';
-import { useTheme } from "../../styles/theme/ThemeContext";
+import { useTheme } from "../../styles/themeprovider";
 import { getThemeColors } from '../../styles/theme/colors';
 
 // Add global setTimeout and clearTimeout types
