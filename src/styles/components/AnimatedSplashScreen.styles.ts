@@ -2,7 +2,7 @@ import { StyleSheet, Dimensions } from 'react-native';
 import { ThemeColors } from '../theme/colors';
 
 const { width, height } = Dimensions.get('window');
-export const PANEL_WIDTH = width / 2;
+export const PANEL_WIDTH = width / 2 + 2;
 
 export const createStyles = (theme: ThemeColors) => StyleSheet.create({
   container: {
@@ -36,13 +36,15 @@ export const createStyles = (theme: ThemeColors) => StyleSheet.create({
     fontWeight: 'bold',
     color: theme.text.primary,
     fontFamily: 'System',
-    paddingHorizontal: 3,
+    paddingHorizontal: 0,
   },
   leftText: {
     textAlign: 'right',
+    paddingRight: 1,
   },
   rightText: {
     textAlign: 'left',
+    paddingLeft: 1,
   },
   dash: {
     position: 'absolute',

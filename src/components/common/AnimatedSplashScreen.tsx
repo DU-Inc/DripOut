@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Animated, Text, Image } from 'react-native';
+import Video from 'react-native-video';
 import { createStyles, PANEL_WIDTH } from '../../styles/components/AnimatedSplashScreen.styles';
 import { text } from '../../styles/theme/text';
 import { useTheme } from "../../styles/themeprovider";
@@ -18,13 +19,20 @@ const AnimatedSplashScreen = () => {
   const rightPanelAnim = useRef(new Animated.Value(PANEL_WIDTH)).current;
   const dashAnim = useRef(new Animated.Value(-500)).current;
 
+  // Configuration for splash media
+  const SPLASH_MEDIA = {
+    // Change this to your preferred media file
+    source: require('../../assets/videos/Trimmed_Opening.mp4'),
+    isVideo: true, // Set to true for MP4
+  };
+
   useEffect(() => {
     // Add dummy listeners to prevent the "onAnimatedValueUpdate with no listeners registered" warning
     const leftPanelListener = leftPanelAnim.addListener(() => {});
     const rightPanelListener = rightPanelAnim.addListener(() => {});
     const dashAnimListener = dashAnim.addListener(() => {});
     
-    // Start the door closing animation at 1.8s
+    // Start the door closing animation after 1 second (when video ends)
     const timer = setTimeout(() => {
       const animation = Animated.parallel([
         Animated.timing(leftPanelAnim, {
@@ -51,7 +59,7 @@ const AnimatedSplashScreen = () => {
       animation.start();
       
       return () => animation.stop();
-    }, 1800);
+    }, 900); // Changed from 1800ms to 1000ms to match video duration
 
     return () => {
       clearTimeout(timer);
@@ -67,13 +75,36 @@ const AnimatedSplashScreen = () => {
     };
   }, [leftPanelAnim, rightPanelAnim, dashAnim]);
 
+  // Render background media based on type
+  const renderBackgroundMedia = () => {
+    if (SPLASH_MEDIA.isVideo) {
+      return (
+        <Video
+          source={SPLASH_MEDIA.source}
+          style={styles.background}
+          resizeMode="cover"
+          repeat={false}
+          muted={true}
+          playInBackground={false}
+          playWhenInactive={false}
+          ignoreSilentSwitch="ignore"
+          onError={(error) => console.log('Video error:', error)}
+        />
+      );
+    } else {
+      return (
+        <Image
+          source={SPLASH_MEDIA.source}
+          style={styles.background}
+        />
+      );
+    }
+  };
+
   return (
     <View style={styles.container}>
-      {/* GIF Background */}
-      <Image
-        source={require('../../assets/images/gif/splash.gif')}
-        style={styles.background}
-      />
+      {/* Background Media - GIF or MP4 */}
+      {renderBackgroundMedia()}
 
       {/* Sliding Panels */}
       <Animated.View
