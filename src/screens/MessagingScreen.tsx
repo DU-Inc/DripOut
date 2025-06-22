@@ -199,7 +199,7 @@ const MessagingScreen: React.FC = () => {
     const avatar = selectedConversation?.otherUserAvatar;
     
     return (
-      <View style={[styles.conversationHeader, { backgroundColor: theme.card }]}>
+      <View style={[styles.conversationHeader, { backgroundColor: theme.surface }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={currentView === 'inbox' ? handleGoBack : handleBackToInbox}
@@ -207,7 +207,7 @@ const MessagingScreen: React.FC = () => {
           <Icon
             name="chevron-back"
             size={28}
-            color={theme.text}
+            color={theme.text.primary}
           />
         </TouchableOpacity>
         
@@ -218,17 +218,17 @@ const MessagingScreen: React.FC = () => {
               style={styles.avatar}
             />
           ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+            <View style={[styles.avatar, styles.avatarPlaceholder, { backgroundColor: theme.primary }]}>
               <Text style={styles.avatarInitial}>
                 {name.charAt(0).toUpperCase()}
               </Text>
             </View>
           )}
           <View style={styles.userTextInfo}>
-            <Text style={[styles.userName, { color: theme.text }]} numberOfLines={1}>
+            <Text style={[styles.userName, { color: theme.text.primary }]} numberOfLines={1}>
               {name}
             </Text>
-            <Text style={[styles.userStatus, { color: theme.textSecondary }]}>
+            <Text style={[styles.userStatus, { color: theme.text.secondary }]}>
               Active now
             </Text>
           </View>
@@ -238,7 +238,7 @@ const MessagingScreen: React.FC = () => {
           <Icon
             name="information-circle-outline"
             size={24}
-            color={theme.text}
+            color={theme.text.primary}
           />
         </TouchableOpacity>
       </View>
@@ -266,7 +266,7 @@ const MessagingScreen: React.FC = () => {
         ]}
       >
         {!isSentByMe && isFirstInGroup && (
-          <Text style={[styles.messageSender, { color: theme.textSecondary }]}>
+          <Text style={[styles.messageSender, { color: theme.text.secondary }]}>
             {senderName}
           </Text>
         )}
@@ -275,7 +275,7 @@ const MessagingScreen: React.FC = () => {
             styles.messageBubble,
             isSentByMe
               ? [styles.sentBubble, { backgroundColor: theme.primary }]
-              : [styles.receivedBubble, { backgroundColor: isDarkMode ? '#2C2C2E' : '#E9E9EB' }],
+              : [styles.receivedBubble, { backgroundColor: theme.surface }],
             // Adjust bubble corners based on position in group
             !isFirstInGroup && isSentByMe && { borderTopRightRadius: 4 },
             !isFirstInGroup && !isSentByMe && { borderTopLeftRadius: 4 },
@@ -286,7 +286,7 @@ const MessagingScreen: React.FC = () => {
           <Text
             style={[
               styles.messageText,
-              { color: isSentByMe ? '#FFFFFF' : theme.text },
+              { color: isSentByMe ? theme.text.onPrimary : theme.text.primary },
             ]}
           >
             {item.text}
@@ -295,7 +295,7 @@ const MessagingScreen: React.FC = () => {
             <Text 
               style={[
                 styles.messageTime, 
-                { color: isSentByMe ? 'rgba(255,255,255,0.7)' : theme.textSecondary }
+                { color: isSentByMe ? 'rgba(255,255,255,0.7)' : theme.text.tertiary }
               ]}
             >
               {item.createdAt && item.createdAt.toDate 
@@ -317,7 +317,7 @@ const MessagingScreen: React.FC = () => {
       <TouchableOpacity
         style={[
           styles.conversationItem,
-          { backgroundColor: theme.background }
+          { backgroundColor: theme.background, borderBottomColor: theme.border }
         ]}
         onPress={() => handleSelectConversation(item)}
         activeOpacity={0.7}
@@ -329,22 +329,22 @@ const MessagingScreen: React.FC = () => {
               style={styles.conversationAvatar}
             />
           ) : (
-            <View style={[styles.conversationAvatar, styles.avatarPlaceholder]}>
+            <View style={[styles.conversationAvatar, styles.avatarPlaceholder, { backgroundColor: theme.primary }]}>
               <Text style={styles.avatarInitial}>
                 {item.otherUserName.charAt(0).toUpperCase()}
               </Text>
             </View>
           )}
-          {/* Online indicator - this would typically be based on a real user status */}
-          <View style={[styles.onlineIndicator, { backgroundColor: '#4CAF50' }]} />
+          {/* Online indicator */}
+          <View style={[styles.onlineIndicator, { backgroundColor: theme.success }]} />
         </View>
         
         <View style={styles.conversationInfo}>
-          <View style={styles.conversationHeader}>
+          <View style={styles.conversationHeaderInfo}>
             <Text 
               style={[
                 styles.conversationName, 
-                { color: theme.text },
+                { color: theme.text.primary },
                 hasUnread && styles.boldText
               ]} 
               numberOfLines={1}
@@ -354,7 +354,7 @@ const MessagingScreen: React.FC = () => {
             <Text 
               style={[
                 styles.conversationTime, 
-                { color: hasUnread ? theme.primary : theme.textSecondary }
+                { color: hasUnread ? theme.primary : theme.text.secondary }
               ]}
             >
               {item.lastMessageTime}
@@ -365,7 +365,7 @@ const MessagingScreen: React.FC = () => {
             <Text
               style={[
                 styles.conversationLastMessage,
-                { color: hasUnread ? theme.text : theme.textSecondary },
+                { color: hasUnread ? theme.text.primary : theme.text.secondary },
                 hasUnread && styles.boldText,
               ]}
               numberOfLines={1}
@@ -375,9 +375,9 @@ const MessagingScreen: React.FC = () => {
             </Text>
             
             {hasUnread && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadCount}>
-                  {item.unreadCount[item.otherUserId]}
+              <View style={[styles.unreadBadge, { backgroundColor: theme.primary }]}>
+                <Text style={[styles.unreadCount, { color: theme.text.onPrimary }]}>
+                  {item.unreadCount?.[item.otherUserId] || 0}
                 </Text>
               </View>
             )}
@@ -390,17 +390,18 @@ const MessagingScreen: React.FC = () => {
   // Render input area for composing messages
   const renderInputArea = () => {
     return (
-      <View style={[styles.inputContainer, { backgroundColor: theme.card }]}>
+      <View style={[styles.inputContainer, { backgroundColor: theme.surface, borderTopColor: theme.border }]}>
         <TextInput
           style={[
             styles.input,
             { 
-              backgroundColor: isDarkMode ? '#1C1C1E' : '#F2F2F7',
-              color: theme.text
+              backgroundColor: theme.background,
+              color: theme.text.primary,
+              borderColor: theme.border
             }
           ]}
           placeholder="Message..."
-          placeholderTextColor={theme.textSecondary}
+          placeholderTextColor={theme.text.secondary}
           value={messageText}
           onChangeText={setMessageText}
           multiline
@@ -413,19 +414,19 @@ const MessagingScreen: React.FC = () => {
             {
               backgroundColor: messageText.trim()
                 ? theme.primary
-                : isDarkMode ? '#1C1C1E' : '#E9E9EB'
+                : theme.surface
             }
           ]}
           onPress={handleSendMessage}
           disabled={!messageText.trim() || isSendingMessage}
         >
           {isSendingMessage ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={theme.text.onPrimary} />
           ) : (
             <Icon
               name="paper-plane"
               size={20}
-              color={messageText.trim() ? '#FFFFFF' : theme.textSecondary}
+              color={messageText.trim() ? theme.text.onPrimary : theme.text.secondary}
             />
           )}
         </TouchableOpacity>
@@ -437,16 +438,16 @@ const MessagingScreen: React.FC = () => {
   const renderInbox = () => {
     return (
       <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={[styles.inboxHeader, { backgroundColor: theme.card }]}>
+        <View style={[styles.inboxHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
           <View style={styles.inboxHeaderLeft}>
             <TouchableOpacity onPress={handleGoBack}>
-              <Icon name="chevron-back" size={28} color={theme.text} />
+              <Icon name="chevron-back" size={28} color={theme.text.primary} />
             </TouchableOpacity>
           </View>
-          <Text style={[styles.inboxTitle, { color: theme.text }]}>Messages</Text>
+          <Text style={[styles.inboxTitle, { color: theme.text.primary }]}>Messages</Text>
           <View style={styles.inboxHeaderRight}>
             <TouchableOpacity style={styles.newMessageButton}>
-              <Icon name="create-outline" size={20} color={theme.text} />
+              <Icon name="create-outline" size={20} color={theme.text.primary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -457,23 +458,23 @@ const MessagingScreen: React.FC = () => {
           </View>
         ) : conversations.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Icon name="chatbubble-outline" size={50} color={theme.textSecondary} />
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+            <Icon name="chatbubble-outline" size={50} color={theme.text.secondary} />
+            <Text style={[styles.emptyText, { color: theme.text.secondary }]}>
               No conversations yet
             </Text>
-            <Text style={[styles.emptySubText, { color: theme.textSecondary }]}>
+            <Text style={[styles.emptySubText, { color: theme.text.secondary }]}>
               When you message people, you'll see your conversations here.
             </Text>
           </View>
         ) : (
           <>
-            <View style={styles.searchContainer}>
-              <View style={[styles.searchBar, { backgroundColor: isDarkMode ? '#1A1A1A' : '#F0F0F0' }]}>
-                <Icon name="search" size={18} color={theme.textSecondary} style={styles.searchIcon} />
+            <View style={[styles.searchContainer, { borderBottomColor: theme.border }]}>
+              <View style={[styles.searchBar, { backgroundColor: theme.background }]}>
+                <Icon name="search" size={18} color={theme.text.secondary} style={styles.searchIcon} />
                 <TextInput 
                   placeholder="Search" 
-                  placeholderTextColor={theme.textSecondary}
-                  style={[styles.searchInput, { color: theme.text }]}
+                  placeholderTextColor={theme.text.secondary}
+                  style={[styles.searchInput, { color: theme.text.primary }]}
                 />
               </View>
             </View>
@@ -506,8 +507,8 @@ const MessagingScreen: React.FC = () => {
           </View>
         ) : messages.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Icon name="chatbubble-outline" size={50} color={theme.textSecondary} />
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+            <Icon name="chatbubble-outline" size={50} color={theme.text.secondary} />
+            <Text style={[styles.emptyText, { color: theme.text.secondary }]}>
               No messages yet. Say hello!
             </Text>
           </View>
@@ -550,7 +551,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -571,7 +571,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.05)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -579,7 +578,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
   },
   searchBar: {
     flexDirection: 'row',
@@ -587,6 +585,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
+    borderWidth: 1,
   },
   searchIcon: {
     marginRight: 8,
@@ -612,7 +611,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -646,7 +644,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   avatarPlaceholder: {
-    backgroundColor: '#007AFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -721,7 +718,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(0,0,0,0.1)',
   },
   input: {
     flex: 1,
@@ -731,6 +727,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     fontSize: 16,
     maxHeight: 100,
+    borderWidth: 1,
   },
   sendButton: {
     marginLeft: 8,
@@ -749,7 +746,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
   },
   avatarContainer: {
     position: 'relative',
@@ -774,7 +770,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 12,
   },
-  conversationHeader: {
+  conversationHeaderInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -802,7 +798,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   unreadBadge: {
-    backgroundColor: '#007AFF',
     width: 20,
     height: 20,
     borderRadius: 10,
@@ -811,7 +806,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   unreadCount: {
-    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',
   },
