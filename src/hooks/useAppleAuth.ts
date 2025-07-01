@@ -1,5 +1,11 @@
 import { useState, useCallback } from 'react';
-import { signInWithApple, isAppleAuthSupported, AppleAuthResponse } from '../services/auth/appleAuthService';
+import { 
+  signInWithApple, 
+  isAppleAuthSupported, 
+  revokeAppleTokenAndDeleteAccount,
+  signInForAccountDeletion,
+  AppleAuthResponse 
+} from '../services/auth/appleAuthService';
 import { Platform } from 'react-native';
 
 export const useAppleAuth = () => {
@@ -48,8 +54,31 @@ export const useAppleAuth = () => {
     }
   }, [checkSupport]);
 
+  // Delete account function
+  const deleteAccount = useCallback(async (authorizationCode?: string): Promise<void> => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      if (!authorizationCode) {
+        // Need to get fresh authorization code
+        console.log('Getting fresh authorization code for account deletion...');
+        const newAuthCode = await signInForAccountDeletion();
+        await revokeAppleTokenAndDeleteAccount(newAuthCode);
+      } else {
+        await revokeAppleTokenAndDeleteAccount(authorizationCode);
+      }
+    } catch (err: any) {
+      setError(err.message || 'An error occurred during account deletion');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   return {
     signIn,
+    deleteAccount,
     loading,
     error,
     isSupported,
