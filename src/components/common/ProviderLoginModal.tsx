@@ -3,8 +3,8 @@ import { View, Text, Animated, TouchableOpacity, Modal, StyleSheet, Dimensions, 
 import { useTheme } from "../../styles/themeprovider";
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { createAuthStyles } from '../../styles/components/auth.styles';
-// Import the stub version of useGoogleAuth that doesn't use @react-native-google-signin/google-signin
-import useGoogleAuth from '../../hooks/useGoogleAuth'; // Using stub implementation (Google auth temporarily disabled)
+import useGoogleAuth from '../../hooks/useGoogleAuth';
+import useAppleAuth from '../../hooks/useAppleAuth';
 import { useNavigation } from '@react-navigation/native';
 import { AuthStackNavigationProp } from '../../navigations/types';
 import { appStateManager } from '../../utils/appStateManager';
@@ -16,8 +16,8 @@ declare const clearTimeout: (id: number) => void;
 type ProviderLoginModalProps = {
   visible: boolean;
   onClose: () => void;
-  onProviderLogin: (provider: 'google' | 'apple' | 'pinterest') => void;
-  provider: 'google' | 'apple' | 'pinterest' | null;
+  onProviderLogin: (provider: 'google' | 'apple') => void;
+  provider: 'google' | 'apple' | null;
 };
 
 const ProviderLoginModal: React.FC<ProviderLoginModalProps> = ({
@@ -36,13 +36,25 @@ const ProviderLoginModal: React.FC<ProviderLoginModalProps> = ({
     loading: googleLoading, 
     error: googleError, 
     user: googleUser,
-    isNewUser,
-    userData
+    isNewUser: googleIsNewUser,
+    userData: googleUserData
   } = useGoogleAuth();
+  
+  // Get Apple authentication functions
+  const { 
+    signIn: appleSignIn, 
+    loading: appleLoading, 
+    error: appleError,
+  } = useAppleAuth();
   
   // State for auth status
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [authResult, setAuthResult] = useState<{
+    user: any;
+    isNewUser: boolean;
+    userData: any;
+  } | null>(null);
   
   // Animation for modal fade in
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -82,31 +94,44 @@ const ProviderLoginModal: React.FC<ProviderLoginModalProps> = ({
     }
   }, [visible]);
 
-  // Update status when Google auth state changes
+  // Update status when auth state changes (Google or Apple)
   useEffect(() => {
-    if (googleLoading) {
+    const isLoading = googleLoading || appleLoading;
+    const currentError = googleError || appleError;
+    const isSuccess = googleUser || authResult;
+    
+    if (isLoading) {
       setStatus('loading');
-    } else if (googleError) {
+    } else if (currentError) {
       setStatus('error');
-      setErrorMessage(googleError);
-    } else if (googleUser) {
+      setErrorMessage(currentError);
+    } else if (isSuccess) {
       setStatus('success');
+      
+      // Use the appropriate result data
+      const resultData = authResult || {
+        user: googleUser,
+        isNewUser: googleIsNewUser,
+        userData: googleUserData
+      };
       
       // Close modal after success with a delay
       const timer = setTimeout(() => {
         onClose();
         
         // Navigate based on whether this is a new user or existing user
-        if (isNewUser && userData) {
-          // For new users, navigate to SignUp screen with Google data
+        if (resultData.isNewUser && resultData.userData) {
+          // For new users, navigate to SignUp screen with pre-filled data
           navigation.navigate('SignUp', {
-            email: userData.email,
-            firstName: userData.firstName,
-            lastName: userData.lastName,
+            email: resultData.userData.email,
+            firstName: resultData.userData.firstName,
+            lastName: resultData.userData.lastName,
             isValidated: true,
-            isGoogleAuth: true,
+            isGoogleAuth: provider === 'google',
+            isAppleAuth: provider === 'apple',
             identifierType: 'email',
-            googleAuth: true,
+            googleAuth: provider === 'google',
+            appleAuth: provider === 'apple',
             skipToStep: 'birthday' // Indicates we should skip to the birthday step
           });
         } else {
@@ -117,7 +142,7 @@ const ProviderLoginModal: React.FC<ProviderLoginModalProps> = ({
       
       return () => clearTimeout(timer);
     }
-  }, [googleLoading, googleError, googleUser, isNewUser, userData]);
+  }, [googleLoading, googleError, googleUser, googleIsNewUser, googleUserData, appleLoading, appleError, authResult, provider, navigation, onClose]);
 
   // Get provider name and icon
   const getProviderInfo = () => {
@@ -126,8 +151,6 @@ const ProviderLoginModal: React.FC<ProviderLoginModalProps> = ({
         return { name: 'Google', icon: 'google' };
       case 'apple':
         return { name: 'Apple', icon: 'apple' };
-      case 'pinterest':
-        return { name: 'Pinterest', icon: 'pinterest' };
       default:
         return { name: '', icon: 'account' }; // Use 'account' as fallback icon instead of empty string
     }
@@ -140,24 +163,17 @@ const ProviderLoginModal: React.FC<ProviderLoginModalProps> = ({
     try {
       setStatus('loading');
       setErrorMessage(null);
+      setAuthResult(null);
       
       if (provider === 'google') {
-        // Show temporary message about Google sign in being disabled
-        setTimeout(() => {
-          setStatus('error');
-          setErrorMessage('Google Sign In is temporarily disabled while we update our authentication system.');
-        }, 1000);
-        
-        // Call the stub implementation which will set an error
+        // Call Google sign in
         await googleSignIn();
       } else if (provider === 'apple') {
-        // Apple sign in will be implemented later
-        setErrorMessage('Apple sign in is not yet implemented');
-        setStatus('error');
-      } else if (provider === 'pinterest') {
-        // Pinterest sign in will be implemented later
-        setErrorMessage('Pinterest sign in is not yet implemented');
-        setStatus('error');
+        // Call Apple sign in
+        const result = await appleSignIn();
+        if (result) {
+          setAuthResult(result);
+        }
       }
     } catch (error: any) {
       setStatus('error');
@@ -186,7 +202,7 @@ const ProviderLoginModal: React.FC<ProviderLoginModalProps> = ({
               Successfully signed in!
             </Text>
             <Text style={[styles.redirectText, { color: theme.text.secondary, marginTop: 10 }]}>
-              {isNewUser ? "Setting up your account..." : "Redirecting to your account..."}
+              {(authResult?.isNewUser || googleIsNewUser) ? "Setting up your account..." : "Redirecting to your account..."}
             </Text>
           </View>
         );

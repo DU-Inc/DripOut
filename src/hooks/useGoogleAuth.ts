@@ -1,4 +1,3 @@
-/* Temporarily disabled Google Auth
 import { useState } from 'react';
 import { GoogleSignin, statusCodes, User as GoogleUser } from '@react-native-google-signin/google-signin';
 import { googleSignIn } from '../services/firebase';
@@ -128,39 +127,6 @@ export const useGoogleAuth = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  return { signIn, signOut, loading, error, user, isNewUser, userData };
-};
-
-export default useGoogleAuth; 
-*/
-
-// Provide stub implementation instead of completely removing
-import { useState } from 'react';
-import { FirebaseAuthTypes } from '@react-native-firebase/auth';
-
-// Stub hook for Google authentication
-export const useGoogleAuth = () => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<FirebaseAuthTypes.User | null>(null);
-  const [isNewUser, setIsNewUser] = useState(false);
-  const [userData, setUserData] = useState<{
-    email: string;
-    firstName: string;
-    lastName: string;
-    profilePicture?: string;
-  } | null>(null);
-
-  // Stub implementation to avoid breaking code
-  const signIn = async () => {
-    setError('Google Sign In has been temporarily disabled');
-    return null;
-  };
-
-  const signOut = async () => {
-    // Stub implementation
   };
 
   return { signIn, signOut, loading, error, user, isNewUser, userData };
