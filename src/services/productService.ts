@@ -18,6 +18,10 @@ export interface Product {
   productUrl: string;
   // Add url field that comes from server
   url?: string;
+  // Available sizes for the product
+  sizes?: string[];
+  // Add description field from API response
+  description?: string;
 }
 
 // Define interface for API response
@@ -26,6 +30,35 @@ interface RandomProductsResponse {
   total_products: number;
   search_terms: string[];
   timestamp: string;
+}
+
+// Define interface for search response
+export interface SearchProductsResponse {
+  products: Product[];
+  total: number;
+  page: number;
+  page_size: number;
+  search_method: 'hybrid' | 'text' | 'natural_language';
+  search_time_ms: number;
+  similarity_scores?: number[] | null;
+  facets?: any | null;
+}
+
+// Define interface for search request (POST method)
+export interface SearchRequest {
+  query: string;
+  search_type?: 'hybrid' | 'text' | 'natural_language';
+  embedding_type?: 'text' | 'image' | 'combined';
+  page?: number;
+  page_size?: number;
+  threshold?: number;
+  filters?: {
+    brand?: string;
+    color?: string;
+    price_min?: number;
+    price_max?: number;
+    source?: string;
+  };
 }
 
 import { Platform } from 'react-native';
@@ -47,7 +80,7 @@ const API_ENDPOINTS = {
 };
 
 // Local development API URL
-const LOCAL_DEV_URL = 'http://192.168.1.251:8082';
+const LOCAL_DEV_URL = 'http://192.168.1.224:8000';
 
 // Set the API endpoint directly to your local development URL
 let API_BASE_URL = LOCAL_DEV_URL;
@@ -128,7 +161,7 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
     console.log(`[API FLOW] Starting API request to ${API_BASE_URL}/random_products with limit=${limit}`);
     
     // Add timeout and headers for better debugging
-    // The API URL is already http://192.168.1.231:8082, so we're directly appending the endpoint
+    // The API URL is already configured, so we're directly appending the endpoint
     const response = await axios.get<RandomProductsResponse>(`${API_BASE_URL}/random_products`, {
       params: {
         limit
@@ -141,35 +174,44 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
     });
 
     console.log(`[API FLOW] API Response successful! Received ${response.data.products.length} products`);
+    console.log(`[API FLOW] Search terms used:`, response.data.search_terms);
+    console.log(`[API FLOW] Total products available:`, response.data.total_products);
+
+    // 🆕 LOG RAW API RESPONSE
+    console.log(`[API FLOW] === RAW API RESPONSE START ===`);
+    console.log(`[API FLOW] Full response structure:`, {
+      total_products: response.data.total_products,
+      products_count: response.data.products.length,
+      search_terms: response.data.search_terms,
+      timestamp: response.data.timestamp
+    });
     
-    // Log detailed info about the API response
-    if (response.data.products.length > 0) {
-      const sampleProduct = response.data.products[0];
-      console.log(`[API FLOW] First product from API (${sampleProduct.id}):`);
-      console.log(`[API FLOW] === COMPLETE API RESPONSE DEBUG ===`);
-      console.log(`[API FLOW] Sample product JSON:`, JSON.stringify(sampleProduct, null, 2));
-      console.log(`[API FLOW] Sample product keys:`, Object.keys(sampleProduct));
-      const debugProduct = sampleProduct as any; // Cast to any for debugging
-      console.log(`[API FLOW] productUrl field:`, debugProduct.productUrl);
-      console.log(`[API FLOW] url field:`, debugProduct.url);
-      console.log(`[API FLOW] link field:`, debugProduct.link);
-      console.log(`[API FLOW] website field:`, debugProduct.website);
-      console.log(`[API FLOW] source field:`, debugProduct.source);
-      console.log(`[API FLOW] === END API RESPONSE DEBUG ===`);
-      console.log(`  Raw response data: ${JSON.stringify(sampleProduct)}`);
-      console.log(`  Has images array? ${sampleProduct.images !== undefined}`);
-      
-      if (sampleProduct.images) {
-        console.log(`  Number of images: ${sampleProduct.images.length}`);
-        sampleProduct.images.forEach((img, idx) => {
-          console.log(`  Image ${idx + 1}:`);
-          console.log(`    ID: ${img.id}`);
-          console.log(`    URL: ${img.url}`);
-          console.log(`    URL type: ${typeof img.url}`);
-          console.log(`    Is URL valid? ${Boolean(img.url)}`);
-        });
-      }
+    // Show first 3 products from raw API response (truncated for readability)
+    const sampleProducts = response.data.products.slice(0, 3);
+    console.log(`[API FLOW] Sample products from raw API response (first 3):`);
+    sampleProducts.forEach((product, index) => {
+      console.log(`[API FLOW] Product ${index + 1}:`, {
+        id: product.id,
+        name: product.name,
+        brand: product.brand,
+        price: product.price,
+        currency: product.currency,
+        has_images: !!product.images,
+        images_count: product.images?.length || 0,
+        has_url: !!product.url,
+        has_productUrl: !!product.productUrl,
+        description: product.description?.substring(0, 100) + (product.description && product.description.length > 100 ? '...' : ''),
+        all_keys: Object.keys(product)
+      });
+    });
+    
+    if (response.data.products.length > 3) {
+      console.log(`[API FLOW] ... and ${response.data.products.length - 3} more products`);
     }
+    console.log(`[API FLOW] === RAW API RESPONSE END ===`);
+
+    // Sample product for detailed debugging
+    const sampleProduct = response.data.products[0];
     
     // Filter and validate products - no fallbacks, only valid products
     console.log(`[API FLOW] Starting to filter and validate ${response.data.products.length} products`);
@@ -184,7 +226,7 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
       const rawProduct = product as any;
       if (rawProduct.url && !rawProduct.productUrl) {
         rawProduct.productUrl = rawProduct.url;
-        console.log(`[API FLOW] Mapped url to productUrl for product ${pid}: ${rawProduct.url}`);
+        // console.log(`[API FLOW] Mapped url to productUrl for product ${pid}: ${rawProduct.url}`);
       }
       
       // Must have images array
@@ -318,7 +360,7 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
         console.error(
           'Possible solutions:\n' +
           `1. Ensure API is running on ${API_BASE_URL}\n` +
-          '2. Check that your device is on the same network as 192.168.1.231\n' +
+          '2. Check that your device is on the same network as your development machine\n' +
           '3. Verify that port 8082 is open and accessible\n' +
           '4. Check CORS settings on API server to allow requests from mobile apps\n' +
           `5. Test your API directly in a browser or with curl: curl ${API_BASE_URL}/random_products\n` +
@@ -336,5 +378,228 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
     
     // Return an empty array if the API call fails
     return [];
+  }
+};
+
+// Function to search products using the API
+export const searchProducts = async (
+  query: string,
+  options: {
+    searchType?: 'hybrid' | 'text' | 'natural_language';
+    page?: number;
+    pageSize?: number;
+    filters?: SearchRequest['filters'];
+    usePost?: boolean;
+  } = {}
+): Promise<SearchProductsResponse> => {
+  try {
+    const {
+      searchType = 'hybrid',
+      page = 1,
+      pageSize = 20,
+      filters = {},
+      usePost = false
+    } = options;
+
+    console.log(`[SEARCH API] Starting search request for query: "${query}"`);
+    console.log(`[SEARCH API] Options:`, { searchType, page, pageSize, filters, usePost });
+
+    let response;
+    
+    if (usePost || Object.keys(filters).length > 0) {
+      // Use POST method for advanced searches
+      const searchRequest: SearchRequest = {
+        query,
+        search_type: searchType,
+        page,
+        page_size: pageSize,
+        filters: Object.keys(filters).length > 0 ? filters : undefined
+      };
+
+      console.log(`[SEARCH API] Using POST method with body:`, searchRequest);
+      
+      response = await axios.post<SearchProductsResponse>(`${API_BASE_URL}/products/search`, searchRequest, {
+        timeout: 15000,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        }
+      });
+    } else {
+      // Use GET method for simple searches
+      const params = new URLSearchParams({
+        query,
+        page: page.toString(),
+        page_size: pageSize.toString()
+      });
+
+      if (searchType !== 'hybrid') {
+        params.append('search_type', searchType);
+      }
+
+      const searchUrl = `${API_BASE_URL}/products/search?${params}`;
+      console.log(`[SEARCH API] Using GET method with URL:`, searchUrl);
+      
+      response = await axios.get<SearchProductsResponse>(searchUrl, {
+        timeout: 15000,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        }
+      });
+    }
+
+    console.log(`[SEARCH API] Search successful! Found ${response.data.products.length} products`);
+    console.log(`[SEARCH API] Search method used: ${response.data.search_method}`);
+    console.log(`[SEARCH API] Search took ${response.data.search_time_ms}ms`);
+
+    // 🆕 LOG RAW API RESPONSE
+    console.log(`[SEARCH API] === RAW API RESPONSE START ===`);
+    console.log(`[SEARCH API] Full response structure:`, {
+      total: response.data.total,
+      page: response.data.page,
+      page_size: response.data.page_size,
+      search_method: response.data.search_method,
+      search_time_ms: response.data.search_time_ms,
+      products_count: response.data.products.length,
+      has_similarity_scores: !!response.data.similarity_scores,
+      has_facets: !!response.data.facets
+    });
+    
+    // Show first 3 products from raw API response (truncated for readability)
+    const sampleProducts = response.data.products.slice(0, 3);
+    console.log(`[SEARCH API] Sample products from raw API response (first 3):`);
+    sampleProducts.forEach((product, index) => {
+      console.log(`[SEARCH API] Product ${index + 1}:`, {
+        id: product.id,
+        name: product.name,
+        brand: product.brand,
+        price: product.price,
+        currency: product.currency,
+        has_images: !!product.images,
+        images_count: product.images?.length || 0,
+        has_url: !!product.url,
+        has_productUrl: !!product.productUrl,
+        description: product.description?.substring(0, 100) + (product.description && product.description.length > 100 ? '...' : ''),
+        all_keys: Object.keys(product)
+      });
+    });
+    
+    if (response.data.products.length > 3) {
+      console.log(`[SEARCH API] ... and ${response.data.products.length - 3} more products`);
+    }
+    console.log(`[SEARCH API] === RAW API RESPONSE END ===`);
+
+    // Apply the same validation and filtering as fetchRandomProducts
+    const validatedProducts = response.data.products.filter((product, productIndex) => {
+      // Ensure product has an identifier
+      const pid = product.id ?? `search-product-${productIndex}`;
+      product.id = pid;
+      
+      // 🐛 DEBUG: Log only the first product for tracing
+      if (productIndex === 0) {
+        console.log(`[SEARCH DEBUG] First product (${pid}) - Brand BEFORE processing:`, product.brand);
+        console.log(`[SEARCH DEBUG] First product (${pid}) - Full product BEFORE processing:`, JSON.stringify(product, null, 2));
+      }
+      
+      // Map server's 'url' field to 'productUrl' field that the client expects
+      const rawProduct = product as any;
+      if (rawProduct.url && !rawProduct.productUrl) {
+        rawProduct.productUrl = rawProduct.url;
+      }
+      
+      // Must have images array
+      if (!Array.isArray(product.images) || product.images.length === 0) {
+        console.log(`[SEARCH API] Filtering out product ${pid} - no images array`);
+        return false;
+      }
+      
+      // Normalize images
+      product.images = product.images.map((img, idx) => {
+        if (typeof img === 'string') {
+          return { id: `${pid}-${idx}`, url: img };
+        }
+        return img;
+      });
+      
+      // Must have valid first image URL
+      const firstImage = product.images[0];
+      if (!firstImage.url || typeof firstImage.url !== 'string') {
+        console.log(`[SEARCH API] Filtering out product ${pid} - invalid first image URL`);
+        return false;
+      }
+      
+      // Skip known problematic domains
+      const problematicDomains = [
+        'lackofcolor.com',
+        'dummyimage.com',
+        'via.placeholder.com',
+        'placeholder.com',
+      ];
+      
+      if (problematicDomains.some(domain => firstImage.url.includes(domain))) {
+        console.log(`[SEARCH API] Filtering out product ${pid} - problematic domain in URL`);
+        return false;
+      }
+      
+      // Fix URL format if needed
+      if (!firstImage.url.match(/^https?:\/\//)) {
+        firstImage.url = firstImage.url.startsWith('/')
+          ? `${API_BASE_URL}${firstImage.url}`
+          : `${API_BASE_URL}/${firstImage.url}`;
+      }
+      
+      // Convert HTTP to HTTPS for better reliability
+      if (firstImage.url.startsWith('http://')) {
+        firstImage.url = firstImage.url.replace('http://', 'https://');
+      }
+      
+      // 🐛 DEBUG: Log only the first product after processing
+      if (productIndex === 0) {
+        console.log(`[SEARCH DEBUG] First product (${pid}) - Brand AFTER processing:`, product.brand);
+        console.log(`[SEARCH DEBUG] First product (${pid}) - Full product AFTER processing:`, JSON.stringify(product, null, 2));
+      }
+      
+      return true;
+    });
+
+    console.log(`[SEARCH API] After validation: ${validatedProducts.length}/${response.data.products.length} products remain`);
+
+    // Return the response with validated products
+    return {
+      ...response.data,
+      products: validatedProducts
+    };
+    
+  } catch (error: any) {
+    console.error(`[SEARCH API] Search failed for query: "${query}"`);
+    
+    if (axios.isAxiosError(error)) {
+      console.error('Search API error details:');
+      console.error(`Request URL: ${error.config?.url}`);
+      console.error(`Request Method: ${error.config?.method}`);
+      console.error(`Response Status:`, error.response?.status);
+      console.error(`Response Data:`, error.response?.data);
+      
+      if (error.code === 'ECONNABORTED') {
+        console.error('Search request timed out. API server might be slow.');
+      } else if (!error.response) {
+        console.error('No response received from search API. Network issue or API unavailable.');
+      }
+    } else {
+      console.error('Non-Axios search error:', error);
+    }
+    
+    // Return empty search result structure on error
+    return {
+      products: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+      search_method: 'hybrid',
+      search_time_ms: 0,
+      similarity_scores: null,
+      facets: null
+    };
   }
 };

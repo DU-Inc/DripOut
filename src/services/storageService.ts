@@ -40,14 +40,25 @@ export const uploadImageAndGetURL = async (
 ): Promise<string> => {
   console.log('📤 StorageService: Starting image upload');
   
+  // Wait for auth state to be ready first
+  await new Promise((resolve) => {
+    const unsubscribe = auth().onAuthStateChanged((user) => {
+      unsubscribe();
+      resolve(user);
+    });
+  });
+  
+  const currentUser = auth().currentUser;
+  console.log('🔐 Storage Service: Auth check - User:', currentUser ? 'Authenticated' : 'Not authenticated');
+  console.log('🔐 Storage Service: User ID:', currentUser?.uid);
+  
+  if (!currentUser) {
+    console.error('🔐 Storage Service: User not authenticated');
+    throw new Error('You must be logged in to upload images');
+  }
+  
   return new Promise((resolve, reject) => {
     try {
-      // Get current user
-      const currentUser = auth().currentUser;
-      if (!currentUser) {
-        return reject(new Error('User not authenticated'));
-      }
-      
       // Extract filename from path
       const uriPath = uri.split('/');
       const fileName = filename || uriPath[uriPath.length - 1];

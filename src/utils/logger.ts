@@ -1,38 +1,46 @@
 // Logger utility to control logging throughout the app
 const isDevelopment = __DEV__;
 
+// Store original console methods to preserve crash reporting
+const originalConsole = {
+  log: console.log,
+  error: console.error,
+  warn: console.warn,
+  info: console.info,
+  debug: console.debug
+};
+
 export const logger = {
   log: (...args: any[]) => {
     if (isDevelopment) {
-      console.log(...args);
+      originalConsole.log(...args);
     }
   },
   error: (...args: any[]) => {
-    if (isDevelopment) {
-      console.error(...args);
-    }
+    // Always allow errors to preserve crash reporting in production
+    originalConsole.error(...args);
   },
   warn: (...args: any[]) => {
     if (isDevelopment) {
-      console.warn(...args);
+      originalConsole.warn(...args);
     }
   },
   info: (...args: any[]) => {
     if (isDevelopment) {
-      console.info(...args);
+      originalConsole.info(...args);
     }
   },
   debug: (...args: any[]) => {
     if (isDevelopment) {
-      console.debug(...args);
+      originalConsole.debug(...args);
     }
   }
 };
 
-// Disable all console logs in production
+// Disable non-critical console logs in production, but preserve error reporting
 if (!isDevelopment) {
   console.log = () => {};
-  console.error = () => {};
+  // Keep console.error intact for crash reporting systems
   console.warn = () => {};
   console.info = () => {};
   console.debug = () => {};

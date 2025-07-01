@@ -124,8 +124,8 @@ const styles = StyleSheet.create({
     width: '95%',
     minHeight: normalize(45),
     alignSelf: 'center',
-    backgroundColor: '#FFFFFF',
-    // Generic shadow
+    backgroundColor: '#FFFFFF', // Solid background color for shadow efficiency
+    // Shadow properties - only applied because we have a solid background
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -148,8 +148,8 @@ export const createThemedCollapsableSection = (theme: ThemeColors) => {
         ...styles.collapsedContainer,
         borderColor: theme.background,
         borderBottomColor: theme.primary,
-        backgroundColor: theme.background,
-        ...theme.elevation.light,
+        backgroundColor: theme.background, // Ensure solid background for shadow efficiency
+        ...theme.elevation.light, // This includes shadow properties
         opacity: 1, // Ensure not dimmed
         paddingTop: normalize(16), // Increase top padding for more space above title
         paddingBottom: normalize(12), // Adjust bottom padding

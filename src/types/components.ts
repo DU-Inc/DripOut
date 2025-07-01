@@ -6,7 +6,7 @@ export interface BottomSheetWelcomeProps {
   onGetStarted: () => void;
   onAlreadyHaveAccount: () => void;
   onContinueAsGuest: () => void;
-  onSocialSignIn: (provider: 'google' | 'apple' | 'pinterest') => void;
+  onSocialSignIn: (provider: 'google' | 'apple') => void;
 }
 
 // Types for Welcome Screen component

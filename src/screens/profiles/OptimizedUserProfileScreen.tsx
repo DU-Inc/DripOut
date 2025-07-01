@@ -15,14 +15,17 @@ import {
   StyleSheet
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import { auth } from '../../Config/firebaseconfig';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { auth, db } from '../../Config/firebaseconfig';
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { appStateManager } from '../../utils/appStateManager';
 import { useOptimizedProfile } from '../../hooks/useOptimizedProfile';
 import { NavigationProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../navigations/types';
+import { takePhotoWithCamera, selectImageFromLibrary, ImageAsset } from '../../services/imagePickerService';
+import { uploadImageAndGetURL } from '../../services/storageService';
+import { propagateProfileUpdates } from '../../services/firestoreService';
 
 type NavigationType = NavigationProp<RootStackParamList>;
 
@@ -48,6 +51,10 @@ const OptimizedUserProfileScreen: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'posts' | 'outfits' | 'styles'>('posts');
 
+  // Profile editing state
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
   // Colors based on theme
   const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
   const textColor = isDarkMode ? '#FFFFFF' : '#202020';
@@ -55,27 +62,132 @@ const OptimizedUserProfileScreen: React.FC = () => {
   const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
   const mainColor = isDarkMode ? '#FF4870' : '#EF3D47';
 
-  const handleSignOut = useCallback(async () => {
+  // Force refresh profile data when screen comes into focus
+  // This ensures bio updates from settings are immediately visible
+  useFocusEffect(
+    useCallback(() => {
+      // Force refresh profile data to get latest changes from settings
+      forceRefresh();
+    }, [forceRefresh])
+  );
+
+  // Helper function to get user's initials
+  const getUserInitials = useCallback(() => {
+    const name = profile?.fullName || profile?.userDisplayName || profile?.username || 'User';
+    return name.charAt(0).toUpperCase();
+  }, [profile]);
+
+  // Profile picture selection handler
+  const handleProfilePictureSelection = useCallback(() => {
     Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
+      'Update Profile Picture',
+      'Choose how you\'d like to update your profile picture',
       [
-        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Sign Out',
-          style: 'destructive',
+          text: 'Take Photo',
           onPress: async () => {
             try {
-              await auth().signOut();
-              appStateManager.setAuthenticated(false);
+              const image = await takePhotoWithCamera();
+              if (image) {
+                uploadProfilePicture(image);
+              }
             } catch (error) {
-              console.error('Error signing out:', error);
+              console.error('Error taking photo:', error);
+              Alert.alert('Error', 'Failed to take photo. Please try again.');
             }
           }
+        },
+        {
+          text: 'Choose from Library',
+          onPress: async () => {
+            try {
+              const image = await selectImageFromLibrary();
+              if (image) {
+                uploadProfilePicture(image);
+              }
+            } catch (error) {
+              console.error('Error selecting from library:', error);
+              Alert.alert('Error', 'Failed to select image. Please try again.');
+            }
+          }
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
         }
       ]
     );
   }, []);
+
+  // Profile picture upload handler
+  const uploadProfilePicture = async (image: ImageAsset) => {
+    try {
+      // Wait for auth state to be fully initialized
+      await new Promise((resolve) => {
+        const unsubscribe = auth().onAuthStateChanged((user) => {
+          unsubscribe();
+          resolve(user);
+        });
+      });
+      
+      const currentUser = auth().currentUser;
+      console.log('🔐 Profile Picture Upload: Current user:', currentUser ? 'Authenticated' : 'Not authenticated');
+      console.log('🔐 Profile Picture Upload: User ID:', currentUser?.uid);
+      console.log('🔐 Profile Picture Upload: Profile data:', profile ? 'Available' : 'Not available');
+      
+      if (!currentUser) {
+        console.error('🔐 Profile Picture Upload: Authentication failed - no current user');
+        Alert.alert('Error', 'You must be logged in to update your profile picture.');
+        return;
+      }
+      
+      if (!profile) {
+        console.warn('🔐 Profile Picture Upload: Profile data not loaded yet, but proceeding with upload');
+      }
+      
+      setIsUploadingImage(true);
+      setUploadProgress(0);
+      
+      // Upload image to Firebase Storage
+      const imageUrl = await uploadImageAndGetURL(
+        image.uri,
+        `users/${currentUser.uid}/profile_pictures`,
+        `profile_${currentUser.uid}_${Date.now()}`,
+        (progress) => {
+          setUploadProgress(progress);
+        }
+      );
+      
+      // Update the user's profile with the new image URL
+      await db.collection('users').doc(currentUser.uid).update({
+        profilePictureURL: imageUrl,
+        updatedAt: new Date()
+      });
+      
+      // Update Firebase Auth user profile
+      try {
+        await currentUser.updateProfile({
+          photoURL: imageUrl
+        });
+      } catch (authError) {
+        console.error('Error updating Firebase Auth profile:', authError);
+      }
+      
+      // Propagate profile picture update to other collections
+      await propagateProfileUpdates(currentUser.uid, { profilePictureURL: imageUrl });
+      
+      Alert.alert('Success', 'Your profile picture has been updated.');
+      setIsUploadingImage(false);
+      
+      // Force refresh to get updated profile data
+      await forceRefresh();
+      
+    } catch (error) {
+      console.error('Error updating profile picture:', error);
+      Alert.alert('Error', 'Failed to update profile picture. Please try again.');
+      setIsUploadingImage(false);
+    }
+  };
 
   // Memoize tab content rendering to prevent unnecessary re-renders
   const renderTabContent = useCallback(() => {
@@ -327,8 +439,18 @@ const OptimizedUserProfileScreen: React.FC = () => {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: bgColor }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      
+      {/* Settings Button - Now positioned outside the scroll view */}
+      <View style={[styles.headerContainer, { backgroundColor: cardBgColor }]}>
+        <TouchableOpacity
+          style={styles.settingsButton}
+          onPress={() => navigation.navigate('SettingsScreen' as never)}
+        >
+          <Icon name="settings-outline" size={24} color={mainColor} />
+        </TouchableOpacity>
+      </View>
       
       <ScrollView
         style={styles.scrollView}
@@ -343,27 +465,57 @@ const OptimizedUserProfileScreen: React.FC = () => {
         }
       >
         {/* Profile Header */}
-        <View style={[
-          styles.profileHeader, 
-          { 
-            backgroundColor: cardBgColor,
-            paddingTop: insets.top + 20 // Add extra padding for notch
-          }
-        ]}>
-          <Image
-            source={{ 
-              uri: profile?.profilePictureURL || 'https://via.placeholder.com/120'
-            }}
-            style={styles.profilePicture}
-          />
+        <View style={[styles.profileHeader, { backgroundColor: cardBgColor }]}>
+
+          {/* Profile Picture - Touchable for editing */}
+          <TouchableOpacity
+            onPress={handleProfilePictureSelection}
+            disabled={isUploadingImage}
+            style={styles.profilePictureContainer}
+          >
+            {profile?.profilePictureURL ? (
+              <Image
+                source={{ uri: profile.profilePictureURL }}
+                style={styles.profilePicture}
+              />
+            ) : (
+              <View style={[styles.profilePictureInitials, { backgroundColor: mainColor }]}>
+                <Text style={styles.initialsText}>{getUserInitials()}</Text>
+              </View>
+            )}
+            {isUploadingImage && (
+              <View style={styles.uploadOverlay}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+                <Text style={styles.uploadText}>{Math.round(uploadProgress * 100)}%</Text>
+              </View>
+            )}
+            <View style={[styles.editIconContainer, { backgroundColor: mainColor }]}>
+              <Icon name="camera-outline" size={16} color="#FFFFFF" />
+            </View>
+          </TouchableOpacity>
           
           <Text style={[styles.profileName, { color: textColor }]}>
-            {profile?.userDisplayName || profile?.fullName || 'User'}
+            {profile?.fullName || profile?.userDisplayName || 'User'}
           </Text>
           
           <Text style={[styles.profileUsername, { color: subTextColor }]}>
             @{profile?.username || 'username'}
           </Text>
+
+          {/* Bio Section */}
+          {profile?.bio ? (
+            <View style={styles.bioContainer}>
+              <Text style={[styles.profileBio, { color: textColor }]}>
+                {profile.bio}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.bioContainer}>
+              <Text style={[styles.profileBioPlaceholder, { color: subTextColor }]}>
+              Add a bio in settings to tell your fashion story!
+              </Text>
+            </View>
+          )}
 
           {/* Stats */}
           <View style={styles.statsContainer}>
@@ -429,17 +581,8 @@ const OptimizedUserProfileScreen: React.FC = () => {
         </View>
       </ScrollView>
 
-      {/* Sign Out Button */}
-      <View style={[styles.signOutContainer, { backgroundColor: cardBgColor }]}>
-        <TouchableOpacity
-          style={[styles.signOutButton, { backgroundColor: mainColor }]}
-          onPress={handleSignOut}
-        >
-          <Icon name="log-out-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+
+    </SafeAreaView>
   );
 };
 
@@ -463,6 +606,19 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 50,
     marginBottom: 15,
+  },
+  profilePictureInitials: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  initialsText: {
+    color: '#FFFFFF',
+    fontSize: 32,
+    fontWeight: '700',
   },
   profileName: {
     fontSize: 24,
@@ -581,23 +737,68 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 10,
   },
-  signOutContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-  },
-  signOutButton: {
+  // Header container for settings button
+  headerContainer: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  // Settings button
+  settingsButton: {
+    padding: 8,
+    borderRadius: 20,
+  },
+  // Profile picture editing styles
+  profilePictureContainer: {
+    position: 'relative',
+    marginBottom: 15,
+  },
+  uploadOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 50,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 25,
   },
-  signOutText: {
+  uploadText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
-    marginLeft: 8,
+    marginTop: 4,
   },
+  editIconContainer: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  // Bio styles
+  bioContainer: {
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  profileBio: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  profileBioPlaceholder: {
+    fontSize: 16,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+
   // Styles tab styles
   preferencesPreview: {
     margin: 16,

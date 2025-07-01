@@ -132,6 +132,41 @@ const baseColors = {
     return isDarkMode ? colors.dark : colors.light;
   };
   
+  // Helper function to create shadow styles only when background color is provided
+  export const createShadowStyle = (
+    elevationLevel: 'light' | 'medium' | 'high',
+    backgroundColor?: string,
+    isDarkMode: boolean = false
+  ) => {
+    // Only apply shadow if backgroundColor is provided and not transparent
+    if (!backgroundColor || backgroundColor === 'transparent') {
+      return {
+        backgroundColor: backgroundColor || 'transparent',
+        // Remove all shadow properties for transparent backgrounds
+        shadowColor: 'transparent',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0,
+        shadowRadius: 0,
+        elevation: 0,
+      };
+    }
+
+    const theme = getThemeColors(isDarkMode);
+    return {
+      backgroundColor,
+      ...theme.elevation[elevationLevel],
+    };
+  };
+  
+  // Helper function to create safe elevation styles
+  export const createElevationStyle = (
+    elevationLevel: 'light' | 'medium' | 'high',
+    isDarkMode: boolean = false
+  ) => {
+    const theme = getThemeColors(isDarkMode);
+    return theme.elevation[elevationLevel];
+  };
+  
   // Export the default theme (light mode)
   export default colors.light;
   

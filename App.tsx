@@ -4,9 +4,16 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { View, Animated, StyleSheet } from 'react-native';
 import AnimatedSplashScreen from './src/components/common/AnimatedSplashScreen';
 import { ThemeProvider } from './src/styles/themeprovider';
+import { ShelfProvider } from './src/contexts/ShelfContext';
 import AppNavigator from './src/navigations/AppNavigator';
 import { appStateManager } from './src/utils/appStateManager';
 import { testApiConnectivity } from './src/services/productService';
+import { 
+  initializePreloader, 
+  preloadAppData, 
+  cleanupPreloader,
+  getPreloaderStatus 
+} from './src/services/appPreloader';
 
 // Add global setTimeout type
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -24,17 +31,40 @@ const App: React.FC = () => {
       try {
         console.log('App Component: Mount detected, initializing app', Date.now());
         
+        // Initialize preloader first
+        initializePreloader();
+        
         // Test API connectivity
         const isApiOnline = await testApiConnectivity();
         console.log(`API connectivity test result: ${isApiOnline ? 'Connected' : 'Not connected'}`);
         
-        // Initialize app state manager - AppNavigator will use this state
-        await appStateManager.initialize();
+        // Initialize app state manager and preload data in parallel
+        const [_, preloadResults] = await Promise.all([
+          appStateManager.initialize(),
+          // Preload app data while splash screen is showing (non-blocking)
+          preloadAppData(false).catch(error => {
+            console.error('App preload failed, continuing without cache:', error);
+            return null; // Don't block app initialization if preload fails
+          })
+        ]);
         
         if (!isMounted) return;
         console.log('App Component: appStateManager.initialize() completed', Date.now());
+        
+        // Log preload results if successful
+        if (preloadResults) {
+          console.log('App Component: Data preload completed:', {
+            success: preloadResults.success,
+            duration: preloadResults.duration,
+            productsLoaded: preloadResults.products.trending + preloadResults.products.newDrops + preloadResults.products.editorsPicks,
+            postsLoaded: preloadResults.posts,
+            interactionsLoaded: preloadResults.interactions,
+            errors: preloadResults.errors.length
+          });
+        }
 
         // Minimum delay for splash screen visibility (for branding impact)
+        // This ensures users see the splash screen even if initialization is fast
         await new Promise<void>(resolve => setTimeout(resolve, 2000));
         if (!isMounted) return;
         console.log('App Component: Splash Timeout Complete', Date.now());
@@ -88,6 +118,7 @@ const App: React.FC = () => {
       isMounted = false;
       // Cleanup when app unmounts
       appStateManager.cleanup();
+      cleanupPreloader(); // Cleanup preloader listeners and state
       console.log('App Component: Unmount cleanup run');
       
       // Remove splash opacity animation listener
@@ -99,21 +130,23 @@ const App: React.FC = () => {
     <GestureHandlerRootView style={styles.flexOne}>
       <SafeAreaProvider>
         <ThemeProvider>
-          {/* AppNavigator handles all navigation flows: auth, onboarding, and main app */}
-          <AppNavigator />
+          <ShelfProvider>
+            {/* AppNavigator handles all navigation flows: auth, onboarding, and main app */}
+            <AppNavigator />
 
-          {/* Splash Screen Overlay - shown while initializing */}
-          {isSplashVisible && (
-            <Animated.View
-              style={[
-                styles.splashOverlay,
-                { opacity: splashOpacity }, // Apply fade-out animation
-              ]}
-              pointerEvents="none" // Make overlay non-interactive during fade
-            >
-              <AnimatedSplashScreen />
-            </Animated.View>
-          )}
+            {/* Splash Screen Overlay - shown while initializing */}
+            {isSplashVisible && (
+              <Animated.View
+                style={[
+                  styles.splashOverlay,
+                  { opacity: splashOpacity }, // Apply fade-out animation
+                ]}
+                pointerEvents="none" // Make overlay non-interactive during fade
+              >
+                <AnimatedSplashScreen />
+              </Animated.View>
+            )}
+          </ShelfProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

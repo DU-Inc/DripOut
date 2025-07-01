@@ -36,6 +36,7 @@ export interface UserProfile {
   onboardingCompleted?: boolean; // Track if user has completed onboarding
   
   // Additional optional profile fields for settings screen
+  bio?: string;                // User's bio (optional)
   height?: string;             // User's height (optional)
   weight?: string;             // User's weight (optional)
   bodyType?: string;           // User's body type (optional)
@@ -473,7 +474,7 @@ export const propagateProfileUpdates = async (
         
         if (processedCount % batchSize === 0 || index === commentsSnapshot.size - 1) {
           updatePromises.push(batch.commit());
-          batch = writeBatch(db);
+          batch = db.batch();
         }
       });
     }
@@ -500,7 +501,7 @@ export const propagateProfileUpdates = async (
         
         if (processedCount % batchSize === 0 || index === likesSnapshot.size - 1) {
           updatePromises.push(batch.commit());
-          batch = writeBatch(db);
+          batch = db.batch();
         }
       });
     }
@@ -528,7 +529,7 @@ export const propagateProfileUpdates = async (
         
         if (processedCount % batchSize === 0 || index === messagesSnapshot.size - 1) {
           updatePromises.push(batch.commit());
-          batch = writeBatch(db);
+          batch = db.batch();
         }
       });
     }

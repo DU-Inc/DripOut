@@ -17,13 +17,15 @@ import {
   KeyboardAvoidingView,
   FlatList,
   Pressable,
-  Dimensions
+  Dimensions,
+  Image
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import { db } from '../../Config/firebaseconfig';
 // Using React Native Firebase - no separate imports needed
 import { auth } from '../../Config/firebaseconfig';
+import { signOutUser } from '../../services/auth';
 import { 
   UserProfile, 
   setUserPreferences, 
@@ -35,6 +37,8 @@ import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import FeatherIcon from 'react-native-vector-icons/Feather';
 import { resetOnboardingStatus } from '../../utils/resetOnboarding';
+import { takePhotoWithCamera, selectImageFromLibrary, ImageAsset } from '../../services/imagePickerService';
+import { uploadImageAndGetURL } from '../../services/storageService';
 
 // Set default text styles for SF Pro font family
 const defaultTextStyle = {
@@ -52,6 +56,16 @@ const SettingsScreen: React.FC = () => {
   const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+
+  // Profile editing state
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Helper function to get user's initials
+  const getUserInitials = () => {
+    const name = editedProfile?.userDisplayName || editedProfile?.fullName || editedProfile?.username || 'User';
+    return name.charAt(0).toUpperCase();
+  };
 
   // Theme colors - using app's red theme to match the rest of the app
   const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
@@ -401,6 +415,124 @@ const SettingsScreen: React.FC = () => {
         }
       ]
     );
+  };
+
+  // Profile picture selection handler
+  const handleProfilePictureSelection = () => {
+    Alert.alert(
+      'Update Profile Picture',
+      'Choose how you\'d like to update your profile picture',
+      [
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            try {
+              const image = await takePhotoWithCamera();
+              if (image) {
+                uploadProfilePicture(image);
+              }
+            } catch (error) {
+              console.error('Error taking photo:', error);
+              Alert.alert('Error', 'Failed to take photo. Please try again.');
+            }
+          }
+        },
+        {
+          text: 'Choose from Library',
+          onPress: async () => {
+            try {
+              const image = await selectImageFromLibrary();
+              if (image) {
+                uploadProfilePicture(image);
+              }
+            } catch (error) {
+              console.error('Error selecting from library:', error);
+              Alert.alert('Error', 'Failed to select image. Please try again.');
+            }
+          }
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    );
+  };
+
+  // Profile picture upload handler
+  const uploadProfilePicture = async (image: ImageAsset) => {
+    try {
+      // Wait for auth state to be fully initialized
+      await new Promise((resolve) => {
+        const unsubscribe = auth().onAuthStateChanged((user) => {
+          unsubscribe();
+          resolve(user);
+        });
+      });
+      
+      const currentUser = auth().currentUser;
+      console.log('🔐 Profile Picture Upload: Current user:', currentUser ? 'Authenticated' : 'Not authenticated');
+      console.log('🔐 Profile Picture Upload: User ID:', currentUser?.uid);
+      console.log('🔐 Profile Picture Upload: Profile data:', profile ? 'Available' : 'Not available');
+      
+      if (!currentUser) {
+        console.error('🔐 Profile Picture Upload: Authentication failed - no current user');
+        Alert.alert('Error', 'You must be logged in to update your profile picture.');
+        return;
+      }
+      
+      if (!profile) {
+        console.warn('🔐 Profile Picture Upload: Profile data not loaded yet, but proceeding with upload');
+      }
+      
+      setIsUploadingImage(true);
+      setUploadProgress(0);
+      
+      // Upload image to Firebase Storage
+      const imageUrl = await uploadImageAndGetURL(
+        image.uri,
+        `users/${currentUser.uid}/profile_pictures`,
+        `profile_${currentUser.uid}_${Date.now()}`,
+        (progress) => {
+          setUploadProgress(progress);
+        }
+      );
+      
+      // Update the user's profile with the new image URL
+      await db.collection('users').doc(currentUser.uid).update({
+        profilePictureURL: imageUrl,
+        updatedAt: new Date()
+      });
+      
+      // Update Firebase Auth user profile
+      try {
+        await currentUser.updateProfile({
+          photoURL: imageUrl
+        });
+      } catch (authError) {
+        console.error('Error updating Firebase Auth profile:', authError);
+      }
+      
+      // Propagate profile picture update to other collections
+      await propagateProfileUpdates(currentUser.uid, { profilePictureURL: imageUrl });
+      
+      // Update local state
+      const updatedProfile = {
+        ...profile,
+        profilePictureURL: imageUrl,
+        updatedAt: new Date()
+      };
+      setProfile(updatedProfile);
+      setEditedProfile(updatedProfile);
+      
+      Alert.alert('Success', 'Your profile picture has been updated.');
+      setIsUploadingImage(false);
+      
+    } catch (error) {
+      console.error('Error updating profile picture:', error);
+      Alert.alert('Error', 'Failed to update profile picture. Please try again.');
+      setIsUploadingImage(false);
+    }
   };
 
   const savePreferences = async (sizeInfo: {
@@ -903,6 +1035,61 @@ const SettingsScreen: React.FC = () => {
             {editMode ? (
               // Editable Fields
               <>
+                {/* Profile Picture Edit */}
+                <TouchableOpacity 
+                  style={[styles.editItem, { borderBottomColor: borderColor }]}
+                  onPress={handleProfilePictureSelection}
+                  disabled={isUploadingImage}
+                >
+                  <Text style={[styles.editLabel, { color: subTextColor }]}>Profile Picture</Text>
+                                      <View style={styles.profilePictureEditContainer}>
+                      <View style={styles.profilePictureEditWrapper}>
+                        {editedProfile?.profilePictureURL ? (
+                          <Image
+                            source={{ uri: editedProfile.profilePictureURL }}
+                            style={styles.profilePictureEdit}
+                          />
+                        ) : (
+                          <View style={[styles.profilePictureEditInitials, { backgroundColor: mainColor }]}>
+                            <Text style={styles.profileInitialsText}>{getUserInitials()}</Text>
+                          </View>
+                        )}
+                        {isUploadingImage && (
+                          <View style={styles.profileUploadOverlay}>
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                            <Text style={styles.profileUploadText}>{Math.round(uploadProgress * 100)}%</Text>
+                          </View>
+                        )}
+                      </View>
+                    <View style={styles.profilePictureEditInfo}>
+                      <Text style={[styles.profilePictureEditText, { color: textColor }]}>
+                        Tap to change
+                      </Text>
+                      <Text style={[styles.profilePictureEditSubtext, { color: subTextColor }]}>
+                        Camera or Library
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+                
+                {/* Bio Edit */}
+                <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
+                  <Text style={[styles.editLabel, { color: subTextColor }]}>Bio</Text>
+                  <TextInput
+                    style={[styles.editBioInput, { color: textColor, backgroundColor: surfaceColor, borderColor }]}
+                    value={editedProfile?.bio || ''}
+                    onChangeText={(text) => handleInputChange('bio', text)}
+                    placeholder="Tell us about yourself..."
+                    placeholderTextColor={subTextColor}
+                    multiline
+                    maxLength={150}
+                    textAlignVertical="top"
+                  />
+                  <Text style={[styles.inputHelp, { color: subTextColor }]}>
+                    {(editedProfile?.bio || '').length}/150 characters
+                  </Text>
+                </View>
+
                 <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
                   <Text style={[styles.editLabel, { color: subTextColor }]}>Full Name</Text>
                   <TextInput
@@ -954,6 +1141,8 @@ const SettingsScreen: React.FC = () => {
             ) : (
               // Display Fields
               <>
+                {renderSettingItem('camera', 'Profile Picture', 'Your profile photo', undefined, handleEditToggle)}
+                {renderSettingItem('file-text', 'Bio', 'Tell us about yourself', profile?.bio || 'Not set', handleEditToggle)}
                 {renderSettingItem('user', 'Full Name', 'Your legal name', profile?.fullName || 'Not set', handleEditToggle)}
                 {renderSettingItem('hash', 'Username', 'Your unique username', '@' + (profile?.username || 'username'), handleEditToggle)}
                 {renderSettingItem('users', 'Gender', 'For size recommendations', profile?.userGender || 'Not specified', () => {
@@ -1249,7 +1438,14 @@ const SettingsScreen: React.FC = () => {
               'Sign Out', 
               'Log out of your account', 
               undefined, 
-              () => auth().signOut(),
+              async () => {
+                try {
+                  await signOutUser();
+                } catch (error) {
+                  console.error('Sign out error:', error);
+                  Alert.alert('Sign Out Error', 'An error occurred while signing out. Please try again.');
+                }
+              },
               accentColor
             )}
             {renderSettingItem(
@@ -1561,6 +1757,73 @@ const styles = StyleSheet.create({
   measurementOptionValue: {
     ...defaultTextStyle,
     fontSize: 14,
+  },
+  // Profile editing styles
+  profilePictureEditContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+  },
+  profilePictureEditWrapper: {
+    position: 'relative',
+    marginRight: 16,
+  },
+      profilePictureEdit: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+    },
+    profilePictureEditInitials: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    profileInitialsText: {
+      color: '#FFFFFF',
+      fontSize: 20,
+      fontWeight: '700',
+    },
+  profileUploadOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileUploadText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  profilePictureEditInfo: {
+    flex: 1,
+  },
+  profilePictureEditText: {
+    ...defaultTextStyle,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  profilePictureEditSubtext: {
+    ...defaultTextStyle,
+    fontSize: 14,
+    marginTop: 2,
+  },
+  editBioInput: {
+    ...defaultTextStyle,
+    minHeight: 80,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    textAlignVertical: 'top',
+    marginTop: 8,
   },
 });
 

@@ -1,10 +1,70 @@
 import functions from '@react-native-firebase/functions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Configure Firebase Functions for better network handling
+const configureFunctions = () => {
+  const functionsInstance = functions();
+  
+  // Set a global timeout for all function calls
+  functionsInstance.timeout = 60000; // 60 seconds
+  
+  return functionsInstance;
+};
+
+// Simple network connectivity check
+const checkNetworkConnectivity = async (): Promise<boolean> => {
+  try {
+    // Try to reach a simple endpoint to check connectivity
+    const response = await fetch('https://www.google.com/favicon.ico', {
+      method: 'HEAD',
+      timeout: 5000,
+    });
+    return response.ok;
+  } catch (error) {
+    console.warn('Network connectivity check failed:', error);
+    return false;
+  }
+};
+
 // Constants for rate limiting
 const MAX_VERIFICATION_ATTEMPTS = 5;
 const COOLDOWN_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 const CODE_REQUEST_COOLDOWN_MS = 60 * 1000; // 60 seconds between code requests
+const MAX_RETRY_ATTEMPTS = 2; // Maximum retry attempts for timeout errors
+
+// Helper function to retry failed requests
+const retryWithTimeout = async <T>(
+  operation: () => Promise<T>,
+  maxRetries: number = MAX_RETRY_ATTEMPTS,
+  delay: number = 2000
+): Promise<T> => {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Only retry on timeout or network errors
+      const shouldRetry = (
+        error?.code === 'deadline-exceeded' ||
+        error?.code === 'unavailable' ||
+        error?.message?.includes('DEADLINE EXCEEDED') ||
+        error?.message?.includes('network')
+      ) && attempt < maxRetries;
+      
+      if (!shouldRetry) {
+        throw error;
+      }
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delay * (attempt + 1)));
+    }
+  }
+  
+  throw lastError;
+};
 
 // Request verification code from Firebase Cloud Function
 export const requestVerificationCode = async (email: string): Promise<boolean> => {
@@ -38,10 +98,27 @@ export const requestVerificationCode = async (email: string): Promise<boolean> =
     }
     
     // Get a callable reference to the sendVerificationEmailFn
-    const sendVerificationEmailFn = functions().httpsCallable('sendVerificationEmailFn');
+    const sendVerificationEmailFn = configureFunctions().httpsCallable('sendVerificationEmailFn');
     
-    // Call the cloud function with the email
-    const result = await sendVerificationEmailFn({ email });
+    // Set timeout for the function call (30 seconds)
+    sendVerificationEmailFn.timeout = 30000;
+    
+    // Call the cloud function with retry logic for timeout errors
+    const result = await retryWithTimeout(async () => {
+      console.log('Attempting to send verification code to:', email);
+      const startTime = Date.now();
+      
+      try {
+        const response = await sendVerificationEmailFn({ email });
+        const duration = Date.now() - startTime;
+        console.log(`Verification code request completed in ${duration}ms`);
+        return response;
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        console.error(`Verification code request failed after ${duration}ms:`, error);
+        throw error;
+      }
+    });
     
     // Log the result
     console.log('Verification code sent successfully:', result.data);
@@ -65,6 +142,9 @@ export const requestVerificationCode = async (email: string): Promise<boolean> =
     if (error?.code === 'already-exists' || 
         (error?.message && error.message.includes('already in use'))) {
       throw new Error("This email is already registered. Please sign in instead.");
+    } else if (error?.code === 'deadline-exceeded' || 
+              (error?.message && error.message.includes('DEADLINE EXCEEDED'))) {
+      throw new Error("Request timed out. Please check your connection and try again.");
     } else if (error?.code === 'resource-exhausted' || 
               (error?.message && error.message.includes('attempts'))) {
       throw new Error("Too many verification attempts. Please try again later.");
@@ -85,12 +165,17 @@ export const requestVerificationCode = async (email: string): Promise<boolean> =
 export const verifyCode = async (email: string, submittedCode: string): Promise<boolean> => {
   try {
     // Get a callable reference to the verifyEmailFn
-    const verifyEmailFn = functions().httpsCallable('verifyEmailFn');
+    const verifyEmailFn = configureFunctions().httpsCallable('verifyEmailFn');
     
-    // Call the cloud function with the email and verification code
-    const result = await verifyEmailFn({ 
-      email, 
-      code: submittedCode 
+    // Set timeout for the function call (20 seconds)
+    verifyEmailFn.timeout = 20000;
+    
+    // Call the cloud function with retry logic for timeout errors
+    const result = await retryWithTimeout(async () => {
+      return await verifyEmailFn({ 
+        email, 
+        code: submittedCode 
+      });
     });
     
     // Check the verification result
@@ -157,6 +242,12 @@ export const verifyCode = async (email: string, submittedCode: string): Promise<
 // Function to request and send verification code
 export const sendAndStoreVerificationCode = async (email: string): Promise<boolean> => {
   try {
+    // Check network connectivity first
+    const isConnected = await checkNetworkConnectivity();
+    if (!isConnected) {
+      throw new Error("No internet connection. Please check your network and try again.");
+    }
+
     // Check if we need to enforce a minimum interval between code requests
     const lastSentKey = `verification_last_sent_${email}`;
     const lastSentStr = await AsyncStorage.getItem(lastSentKey);

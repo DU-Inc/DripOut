@@ -2,6 +2,12 @@ import { db, auth, Timestamp, FieldValue, firestore } from '../Config/firebaseco
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { uploadImageAndGetURL } from './storageService';
 
+// Cache configuration
+const FEED_POSTS_CACHE_KEY = '@DripOut:feedPosts';
+const FEED_POSTS_TIMESTAMP_KEY = '@DripOut:feedPostsTimestamp';
+const CACHE_MAX_AGE = 15 * 60 * 1000; // 15 minutes
+const CURRENT_CACHE_VERSION = '1.0.0'; // For cache invalidation on app updates
+
 /**
  * Interface for outfit item in a post
  */
@@ -296,7 +302,46 @@ export const getAllPosts = async (limitCount: number = 20): Promise<Post[]> => {
 };
 
 /**
- * Get all posts for the feed with caching
+ * Validate cached posts data for corruption
+ */
+const validateCachedPosts = (posts: any): posts is Post[] => {
+  if (!Array.isArray(posts)) return false;
+  
+  return posts.every(post => 
+    post && 
+    typeof post.id === 'string' &&
+    typeof post.userId === 'string' &&
+    typeof post.imageUrl === 'string' &&
+    typeof post.caption === 'string' &&
+    Array.isArray(post.tags) &&
+    typeof post.likes === 'number' &&
+    typeof post.comments === 'number'
+  );
+};
+
+/**
+ * Clear corrupted cache for a user
+ */
+const clearUserCache = async (userId: string): Promise<void> => {
+  try {
+    const userSpecificCacheKey = `${FEED_POSTS_CACHE_KEY}_${userId}`;
+    const userSpecificTimestampKey = `${FEED_POSTS_TIMESTAMP_KEY}_${userId}`;
+    const userSpecificVersionKey = `${FEED_POSTS_CACHE_KEY}_version_${userId}`;
+    
+    await AsyncStorage.multiRemove([
+      userSpecificCacheKey,
+      userSpecificTimestampKey,
+      userSpecificVersionKey
+    ]);
+    
+    console.log('Cleared corrupted cache for user:', userId);
+  } catch (error) {
+    console.error('Error clearing user cache:', error);
+  }
+};
+
+/**
+ * Get all posts for the feed with improved caching
  * 
  * @param forceRefresh Whether to force a refresh from Firestore
  * @returns Array of all posts ordered by creation date
@@ -307,20 +352,17 @@ export const getCachedFeedPosts = async (
   try {
     console.log('getCachedFeedPosts called, forceRefresh:', forceRefresh);
     
-    // Try to get posts directly - bypass complexity for now
-    return await getAllPosts();
-    
-    /* Commenting out complex caching logic until core functionality works
     // Get current user ID for cache segregation
     const currentUser = auth().currentUser;
     if (!currentUser) {
       console.log('No authenticated user, fetching posts without cache');
-      return getAllPosts();
+      return await getAllPosts();
     }
     
     const userId = currentUser.uid;
     const userSpecificCacheKey = `${FEED_POSTS_CACHE_KEY}_${userId}`;
     const userSpecificTimestampKey = `${FEED_POSTS_TIMESTAMP_KEY}_${userId}`;
+    const userSpecificVersionKey = `${FEED_POSTS_CACHE_KEY}_version_${userId}`;
     
     // Check if we need to force refresh
     if (forceRefresh) {
@@ -328,43 +370,122 @@ export const getCachedFeedPosts = async (
       const posts = await getAllPosts();
       
       // Update cache with fresh data
-      await AsyncStorage.setItem(userSpecificCacheKey, JSON.stringify(posts));
-      await AsyncStorage.setItem(userSpecificTimestampKey, Date.now().toString());
+      try {
+        const cacheData = {
+          posts,
+          version: CURRENT_CACHE_VERSION,
+          timestamp: Date.now()
+        };
+        
+        await AsyncStorage.multiSet([
+          [userSpecificCacheKey, JSON.stringify(cacheData)],
+          [userSpecificTimestampKey, Date.now().toString()],
+          [userSpecificVersionKey, CURRENT_CACHE_VERSION]
+        ]);
+        
+        console.log(`Cached ${posts.length} posts for user ${userId}`);
+      } catch (cacheError) {
+        console.error('Error updating cache after force refresh:', cacheError);
+      }
       
       return posts;
     }
     
-    // Check cache timestamp
-    const timestampStr = await AsyncStorage.getItem(userSpecificTimestampKey);
-    const cachedPostsStr = await AsyncStorage.getItem(userSpecificCacheKey);
-    
-    // If we have valid cache data and it's not too old
-    if (timestampStr && cachedPostsStr) {
-      const timestamp = parseInt(timestampStr, 10);
-      const currentTime = Date.now();
+    // Try to get cached data
+    try {
+      const [timestampStr, cachedDataStr, versionStr] = await AsyncStorage.multiGet([
+        userSpecificTimestampKey,
+        userSpecificCacheKey,
+        userSpecificVersionKey
+      ]);
       
-      // If cache is still fresh
-      if (currentTime - timestamp < cacheMaxAge) {
-        console.log('Using cached posts data');
-        return JSON.parse(cachedPostsStr) as Post[];
+      const timestamp = timestampStr[1] ? parseInt(timestampStr[1], 10) : 0;
+      const cachedData = cachedDataStr[1];
+      const version = versionStr[1];
+      
+      // Check if we have valid cache data
+      if (cachedData && timestamp && version === CURRENT_CACHE_VERSION) {
+        const currentTime = Date.now();
+        
+        // If cache is still fresh
+        if (currentTime - timestamp < CACHE_MAX_AGE) {
+          console.log('Checking cached posts validity...');
+          
+          try {
+            const parsedCache = JSON.parse(cachedData);
+            const posts = parsedCache.posts || parsedCache; // Handle both new and old cache formats
+            
+            // Validate cache structure
+            if (validateCachedPosts(posts)) {
+              console.log(`Using cached posts data (${posts.length} posts)`);
+              return posts;
+            } else {
+              console.log('Cached posts data is corrupted, clearing cache');
+              await clearUserCache(userId);
+            }
+          } catch (parseError) {
+            console.error('Error parsing cached posts:', parseError);
+            await clearUserCache(userId);
+          }
+        } else {
+          console.log('Cache expired, fetching fresh data');
+        }
+      } else {
+        console.log('Cache invalid or version mismatch, will fetch fresh data');
+        if (version && version !== CURRENT_CACHE_VERSION) {
+          await clearUserCache(userId);
+        }
       }
+    } catch (cacheRetrievalError) {
+      console.error('Error retrieving cache:', cacheRetrievalError);
     }
     
-    // Cache is too old or doesn't exist, fetch fresh data
-    console.log('Cache expired or missing, fetching fresh posts data');
+    // Cache is expired, missing, or corrupted - fetch fresh data
+    console.log('Fetching fresh posts data from Firestore');
     const posts = await getAllPosts();
     
-    // Update cache with fresh data
-    await AsyncStorage.setItem(userSpecificCacheKey, JSON.stringify(posts));
-    await AsyncStorage.setItem(userSpecificTimestampKey, Date.now().toString());
+    // Update cache with fresh data (fire and forget)
+    AsyncStorage.multiSet([
+      [userSpecificCacheKey, JSON.stringify({
+        posts,
+        version: CURRENT_CACHE_VERSION,
+        timestamp: Date.now()
+      })],
+      [userSpecificTimestampKey, Date.now().toString()],
+      [userSpecificVersionKey, CURRENT_CACHE_VERSION]
+    ]).then(() => {
+      console.log(`Successfully cached ${posts.length} posts for user ${userId}`);
+    }).catch(cacheError => {
+      console.error('Error caching posts:', cacheError);
+    });
     
     return posts;
-    */
   } catch (error) {
     console.error('Error getting feed posts:', error);
     
-    // If all else fails, return an empty array or mock data
-    return []; // Or return mock posts if you want to show something
+    // Try to return cached data as fallback even if expired
+    try {
+      const currentUser = auth().currentUser;
+      if (currentUser) {
+        const userSpecificCacheKey = `${FEED_POSTS_CACHE_KEY}_${currentUser.uid}`;
+        const cachedData = await AsyncStorage.getItem(userSpecificCacheKey);
+        
+        if (cachedData) {
+          const parsedCache = JSON.parse(cachedData);
+          const posts = parsedCache.posts || parsedCache;
+          
+          if (validateCachedPosts(posts)) {
+            console.log('Returning stale cached data due to error');
+            return posts;
+          }
+        }
+      }
+    } catch (fallbackError) {
+      console.error('Error accessing fallback cache:', fallbackError);
+    }
+    
+    // If all else fails, return empty array
+    return [];
   }
 };
 
@@ -444,5 +565,96 @@ export const updatePostsWithNewProfileData = async (
   } catch (error) {
     console.error('Error updating posts with new profile data:', error);
     throw error;
+  }
+};
+
+/**
+ * Get posts that feature products matching the given criteria
+ * 
+ * @param productName - The product name to search for (case-insensitive partial match)
+ * @param brandName - Optional brand name to filter by
+ * @param limitCount - Maximum number of posts to return (default: 20)
+ * @returns Array of posts that feature matching products
+ */
+export const getPostsByProduct = async (
+  productName?: string,
+  brandName?: string,
+  limitCount: number = 20
+): Promise<Post[]> => {
+  try {
+    console.log(`Searching for posts with product: "${productName}", brand: "${brandName}"`);
+    
+    if (!productName && !brandName) {
+      console.warn('No search criteria provided for product search');
+      return [];
+    }
+    
+    // Get all posts first (we'll filter client-side due to Firestore array query limitations)
+    const querySnapshot = await db
+      .collection('posts')
+      .orderBy('createdAt', 'desc')
+      .limit(200) // Get a larger sample to filter from
+      .get();
+    
+    const matchingPosts: Post[] = [];
+    
+    querySnapshot.docs.forEach((doc) => {
+      const data = doc.data();
+      const post: Post = {
+        id: doc.id,
+        userId: data.userId || 'unknown-user',
+        username: data.username || 'anonymous',
+        userDisplayName: data.userDisplayName,
+        userAvatar: data.userAvatar,
+        imageUrl: data.imageUrl,
+        caption: data.caption || '',
+        tags: data.tags || [],
+        outfitItems: data.outfitItems || [],
+        likes: data.likes || 0,
+        comments: data.comments || 0,
+        createdAt: data.createdAt,
+      };
+      
+      // Check if this post has outfit items that match our search criteria
+      if (post.outfitItems && post.outfitItems.length > 0) {
+        const hasMatchingProduct = post.outfitItems.some((item: OutfitItem) => {
+          let nameMatch = true;
+          let brandMatch = true;
+          
+          // Check product name match (case-insensitive partial match)
+          if (productName) {
+            const itemName = item.name?.toLowerCase() || '';
+            const scrapedName = item.scrapedProduct?.name?.toLowerCase() || '';
+            const searchTerm = productName.toLowerCase();
+            
+            nameMatch = itemName.includes(searchTerm) || scrapedName.includes(searchTerm);
+          }
+          
+          // Check brand name match (case-insensitive partial match)
+          if (brandName) {
+            const itemBrand = item.brand?.toLowerCase() || '';
+            const scrapedBrand = item.scrapedProduct?.brand?.toLowerCase() || '';
+            const searchBrand = brandName.toLowerCase();
+            
+            brandMatch = itemBrand.includes(searchBrand) || scrapedBrand.includes(searchBrand);
+          }
+          
+          return nameMatch && brandMatch;
+        });
+        
+        if (hasMatchingProduct) {
+          matchingPosts.push(post);
+        }
+      }
+    });
+    
+    // Limit results and return
+    const limitedResults = matchingPosts.slice(0, limitCount);
+    console.log(`Found ${limitedResults.length} posts matching product criteria`);
+    
+    return limitedResults;
+  } catch (error) {
+    console.error('Error searching posts by product:', error);
+    return [];
   }
 };

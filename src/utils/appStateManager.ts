@@ -5,6 +5,8 @@ import { auth } from '../Config/firebaseconfig';
 import { db } from '../Config/firebaseconfig';
 import { getUserPreferences } from '../services/firestoreService';
 import { AppState as RNAppState } from 'react-native';
+import { initializeWelcomeCache } from '../services/welcomeProductCache';
+import { cleanupShelfOnLogout } from '../services/shelfService';
 
 // Add these to the top of the file with other declarations
 declare const clearInterval: (id: number) => void;
@@ -165,6 +167,10 @@ class AppStateManager {
       ];
       
       await Promise.all(userDataKeys.map(key => AsyncStorage.removeItem(key)));
+      
+      // Clean up user-specific caches (like shelf products)
+      await cleanupShelfOnLogout();
+      
       console.log('AppStateManager: Successfully cleared all user data');
     } catch (error) {
       console.error('AppStateManager: Error clearing user data:', error);
@@ -179,6 +185,10 @@ class AppStateManager {
     }
     this._initializationStarted = true;
     console.log('AppStateManager: Starting initialization...');
+    
+    // Initialize welcome cache early for background display
+    console.log('AppStateManager: 🎨 Initializing welcome product cache...');
+    await initializeWelcomeCache();
 
     try {
       // CRITICAL: On every app launch, clear the options sheet shown flag

@@ -623,7 +623,7 @@ const MOCK_PRODUCTS: Product[] = [
 ];
 
 // Professional greeting utilities
-const getProfessionalGreeting = (firstName?: string) => {
+const getProfessionalGreeting = (userProfile?: any) => {
   const hour = new Date().getHours();
   const date = new Date();
   const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
@@ -635,6 +635,14 @@ const getProfessionalGreeting = (firstName?: string) => {
     timeOfDay = 'afternoon';
   } else {
     timeOfDay = 'evening';
+  }
+  
+  // Extract first name from fullName or use userDisplayName
+  let firstName: string | undefined;
+  if (userProfile?.fullName) {
+    firstName = userProfile.fullName.split(' ')[0];
+  } else if (userProfile?.userDisplayName) {
+    firstName = userProfile.userDisplayName;
   }
   
   if (firstName) {
@@ -1473,7 +1481,7 @@ const RecommendationScreen: React.FC = () => {
           <View style={styles.headerContent}>
             <View style={styles.professionalHeaderContainer}>
               {(() => {
-                const greeting = getProfessionalGreeting(userProfile?.firstName);
+                const greeting = getProfessionalGreeting(userProfile);
                 return (
                   <>
                     <Text style={[styles.professionalHeaderTitle, { color: textColor }]}>

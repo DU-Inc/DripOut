@@ -1582,7 +1582,7 @@ const styles = StyleSheet.create({
   navButton: { 
     padding: 12, 
     borderRadius: 40, // Much more rounded (fully circular)
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.8)', // More opaque background for shadow efficiency
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.3)',
     elevation: 5, // Add elevation for Android

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, ReactElement } from 'react';
+import React, { useState, useRef, useEffect, ReactElement, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -34,12 +34,18 @@ import { useTheme } from '../../styles/themeprovider';
 import { colors } from '../../styles/theme/colors';
 import { SharedElement } from 'react-navigation-shared-element';
 import MediaComponent from '../../components/common/MediaComponent';
+import ShelfIcon from '../../components/common/ShelfIcon';
+import CollapsibleProductSection from '../../components/common/CollapsibleProductSection';
+import { useShelf } from '../../contexts/ShelfContext';
+import { processSizeData, getDisplaySize, SizeOption } from '../../utils/sizeUtils';
+import FormattedDescription from '../../components/common/FormattedDescription';
+import { processProductDescription } from '../../utils/htmlUtils';
 
 // Import API product fetcher for real products
 import { fetchRandomProducts, Product as ApiProduct } from '../../services/productService';
-// Import save service for favorites functionality
-import { toggleSavePost, hasUserSavedPost } from '../../services/saveService';
+import { getPostsByProduct, Post } from '../../services/postService';
 import { auth } from '../../Config/firebaseconfig';
+import { db } from '../../Config/firebaseconfig';
 
 // --- Constants ------------------
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -66,12 +72,7 @@ interface RouteParams {
   initialImageIndex?: number;
 }
 
-// Interface for available sizes
-interface SizeOption {
-  id: string;
-  label: string;
-  isAvailable: boolean;
-}
+// Note: SizeOption interface is now imported from sizeUtils
 
 // Interface for formatted similar product (matching UnifiedProductCard requirements)
 interface FormattedSimpleProduct {
@@ -136,15 +137,7 @@ const createDelay = (ms: number): Promise<void> => {
   });
 };
 
-// Helper for generating dummy size options
-const generateSizeOptions = (): SizeOption[] => {
-  const sizes = ['S', 'M', 'L', 'XL', 'XXL'];
-  return sizes.map((size, index) => ({
-    id: `size-${index}`,
-    label: size,
-    isAvailable: Math.random() > 0.3, // Random availability
-  }));
-};
+// Note: Size generation is now handled by sizeUtils processSizeData function
 
 // Helper function for price formatting
 const formatPrice = (price: number | string | undefined | null): string => {
@@ -158,6 +151,50 @@ const formatPrice = (price: number | string | undefined | null): string => {
   return 'N/A'; // Or return '', or '0.00' depending on desired fallback
 };
 
+// Helper function to detect "Brand: Title" pattern in descriptions
+const isBrandTitleFormat = (description: string, brand?: string, title?: string): boolean => {
+  if (!description || !brand || !title) return false;
+  
+  const desc = description.toLowerCase().trim();
+  const brandLower = brand.toLowerCase().trim();
+  const titleLower = title.toLowerCase().trim();
+  
+  // Check if description follows "Brand: Title" pattern - more precise matching
+  const exactPattern = `${brandLower}: ${titleLower}`;
+  const startsWith = desc.startsWith(exactPattern);
+  
+  // Only match if it starts with the exact pattern, not just contains both words
+  return startsWith;
+};
+
+// Enhanced description formatting function
+const formatProductDescription = (
+  description?: string, 
+  brand?: string, 
+  title?: string, 
+  name?: string
+): string => {
+  console.log('[Description Formatting] Input:', { description, brand, title, name });
+  
+  // If we have a description, check if it's useful
+  if (description && description.trim() !== '') {
+    // Check if it's just a "Brand: Title" format
+    if (isBrandTitleFormat(description, brand, title || name)) {
+      console.log('[Description Formatting] Detected Brand: Title pattern, using fallback');
+      return title || name || 'Product details';
+    }
+    
+    console.log('[Description Formatting] Using provided description with HTML processing');
+    // Process HTML content to clean it up
+    return processProductDescription(description);
+  }
+  
+  // Fallback to title or name
+  const fallback = title || name || 'Product details';
+  console.log('[Description Formatting] No description, using fallback:', fallback);
+  return fallback;
+};
+
 // Currency symbol
 const currencySymbol = '$';
 
@@ -167,19 +204,15 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   const route = useRoute<ExpandedProductScreenRouteProp>();
   const { width: windowWidth } = useWindowDimensions();
   
-  // Get product from route
-  const { productId, sourcePosition, product: initialProduct, initialImageIndex = 0 } = route.params;
+  // Get product from route with useMemo to prevent re-renders
+  const routeParams = useMemo(() => {
+    const { productId, sourcePosition, product: initialProduct, initialImageIndex = 0 } = route.params;
+    return { productId, sourcePosition, initialProduct, initialImageIndex };
+  }, [route.params]);
   
-  // Log the received product data for debugging
-  console.log('[ExpandedProductScreen] Received product data:', 
-    initialProduct ? JSON.stringify({
-      id: initialProduct.id,
-      name: initialProduct.name || initialProduct.title,
-      brand: initialProduct.brand,
-      imageCount: initialProduct.images?.length
-    }) : 'No product data');
-  console.log('[ExpandedProductScreen] Product ID:', productId);
-  console.log('[ExpandedProductScreen] Initial Image Index:', initialImageIndex);
+  const { productId, sourcePosition, initialProduct, initialImageIndex } = routeParams;
+  
+  // Component initialization (removed logging for performance)
   
   // State for product data and UI - start with no loading if we have initial product
   const [isLoading, setIsLoading] = useState(false); // Always start as not loading for faster UI
@@ -193,7 +226,13 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   const [displayedSimilarCount, setDisplayedSimilarCount] = useState(LOAD_MORE_COUNT);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [sizeOptions] = useState<SizeOption[]>(() => generateSizeOptions());
+  const [sizeOptions, setSizeOptions] = useState<SizeOption[]>([]);
+  const [inspirationPosts, setInspirationPosts] = useState<Post[]>([]);
+  const [isLoadingInspiration, setIsLoadingInspiration] = useState(false);
+  
+  // Shelf context
+  const { checkIsInShelf, addProductToShelf, removeProductFromShelf } = useShelf();
+  const [isInShelf, setIsInShelf] = useState(false);
   
   // Theme
   const { isDarkMode, theme } = useTheme();
@@ -222,10 +261,95 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   // Refs for carousel and carousel thumbs
   const mainCarouselRef = useRef<ScrollView>(null);
   const thumbnailCarouselRef = useRef<FlatList>(null);
+
+  // Complete the shared element transition - immediate for seamless experience
+  const completeTransition = useCallback(() => {
+    // Set values immediately for seamless transition
+    sharedElementOpacity.setValue(0);
+    mainContentOpacity.setValue(1);
+    setIsTransitionActive(false);
+  }, [sharedElementOpacity, mainContentOpacity]);
+
+  // Fetch similar products with random height offsets
+  const fetchSimilarProducts = useCallback(async (isRefresh = false) => {
+    if (isLoadingMore && !isRefresh) return;
+    
+    setIsLoadingMore(true);
+    
+    try {
+      console.log('🔄 Fetching similar products from API...');
+      
+      // Fetch real products from the API
+      const apiProducts = await fetchRandomProducts(50);
+      
+      if (!apiProducts || apiProducts.length === 0) {
+        console.warn('⚠️ No products returned from API');
+        return;
+      }
+      
+      console.log(`✅ Successfully fetched ${apiProducts.length} similar products`);
+      
+      // Format products with random height offsets for masonry
+      const formattedProducts: FormattedSimpleProduct[] = apiProducts.map((item, index) => {
+        // Generate a random height offset for masonry staggering
+        const randomOffset = Math.floor(Math.random() * 50);
+        
+        return {
+          id: `${item.id}_${Date.now()}_${index}`, // Make sure IDs are truly unique
+          name: item.name || 'Product',
+          price: typeof item.price === 'string' 
+            ? parseFloat(String(item.price).replace(/[^\d.-]/g, '')) || 0 
+            : (Number(item.price) || 0),
+          currency: item.currency || '$',
+          brand: item.brand || 'Unknown Brand',
+          images: item.images || [],
+          productUrl: item.productUrl || '',
+          cardType: 'simple',
+          masonryHeightOffset: randomOffset,
+        };
+      });
+      
+      // Update state
+      if (isRefresh) {
+        setSimilarProducts(formattedProducts); // Replace for refresh
+      } else {
+        setSimilarProducts(prev => [...prev, ...formattedProducts]); // Append for load more
+      }
+    } catch (error) {
+      console.error('❌ Error fetching similar products:', error);
+    } finally {
+      setIsLoadingMore(false);
+      setRefreshing(false);
+    }
+  }, [isLoadingMore]);
+
+  // Fetch inspiration posts that feature this product
+  const fetchInspirationPosts = useCallback(async () => {
+    if (!product) return;
+    
+    setIsLoadingInspiration(true);
+    
+    try {
+      console.log(`🔍 Fetching inspiration posts for product: "${product.productName}", brand: "${product.brand}"`);
+      
+      // Search for posts that feature this product
+      const posts = await getPostsByProduct(product.productName, product.brand, 10);
+      
+      console.log(`✅ Found ${posts.length} inspiration posts`);
+      setInspirationPosts(posts);
+    } catch (error) {
+      console.error('❌ Error fetching inspiration posts:', error);
+      setInspirationPosts([]);
+    } finally {
+      setIsLoadingInspiration(false);
+    }
+  }, [product]);
   
-  // Format product images into the expected format
-  const productImages = product
-    ? product.images && product.images.length > 0
+  // Memoize product images formatting to prevent repeated calculation
+  const productImages = useMemo(() => {
+    if (!product) return [];
+    
+    return product.images && product.images.length > 0
       // If product already has an images array, use it
       ? product.images
       // Otherwise, create from productImage and additionalImages
@@ -235,8 +359,8 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
             id: `${product.id}_${index}`,
             url,
           })) || []),
-        ]
-    : [];
+        ];
+  }, [product]);
   
   // Clean up animations on unmount
   useEffect(() => {
@@ -251,27 +375,19 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     };
   }, []);
   
+  // Update size options when product changes
+  useEffect(() => {
+    if (product) {
+      const processedSizes = processSizeData(product.sizes);
+      setSizeOptions(processedSizes);
+    }
+  }, [product]);
+
   // Process product data immediately on mount
   useEffect(() => {
     if (initialProduct) {
-      // Process product data synchronously for immediate display
-      console.log('[ExpandedProductScreen] Processing provided product data:', initialProduct);
-      
-      // Log all available image URLs
-      console.log('[ExpandedProductScreen] Available image URLs:');
-      if (initialProduct.images) {
-        initialProduct.images.forEach((img: any, index: number) => {
-          console.log(`  Image ${index}: ${typeof img === 'string' ? img : img.url}`);
-        });
-      }
-      if (initialProduct.productImage) {
-        console.log(`  Product Image: ${initialProduct.productImage}`);
-      }
-      if (initialProduct.additionalImages) {
-        initialProduct.additionalImages.forEach((url: string, index: number) => {
-          console.log(`  Additional Image ${index}: ${url}`);
-        });
-      }
+      // Processing initial product
+      console.log('[ExpandedProductScreen] Processing initial product:', initialProduct.id);
       
       // Format the product data to match the expected structure
       const formattedProduct = {
@@ -281,7 +397,12 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
         productImage: initialProduct.images?.[0]?.url || '',
         additionalImages: initialProduct.images?.slice(1).map((img: any) => img.url) || [],
         price: initialProduct.price ?? undefined,
-        description: initialProduct.description || initialProduct.title || initialProduct.name || 'Product details',
+        description: formatProductDescription(
+          initialProduct.description,
+          initialProduct.brand,
+          initialProduct.title || initialProduct.name,
+          initialProduct.name
+        ),
         images: initialProduct.images || [],
         productUrl: initialProduct.productUrl || '',
         // Placeholder for missing fields
@@ -294,9 +415,6 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
         isFavorite: initialProduct.isFavorite ?? false,
         isInCart: initialProduct.isInCart ?? false,
       };
-      
-      console.log('Formatted product data:', formattedProduct);
-      console.log('Product URL in formatted product:', formattedProduct.productUrl);
       
       // Set product immediately for instant UI display
       setProduct(formattedProduct);
@@ -316,10 +434,14 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
       console.log(`[ExpandedProductScreen] Fetching product ${productId} from API`);
       try {
         // Fetch a batch of products and find the matching one
-        const apiProducts: ApiProduct[] = await fetchRandomProducts(50);
+        const apiProducts: ApiProduct[] = await fetchRandomProducts(80);
         const match = apiProducts.find(p => p.id === productId);
         if (match) {
           console.log(`[ExpandedProductScreen] Found product ${productId} in API response`);
+          
+          // API product found
+          console.log('[ExpandedProductScreen] Found API product:', match.id);
+          
           // Format the API product into our Product interface
           const formatted: Product = {
             id: match.id,
@@ -328,7 +450,12 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
             productImage: match.images?.[0]?.url || '',
             additionalImages: match.images?.slice(1).map(img => img.url) || [],
             price: match.price ?? undefined,
-            description: match.name ? `${match.brand || ''}: ${match.name}` : 'Product details',
+            description: formatProductDescription(
+              match.description,
+              match.brand,
+              match.name,
+              match.name
+            ),
             images: match.images || [],
             productUrl: match.productUrl || '',
             category: 'Fashion',
@@ -340,6 +467,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
             isFavorite: false,
             isInCart: false,
           };
+          
           setProduct(formatted);
           setIsLoading(false);
           return;
@@ -350,22 +478,25 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
         console.error(`[ExpandedProductScreen] Error fetching products for ${productId}:`, err);
       }
       
-      // Fallback to sample feed data
-      console.warn('Using fallback feed data for product details');
-      await createDelay(500);
-      const foundFeed = feedData.singleOutfitFullData.find(item => item.id === productId)
-        || feedData.singleOutfitFullData[0];
-      setProduct(foundFeed);
+      // No fallback data available
+      console.warn('No product data available');
       setIsLoading(false);
     };
     
     loadProduct();
   }, [productId, initialProduct, navigation]);
   
-  // Load similar products
+  // Load similar products and inspiration posts
   useEffect(() => {
     fetchSimilarProducts();
-  }, []);
+  }, []); // Empty dependency array for initial load only
+
+  // Load inspiration posts when product data is available
+  useEffect(() => {
+    if (product) {
+      fetchInspirationPosts();
+    }
+  }, [product]); // Only depend on product, not the function
   
   // Complete transition immediately when product is available for seamless experience
   useEffect(() => {
@@ -373,7 +504,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
       // Complete transition immediately when product data is available
       completeTransition();
     }
-  }, [product, isLoading]);
+  }, [product, isLoading]); // Don't depend on the function
   
   // Run entrance animations when product loads - immediate for seamless transition
   useEffect(() => {
@@ -392,7 +523,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
       const currentUser = auth().currentUser;
       if (product && currentUser) {
         try {
-          const savedStatus = await hasUserSavedPost(currentUser.uid, product.id);
+          const savedStatus = await checkIfProductIsSaved(currentUser.uid, product.id);
           setIsSaved(savedStatus);
         } catch (error) {
           console.error('Error checking save status:', error);
@@ -403,13 +534,17 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     checkSaveStatus();
   }, [product]);
   
-  // Complete the shared element transition - immediate for seamless experience
-  const completeTransition = () => {
-    // Set values immediately for seamless transition
-    sharedElementOpacity.setValue(0);
-    mainContentOpacity.setValue(1);
-    setIsTransitionActive(false);
-  };
+  // Check if product is in shelf when product loads
+  useEffect(() => {
+    const checkShelfStatus = () => {
+      if (product) {
+        const inShelf = checkIsInShelf(product.id);
+        setIsInShelf(inShelf);
+      }
+    };
+    
+    checkShelfStatus();
+  }, [product, checkIsInShelf]);
   
   // Handle section layout
   const onSectionLayout = (index: number) => (e: any) => {
@@ -466,10 +601,114 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     }
 
     try {
-      const newSavedStatus = await toggleSavePost(currentUser.uid, product.id);
-      setIsSaved(newSavedStatus);
+      // Check current save status first
+      const isCurrentlySaved = await checkIfProductIsSaved(currentUser.uid, product.id);
+      
+      if (isCurrentlySaved) {
+        // Remove from favorites
+        await removeProductFromFavorites(currentUser.uid, product.id);
+        setIsSaved(false);
+        console.log('Product removed from favorites successfully');
+      } else {
+        // Add to favorites using the same format as RecommendationScreen
+        const favoriteData = {
+          userId: currentUser.uid,
+          productId: product.id,
+          name: product.productName || 'Unnamed Product',
+          brand: product.brand || 'Unknown Brand',
+          price: typeof product.price === 'number' ? product.price : 0,
+          imageUrl: product.images && product.images.length > 0 ? product.images[0].url : product.productImage || '',
+          url: product.productUrl || '',
+          favorited: new Date().toISOString(),
+          description: product.description || '',
+        };
+        
+        // Save to the same collection that ClosetScreen reads from
+        await db.collection('user_favorite_products').add(favoriteData);
+        setIsSaved(true);
+        console.log('Product saved to favorites successfully');
+      }
     } catch (error) {
       console.error('Error toggling save status:', error);
+    }
+  };
+
+  // Helper function to check if product is saved
+  const checkIfProductIsSaved = async (userId: string, productId: string): Promise<boolean> => {
+    try {
+      const snapshot = await db
+        .collection('user_favorite_products')
+        .where('userId', '==', userId)
+        .where('productId', '==', productId)
+        .get();
+      
+      return !snapshot.empty;
+    } catch (error) {
+      console.error('Error checking if product is saved:', error);
+      return false;
+    }
+  };
+
+  // Helper function to remove product from favorites
+  const removeProductFromFavorites = async (userId: string, productId: string): Promise<void> => {
+    try {
+      const snapshot = await db
+        .collection('user_favorite_products')
+        .where('userId', '==', userId)
+        .where('productId', '==', productId)
+        .get();
+      
+             const deletePromises = snapshot.docs.map((doc: any) => doc.ref.delete());
+      await Promise.all(deletePromises);
+    } catch (error) {
+      console.error('Error removing product from favorites:', error);
+      throw error;
+    }
+  };
+
+  // Handle shelf toggle
+  const handleShelfToggle = async (newIsInShelf: boolean) => {
+    if (!product) {
+      console.log('No product available for shelf toggle');
+      return;
+    }
+
+    try {
+      setIsInShelf(newIsInShelf); // Optimistic update
+      
+      if (newIsInShelf) {
+        // Add to shelf
+        const shelfProduct = {
+          id: product.id,
+          name: product.productName || 'Unnamed Product',
+          brand: product.brand,
+          price: typeof product.price === 'number' ? product.price : 0,
+          currency: '$',
+          images: product.images || [],
+          productUrl: product.productUrl,
+        };
+        
+        const success = await addProductToShelf(shelfProduct, 'product_detail');
+        
+        if (!success) {
+          // Revert optimistic update on failure
+          setIsInShelf(false);
+          Alert.alert('Error', 'Failed to add to shelf');
+        }
+      } else {
+        // Remove from shelf
+        const success = await removeProductFromShelf(product.id);
+        
+        if (!success) {
+          // Revert optimistic update on failure
+          setIsInShelf(true);
+          Alert.alert('Error', 'Failed to remove from shelf');
+        }
+      }
+    } catch (error) {
+      // Revert optimistic update on error
+      setIsInShelf(!newIsInShelf);
+      Alert.alert('Error', 'Something went wrong');
     }
   };
 
@@ -547,69 +786,14 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     }
   };
   
-  // Fetch similar products with random height offsets
-  const fetchSimilarProducts = async (isRefresh = false) => {
-    if (isLoadingMore && !isRefresh) return;
-    
-    setIsLoadingMore(true);
-    
-    try {
-      console.log('🔄 Fetching similar products from API...');
-      
-      // Fetch real products from the API
-      // In a more sophisticated implementation, you could filter by category, brand, etc.
-      // based on the current product to get truly "similar" products
-      const apiProducts = await fetchRandomProducts(50);
-      
-      if (!apiProducts || apiProducts.length === 0) {
-        console.warn('⚠️ No products returned from API');
-        return;
-      }
-      
-      console.log(`✅ Successfully fetched ${apiProducts.length} similar products`);
-      
-      // Format products with random height offsets for masonry
-      const formattedProducts: FormattedSimpleProduct[] = apiProducts.map((item, index) => {
-        // Generate a random height offset for masonry staggering
-        const randomOffset = Math.floor(Math.random() * 50);
-        
-        return {
-          id: `${item.id}_${Date.now()}_${index}`, // Make sure IDs are truly unique
-          name: item.name || 'Product',
-          price: typeof item.price === 'string' 
-            ? parseFloat(item.price.toString().replace('$', '')) 
-            : item.price,
-          currency: item.currency || '$',
-          brand: item.brand,
-          // Use the images array from API products, fallback to single image if needed
-          images: item.images && item.images.length > 0 
-            ? item.images 
-            : [{ id: `${item.id}_main_${index}`, url: item.url || '' }],
-          productUrl: item.url,
-          cardType: 'full' as const, // Use full card type to show all info
-          masonryHeightOffset: randomOffset
-        };
-      });
-      
-      if (isRefresh) {
-        setSimilarProducts(formattedProducts);
-        setDisplayedSimilarCount(LOAD_MORE_COUNT);
-      } else {
-        setSimilarProducts(prevProducts => [...prevProducts, ...formattedProducts]);
-      }
-    } catch (error) {
-      console.error('❌ Error fetching similar products:', error);
-      // You could show a user-friendly error message here if needed
-    } finally {
-      setIsLoadingMore(false);
-      setRefreshing(false);
-    }
-  };
-  
+
   // Handle refresh
   const handleRefresh = () => {
     setRefreshing(true);
     fetchSimilarProducts(true);
+    if (product) {
+      fetchInspirationPosts();
+    }
   };
   
   // Handle loading more items
@@ -620,7 +804,32 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     fetchSimilarProducts();
   };
   
-  // Removed old content actions - now using direct website button
+  // Handle product press from similar products
+  const handleSimilarProductPress = (product: FormattedSimpleProduct) => {
+    console.log(`[ExpandedProductScreen2] Navigating to similar product: ${product.id}`);
+    console.log(`[ExpandedProductScreen2] Product data:`, {
+      id: product.id,
+      name: product.name,
+      brand: product.brand,
+      price: product.price,
+      images: product.images?.length || 0
+    });
+    
+    // Navigate to the same screen with the new product
+    navigation.navigate('ExpandedProductScreen2', {
+      productId: product.id,
+      sourcePosition: { x: 0, y: 0, width: 100, height: 100 },
+      product: product,
+      initialImageIndex: 0, // Start with first image
+    });
+    
+    // Scroll to top to show the new product content immediately
+    setTimeout(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({ y: 0, animated: true });
+      }
+    }, 150); // Small delay to ensure navigation completes
+  };
   
   // Render a thumbnail for the image slider
   const renderThumbnail = ({ item, index }: { item: any; index: number }) => {
@@ -654,37 +863,42 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   const SIMILAR_ITEM_SPACING = 12; // Optimal spacing for this section
   const SIMILAR_NUM_COLUMNS = 2;
   
-  // Available width calculation: screen width minus section padding
-  const availableWidth = SCREEN_WIDTH - SECTION_HORIZONTAL_PADDING;
-  
-  // Calculate card width: (available width - total spacing) / number of columns
-  // Total spacing = (columns + 1) * spacing for proper edge spacing
-  const totalSpacing = (SIMILAR_NUM_COLUMNS + 1) * SIMILAR_ITEM_SPACING;
-  const similarProductCardWidth = (availableWidth - totalSpacing) / SIMILAR_NUM_COLUMNS;
-  
-  // Optimal image aspect ratio for mobile cards (not too tall, not too wide)
-  const SIMILAR_IMAGE_ASPECT_RATIO = 1.25; // Slightly taller than square for clothing items
-  
-  // Debug sizing calculations
-  console.log('📐 Similar products sizing:', {
-    screenWidth: SCREEN_WIDTH,
-    sectionPadding: SECTION_HORIZONTAL_PADDING,
-    availableWidth: availableWidth,
-    totalSpacing: totalSpacing,
-    cardWidth: similarProductCardWidth,
-    aspectRatio: SIMILAR_IMAGE_ASPECT_RATIO
-  });
+  // Memoize sizing calculations to prevent repeated execution
+  const sizingCalculations = useMemo(() => {
+    // Available width calculation: screen width minus section padding
+    const availableWidth = SCREEN_WIDTH - SECTION_HORIZONTAL_PADDING;
+    
+    // Calculate card width: (available width - total spacing) / number of columns
+    // Total spacing = (columns + 1) * spacing for proper edge spacing
+    const totalSpacing = (SIMILAR_NUM_COLUMNS + 1) * SIMILAR_ITEM_SPACING;
+    const similarProductCardWidth = (availableWidth - totalSpacing) / SIMILAR_NUM_COLUMNS;
+    
+    // Optimal image aspect ratio for mobile cards (not too tall, not too wide)
+    const SIMILAR_IMAGE_ASPECT_RATIO = 1.25; // Slightly taller than square for clothing items
+    
+    return {
+      availableWidth,
+      totalSpacing,
+      similarProductCardWidth,
+      SIMILAR_IMAGE_ASPECT_RATIO
+    };
+  }, []);
 
   // Custom compact product card for similar products section
   const renderCompactProductCard = (product: FormattedSimpleProduct) => {
-    const imageHeight = similarProductCardWidth / SIMILAR_IMAGE_ASPECT_RATIO;
+    // Validate price (removed excessive logging for performance)
+    if (product.price === null || product.price === undefined) {
+      console.warn('Invalid price for product:', product.id);
+    }
+    
+    const imageHeight = sizingCalculations.similarProductCardWidth / sizingCalculations.SIMILAR_IMAGE_ASPECT_RATIO;
     const themeColors = isDarkMode ? colors.dark : colors.light;
     
     return (
       <TouchableOpacity
         style={[
           {
-            width: similarProductCardWidth,
+            width: sizingCalculations.similarProductCardWidth,
             borderRadius: 12,
             borderWidth: 1,
             borderColor: isDarkMode ? '#333' : '#E5E5E5',
@@ -697,7 +911,7 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
             elevation: 2,
           }
         ]}
-        onPress={() => console.log('Navigate to product:', product.id)}
+        onPress={() => handleSimilarProductPress(product)}
         activeOpacity={0.9}
       >
         {/* Image */}
@@ -799,26 +1013,127 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     );
   };
 
-  // Render a single similar product item with optimized sizing for the available space
-  const renderSimilarItem = ({ item, i }: { item: any; i: number }) => {
-    const product = item as FormattedSimpleProduct;
+  // Fallback FlatList renderer for when MasonryList fails
+  const renderFallbackSimilarProducts = () => {
+    const itemsPerRow = SIMILAR_NUM_COLUMNS;
+    const rows = [];
     
-    // Skip products without valid images (same check as OverviewScreen)
-    if (!product.images || product.images.length === 0 || !product.images[0].url) {
-      console.warn(`Skipping similar product ${product.id} - no images`);
-      return null;
+    for (let i = 0; i < similarProducts.slice(0, displayedSimilarCount).length; i += itemsPerRow) {
+      const rowItems = similarProducts.slice(0, displayedSimilarCount).slice(i, i + itemsPerRow);
+      rows.push(
+        <View key={`row-${i}`} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          {rowItems.map((product, index) => (
+            <View key={`fallback-${product.id}-${index}`} style={{ flex: 1, marginHorizontal: SIMILAR_ITEM_SPACING / 2 }}>
+              {renderCompactProductCard(product)}
+            </View>
+          ))}
+          {/* Fill empty spaces if needed */}
+          {rowItems.length < itemsPerRow && 
+            Array(itemsPerRow - rowItems.length).fill(0).map((_, index) => (
+              <View key={`empty-${i}-${index}`} style={{ flex: 1 }} />
+            ))
+          }
+        </View>
+      );
     }
     
     return (
-      <View 
-        key={`similar-product-${product.id}-${i}`}
-        style={{
-          marginHorizontal: SIMILAR_ITEM_SPACING / 2,
-          marginBottom: SIMILAR_ITEM_SPACING,
-        }}
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.masonryContentContainer, 
+          { 
+            paddingHorizontal: SIMILAR_ITEM_SPACING / 2,
+            paddingTop: SIMILAR_ITEM_SPACING / 2,
+            paddingBottom: 5,
+          }
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.primary}
+          />
+        }
       >
-        {renderCompactProductCard(product)}
-      </View>
+        {rows}
+        {isLoadingMore && renderFooter()}
+      </ScrollView>
+    );
+  };
+
+  // Render inspiration post item
+  const renderInspirationPost = (post: Post) => {
+    const themeColors = isDarkMode ? colors.dark : colors.light;
+    
+    return (
+      <TouchableOpacity
+        key={post.id}
+        style={[
+          styles.inspirationPostCard,
+          {
+            backgroundColor: themeColors.surface,
+            borderColor: themeColors.border,
+          }
+        ]}
+        onPress={() => {
+          // Navigate to post detail screen
+          console.log('Navigate to post:', post.id);
+        }}
+        activeOpacity={0.9}
+      >
+        {/* Post Image */}
+        <Image
+          source={{ uri: post.imageUrl }}
+          style={styles.inspirationPostImage}
+          resizeMode="cover"
+        />
+        
+        {/* Post Info */}
+        <View style={styles.inspirationPostInfo}>
+          <View style={styles.inspirationPostHeader}>
+            {post.userAvatar ? (
+              <Image
+                source={{ uri: post.userAvatar }}
+                style={styles.inspirationUserAvatar}
+              />
+            ) : (
+              <View style={[styles.inspirationUserAvatar, { backgroundColor: themeColors.primary }]}>
+                <Text style={styles.inspirationUserInitial}>
+                  {post.username?.[0]?.toUpperCase() || 'U'}
+                </Text>
+              </View>
+            )}
+            <Text style={[styles.inspirationUsername, { color: themeColors.text.primary }]}>
+              {post.username || 'Anonymous'}
+            </Text>
+          </View>
+          
+          {post.caption && (
+            <Text
+              style={[styles.inspirationCaption, { color: themeColors.text.secondary }]}
+              numberOfLines={2}
+            >
+              {post.caption}
+            </Text>
+          )}
+          
+          <View style={styles.inspirationStats}>
+            <View style={styles.inspirationStatItem}>
+              <Icon name="heart" size={14} color={themeColors.primary} />
+              <Text style={[styles.inspirationStatText, { color: themeColors.text.secondary }]}>
+                {post.likes || 0}
+              </Text>
+            </View>
+            <View style={styles.inspirationStatItem}>
+              <Icon name="comment" size={14} color={themeColors.primary} />
+              <Text style={[styles.inspirationStatText, { color: themeColors.text.secondary }]}>
+                {post.comments || 0}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
     );
   };
   
@@ -895,9 +1210,6 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
     outputRange: [0, 0.5, 1],
     extrapolate: 'clamp'
   });
-  
-  // MasonryList component with proper typing
-  const MasonryListWithFooter = MasonryList as React.ComponentType<any>;
   
   // Render loading state
   if (isLoading || !product) {
@@ -1159,54 +1471,43 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
           
           {/* Price (only show when scrolled past header price) */}
           <View style={styles.detailsContainer}>
-            {/* Sizes */}
-            <View style={styles.sizesContainer}>
-              <Text style={[styles.subSectionTitle, { color: theme.text.primary }]}>
-                Available Sizes
-              </Text>
-              <View style={styles.sizeOptions}>
-                {sizeOptions.map((size) => (
-                  <TouchableOpacity
-                    key={size.id}
-                    style={[
-                      styles.sizeOption,
-                      {
-                        backgroundColor: selectedSize === size.id
-                          ? theme.primary
-                          : theme.surface,
-                        borderColor: theme.border,
-                        opacity: size.isAvailable ? 1 : 0.4,
-                      }
-                    ]}
-                    onPress={() => size.isAvailable && handleSizeSelect(size.id)}
-                    disabled={!size.isAvailable}
-                  >
-                    <Text
-                      style={[
-                        styles.sizeText,
-                        {
-                          color: selectedSize === size.id
-                            ? 'white'
-                            : theme.text.primary
-                        }
-                      ]}
-                    >
-                      {size.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
 
             {/* Description */}
             <View style={styles.descriptionContainer}>
               <Text style={[styles.subSectionTitle, { color: theme.text.primary }]}>
                 Description
               </Text>
-              <Text style={[styles.descriptionText, { color: theme.text.secondary }]}>  
-                {product.description || 'Not Available'}
-              </Text>
+              <FormattedDescription
+                html={product.description || ''}
+                useSimpleFormatting={false}
+                style={styles.descriptionText}
+              />
             </View>
+            
+            {/* Add to Shelf Button */}
+            <TouchableOpacity
+              style={[styles.addToShelfButton, { 
+                backgroundColor: isInShelf ? '#FF6347' : 'transparent',
+                borderColor: '#FF6347'
+              }]}
+              onPress={() => handleShelfToggle(!isInShelf)}
+            >
+              <ShelfIcon
+                isInShelf={isInShelf}
+                onToggle={handleShelfToggle}
+                size={20}
+                activeColor="#FFFFFF"
+                inactiveColor="#FF6347"
+                showBackground={false}
+                variant="hanger"
+                showAnimation={false}
+              />
+              <Text style={[styles.addToShelfText, { 
+                color: isInShelf ? "#FFFFFF" : '#FF6347'
+              }]}>
+                {isInShelf ? "Added to Shelf" : "Add to Shelf"}
+              </Text>
+            </TouchableOpacity>
             
             {/* Save to Favorites Button */}
             <TouchableOpacity
@@ -1233,47 +1534,70 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
         {/* Similar Products Section */}
         <View 
           onLayout={onSectionLayout(1)} 
-          style={[styles.section, styles.lastSection, { backgroundColor: theme.background }]}
+          style={[styles.section, { backgroundColor: theme.background }]}
         >
-          <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionHeading, { color: theme.text.primary }]}>Explore Similar</Text>
-            <TouchableOpacity 
-              style={styles.sectionButton}
-              onPress={() => scrollToSection(0)}
-            >
-              <Text style={{ color: theme.primary }}>Back to Details</Text>
-              <Icon name="chevron-up" size={20} color={theme.primary} />
-            </TouchableOpacity>
-          </View>
-          
-          {/* Masonry grid of similar products */}
-          <View style={styles.similarProductsContainer}>
-            <MasonryListWithFooter
-              data={similarProducts.slice(0, displayedSimilarCount)}
-              numColumns={SIMILAR_NUM_COLUMNS}
-              renderItem={renderSimilarItem}
-              keyExtractor={(item: FormattedSimpleProduct, index: number) => `similar_product_${item.id}_${index}`}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={handleRefresh}
-                  tintColor={theme.primary}
-                />
-              }
-              onEndReached={handleLoadMore}
-              onEndReachedThreshold={0.5}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={[
-                styles.masonryContentContainer, 
-                { 
-                  paddingHorizontal: SIMILAR_ITEM_SPACING / 2,
-                  paddingTop: SIMILAR_ITEM_SPACING / 2,
-                }
-              ]}
-              ListFooterComponent={renderFooter()}
-            />
-          </View>
+          <CollapsibleProductSection
+            title="Explore Similar"
+            defaultCollapsed={false}
+            collapsedSummary="View similar products"
+            style={{ backgroundColor: theme.background }}
+            removeContentPadding={true}
+          >
+            {/* Masonry grid of similar products */}
+            <View style={styles.similarProductsContainer}>
+              {similarProducts.length === 0 ? (
+                <View style={styles.similarProductsLoading}>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <Text style={[styles.similarProductsLoadingText, { color: theme.text.secondary }]}>
+                    Loading similar products...
+                  </Text>
+                </View>
+              ) : (
+                renderFallbackSimilarProducts()
+              )}
+            </View>
+          </CollapsibleProductSection>
         </View>
+
+        {/* Find Inspiration Section - Only show if there are posts or loading */}
+        {(inspirationPosts.length > 0 || isLoadingInspiration) && (
+          <View style={[styles.section, styles.lastSection, { backgroundColor: theme.background }]}>
+            <CollapsibleProductSection
+              title="Find Inspiration"
+              defaultCollapsed={false}
+              collapsedSummary={`${inspirationPosts.length} posts featuring this product`}
+              style={{ backgroundColor: theme.background }}
+            >
+            {isLoadingInspiration ? (
+              <View style={styles.inspirationLoading}>
+                <ActivityIndicator size="small" color={theme.primary} />
+                <Text style={[styles.inspirationLoadingText, { color: theme.text.secondary }]}>
+                  Finding posts with this product...
+                </Text>
+              </View>
+            ) : inspirationPosts.length > 0 ? (
+              <View style={styles.inspirationContainer}>
+                <Text style={[styles.inspirationSubtitle, { color: theme.text.secondary }]}>
+                  See how others styled this product
+                </Text>
+                <View style={styles.inspirationGrid}>
+                  {inspirationPosts.map(renderInspirationPost)}
+                </View>
+              </View>
+            ) : (
+              <View style={styles.inspirationEmpty}>
+                <Icon name="camera-outline" size={48} color={theme.text.secondary} />
+                <Text style={[styles.inspirationEmptyTitle, { color: theme.text.primary }]}>
+                  No inspiration posts yet
+                </Text>
+                <Text style={[styles.inspirationEmptyText, { color: theme.text.secondary }]}>
+                  Be the first to share an outfit featuring this product!
+                </Text>
+              </View>
+            )}
+            </CollapsibleProductSection>
+          </View>
+        )}
       </Animated.ScrollView>
       
       {/* Floating action button for adding to cart (visible on scroll) - Commented out for closet functionality
@@ -1502,9 +1826,9 @@ const styles = StyleSheet.create({
   // Content section styles
   section: { 
     paddingHorizontal: 20, 
-    paddingVertical: 15,
+    paddingVertical: 3,
     borderRadius: 25,
-    marginTop: 10,
+    marginTop: 0,
   },
   lastSection: {
     paddingBottom: 70,
@@ -1532,27 +1856,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 12,
   },
-  sizesContainer: {
-    marginBottom: 20,
-  },
-  sizeOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  sizeOption: {
-    width: 50,
-    height: 50,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-  },
-  sizeText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
   descriptionContainer: {
     marginBottom: 24,
   },
@@ -1571,6 +1874,21 @@ const styles = StyleSheet.create({
   },
   addToCartText: {
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  addToShelfButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 15,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    marginTop: 12,
+    borderWidth: 2,
+  },
+  addToShelfText: {
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
@@ -1595,7 +1913,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   masonryContentContainer: {
-    paddingBottom: 80,
+    paddingBottom: 10,
   },
   // Floating action button
   floatingActionButton: {
@@ -1678,6 +1996,111 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 3,
     elevation: 2,
+  },
+  // Inspiration section styles
+  inspirationContainer: {
+    marginTop: 8,
+  },
+  inspirationSubtitle: {
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  inspirationGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  inspirationPostCard: {
+    width: '48%',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  inspirationPostImage: {
+    width: '100%',
+    height: 120,
+  },
+  inspirationPostInfo: {
+    padding: 12,
+  },
+  inspirationPostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  inspirationUserAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  inspirationUserInitial: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  inspirationUsername: {
+    fontSize: 12,
+    fontWeight: '500',
+    flex: 1,
+  },
+  inspirationCaption: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  inspirationStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inspirationStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  inspirationStatText: {
+    fontSize: 11,
+    marginLeft: 4,
+  },
+  inspirationLoading: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  inspirationLoadingText: {
+    fontSize: 14,
+    marginTop: 8,
+  },
+  inspirationEmpty: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  inspirationEmptyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  inspirationEmptyText: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  similarProductsLoading: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  similarProductsLoadingText: {
+    fontSize: 14,
+    marginTop: 8,
   },
 });
 

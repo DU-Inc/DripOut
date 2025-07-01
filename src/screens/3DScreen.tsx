@@ -44,6 +44,8 @@ import Icon from "react-native-vector-icons/Ionicons";
 import MaterialIcon from "react-native-vector-icons/MaterialIcons";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import { RootStackParamList, MainTabParamList } from "../types/NavigationTypes";
+import { useShelf } from '../contexts/ShelfContext';
+import ShelfIcon from '../components/common/ShelfIcon';
 
 // Get screen dimensions for responsive design
 const { width: screenWidth } = Dimensions.get('window');
@@ -82,6 +84,12 @@ const ThreeDScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   
+  // Tab system for products section
+  const [activeTab, setActiveTab] = useState<'recommended' | 'shelf'>('recommended');
+  
+  // Shelf context
+  const { products: shelfProducts, loading: shelfLoading, refreshShelf } = useShelf();
+  
   // Product details modal states
   const [showProductDetails, setShowProductDetails] = useState<boolean>(false);
   const [selectedProductForDetails, setSelectedProductForDetails] = useState<Product | null>(null);
@@ -93,12 +101,12 @@ const ThreeDScreen: React.FC = () => {
   const [scrapingProduct, setScrapingProduct] = useState<boolean>(false);
   const [scrapeProgress, setScrapeProgress] = useState<number>(0);
   
-  // Colors based on theme
+  // Colors based on theme - Updated to match app branding
   const bgColor = isDarkMode ? '#000000' : '#FFFFFF';
   const textColor = isDarkMode ? '#FFFFFF' : '#000000';
   const subTextColor = isDarkMode ? '#8E8E93' : '#6E6E73'; // iOS gray
-  const mainColor = isDarkMode ? '#0A84FF' : '#007AFF'; // iOS blue
-  const accentColor = isDarkMode ? '#FF375F' : '#FF2D55'; // iOS pink/red
+  const mainColor = isDarkMode ? '#FF6B6B' : '#EF3D47'; // App brand red
+  const accentColor = isDarkMode ? '#FF375F' : '#FF3B5C'; // App accent pink/red
   const successColor = isDarkMode ? '#32D74B' : '#34C759'; // iOS green
   const cardBgColor = isDarkMode ? '#1C1C1E' : '#FFFFFF'; // iOS card background
   const modalBgColor = isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.5)';
@@ -220,9 +228,7 @@ const ThreeDScreen: React.FC = () => {
     }
   }, [showUrlModal]);
   
-  // Cache keys for the avatar image (moved to top level for reuse)
-  const USER_AVATAR_CACHE_KEY = 'user_avatar_image_url';
-  const USER_AVATAR_TIMESTAMP_KEY = 'user_avatar_image_timestamp';
+  // Cache keys will be generated per user to prevent cross-account contamination
   
   // Check if user has an avatar image saved in Firebase/local cache
   useEffect(() => {
@@ -239,6 +245,12 @@ const ThreeDScreen: React.FC = () => {
           if (isMounted) setLoadingModel(false);
           return;
         }
+        
+        // Generate user-specific cache keys to prevent cross-account issues
+        const USER_AVATAR_CACHE_KEY = `user_avatar_image_url_${currentUser.uid}`;
+        const USER_AVATAR_TIMESTAMP_KEY = `user_avatar_image_timestamp_${currentUser.uid}`;
+        
+        console.log(`🔑 Using user-specific cache keys for user: ${currentUser.uid}`);
         
         let avatarFound = false;
         
@@ -416,6 +428,10 @@ const ThreeDScreen: React.FC = () => {
         throw new Error('User not authenticated');
       }
       
+      // Generate user-specific cache keys
+      const USER_AVATAR_CACHE_KEY = `user_avatar_image_url_${currentUser.uid}`;
+      const USER_AVATAR_TIMESTAMP_KEY = `user_avatar_image_timestamp_${currentUser.uid}`;
+      
       // Upload image to Firebase Storage
       console.log(`📤 ${isUpdate ? 'Updating' : 'Creating'} avatar image in Firebase Storage`);
       
@@ -442,7 +458,7 @@ const ThreeDScreen: React.FC = () => {
       
       console.log('✅ Avatar image uploaded successfully:', uploadedImageUrl);
       
-      // Save the URL to local cache (AsyncStorage)
+      // Save the URL to user-specific cache (AsyncStorage)
       await AsyncStorage.setItem(USER_AVATAR_CACHE_KEY, uploadedImageUrl);
       await AsyncStorage.setItem(USER_AVATAR_TIMESTAMP_KEY, timestamp.toString());
       
@@ -875,10 +891,34 @@ const ThreeDScreen: React.FC = () => {
     }
   }, [tryOnBucket.length, panelState, animateToState]);
 
-  // Category filtering
+  // Convert shelf products to 3D screen format
+  const convertShelfToProduct = (shelfProduct: any): Product => {
+    return {
+      id: shelfProduct.id,
+      name: shelfProduct.name,
+      brand: shelfProduct.brand,
+      price: shelfProduct.price,
+      currency: shelfProduct.currency || '$',
+      images: shelfProduct.images?.map((img: any) => img.url) || [],
+      url: shelfProduct.productUrl || '',
+      type: 'clothing', // Default type
+      category: 'general', // Default category
+      description: `${shelfProduct.brand || ''} ${shelfProduct.name || ''}`.trim(),
+    };
+  };
+
+  // Get current products based on active tab
+  const getCurrentProducts = () => {
+    if (activeTab === 'shelf') {
+      return shelfProducts.map(convertShelfToProduct);
+    }
+    return products;
+  };
+
+  // Category filtering for current tab products
   const filteredProducts = selectedCategory === 'All'
-    ? products
-    : products.filter(product => 
+    ? getCurrentProducts()
+    : getCurrentProducts().filter(product => 
         // Filter by category - try to match by type, category, or keywords in name or description
         product.type === selectedCategory || 
         (product.category && product.category === selectedCategory) ||
@@ -1036,7 +1076,7 @@ const ThreeDScreen: React.FC = () => {
           styles.threeDContainer,
           { 
             backgroundColor: cardBgColor,
-            shadowColor: isDarkMode ? 'rgba(10, 132, 255, 0.3)' : 'rgba(0,0,0,0.1)'
+            shadowColor: isDarkMode ? 'rgba(255, 107, 107, 0.3)' : 'rgba(0,0,0,0.1)'
           }
         ]}>
           {loadingModel ? (
@@ -1199,7 +1239,7 @@ const ThreeDScreen: React.FC = () => {
                   </TouchableOpacity>
                   
                   <Text style={[styles.helperText, { color: subTextColor }]}>
-                    Take or upload a photo to create your avatar
+                    Take or upload a photo to create your avatar to unlock the try on feature
                   </Text>
                 </View>
               )}
@@ -1207,19 +1247,54 @@ const ThreeDScreen: React.FC = () => {
           )}
         </View>
 
-        {/* Products Section with categories */}
+        {/* Products Section with tab system */}
         <View style={styles.productsSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: textColor }]}>
-              Try On These Products
-            </Text>
+          {/* Tab Header */}
+          <View style={styles.tabContainer}>
+            <View style={[styles.tabBackground, { backgroundColor: surfaceColor }]}>
+              <TouchableOpacity
+                style={[
+                  styles.tab,
+                  activeTab === 'recommended' && styles.activeTab,
+                  activeTab === 'recommended' && { backgroundColor: mainColor }
+                ]}
+                onPress={() => setActiveTab('recommended')}
+              >
+                <Icon 
+                  name="sparkles" 
+                  size={16} 
+                  color={activeTab === 'recommended' ? '#FFFFFF' : subTextColor} 
+                />
+                <Text style={[
+                  styles.tabText,
+                  { color: activeTab === 'recommended' ? '#FFFFFF' : subTextColor }
+                ]}>
+                  Recommended
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.tab,
+                  activeTab === 'shelf' && styles.activeTab,
+                  activeTab === 'shelf' && { backgroundColor: '#FF6347' }
+                ]}
+                onPress={() => setActiveTab('shelf')}
+              >
+                <ShelfIcon 
+                  variant="hanger"
+                  size={16}
+                  color={activeTab === 'shelf' ? '#FFFFFF' : subTextColor}
+                />
+                <Text style={[
+                  styles.tabText,
+                  { color: activeTab === 'shelf' ? '#FFFFFF' : subTextColor }
+                ]}>
+                  Your Shelf ({shelfProducts.length})
+                </Text>
+              </TouchableOpacity>
+            </View>
             
-            {!hasModel && (
-              <View style={[styles.lockBadge, { backgroundColor: surfaceColor }]}>
-                <Icon name="lock-closed" size={12} color={subTextColor} />
-                <Text style={[styles.lockText, { color: subTextColor }]}>Create model first</Text>
-              </View>
-            )}
           </View>
           
           {/* "Try a different product" button */}
@@ -1227,7 +1302,7 @@ const ThreeDScreen: React.FC = () => {
             style={[
               styles.tryDifferentButton,
               { 
-                backgroundColor: hasModel ? 'rgba(0, 122, 255, 0.1)' : surfaceColor,
+                backgroundColor: hasModel ? 'rgba(239, 61, 71, 0.1)' : surfaceColor,
                 borderColor: hasModel ? mainColor : surfaceColor
               }
             ]}
@@ -1269,7 +1344,7 @@ const ThreeDScreen: React.FC = () => {
                   selectedCategory === category && styles.selectedCategory,
                   { 
                     backgroundColor: selectedCategory === category 
-                      ? (isDarkMode ? 'rgba(10, 132, 255, 0.2)' : 'rgba(0, 122, 255, 0.1)')
+                      ? (isDarkMode ? 'rgba(255, 107, 107, 0.2)' : 'rgba(239, 61, 71, 0.1)')
                       : 'transparent',
                     borderColor: selectedCategory === category ? mainColor : surfaceColor,
                   }
@@ -1293,38 +1368,87 @@ const ThreeDScreen: React.FC = () => {
           </ScrollView>
           
           {/* Products Grid */}
-          {loadingProducts && products.length === 0 ? (
-            <View style={styles.loadingProductsContainer}>
-              <ActivityIndicator size="large" color={mainColor} />
-              <Text style={[styles.loadingText, { color: textColor }]}>
-                Loading products...
-              </Text>
-            </View>
-          ) : filteredProducts.length === 0 ? (
-            <View style={styles.noProductsContainer}>
-              <Icon name="search-outline" size={48} color={subTextColor} />
-              <Text style={[styles.noProductsText, { color: textColor }]}>
-                No products found in this category
-              </Text>
-              <TouchableOpacity
-                style={[styles.refreshButton, { backgroundColor: mainColor }]}
-                onPress={handleRefresh}
-              >
-                <Icon name="refresh" size={16} color="#FFFFFF" />
-                <Text style={styles.refreshButtonText}>Refresh Products</Text>
-              </TouchableOpacity>
-            </View>
+          {activeTab === 'recommended' ? (
+            // Recommended tab content
+            loadingProducts && products.length === 0 ? (
+              <View style={styles.loadingProductsContainer}>
+                <ActivityIndicator size="large" color={mainColor} />
+                <Text style={[styles.loadingText, { color: textColor }]}>
+                  Loading products...
+                </Text>
+              </View>
+            ) : filteredProducts.length === 0 ? (
+              <View style={styles.noProductsContainer}>
+                <Icon name="search-outline" size={48} color={subTextColor} />
+                <Text style={[styles.noProductsText, { color: textColor }]}>
+                  No products found in this category
+                </Text>
+                <TouchableOpacity
+                  style={[styles.refreshButton, { backgroundColor: mainColor }]}
+                  onPress={handleRefresh}
+                >
+                  <Icon name="refresh" size={16} color="#FFFFFF" />
+                  <Text style={styles.refreshButtonText}>Refresh Products</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <FlatList
+                data={filteredProducts}
+                renderItem={renderProductItem}
+                keyExtractor={(item) => item.id || Math.random().toString()}
+                numColumns={2}
+                columnWrapperStyle={styles.productRow}
+                showsVerticalScrollIndicator={false}
+                scrollEnabled={false} // Disable scrolling since it's inside a ScrollView
+                ListFooterComponent={<View style={{ height: 20 }} />}
+              />
+            )
           ) : (
-            <FlatList
-              data={filteredProducts}
-              renderItem={renderProductItem}
-              keyExtractor={(item) => item.id || Math.random().toString()}
-              numColumns={2}
-              columnWrapperStyle={styles.productRow}
-              showsVerticalScrollIndicator={false}
-              scrollEnabled={false} // Disable scrolling since it's inside a ScrollView
-              ListFooterComponent={<View style={{ height: 20 }} />}
-            />
+            // Shelf tab content
+            shelfLoading ? (
+              <View style={styles.loadingProductsContainer}>
+                <ActivityIndicator size="large" color="#FF6347" />
+                <Text style={[styles.loadingText, { color: textColor }]}>
+                  Loading your shelf...
+                </Text>
+              </View>
+            ) : filteredProducts.length === 0 ? (
+              <View style={styles.noProductsContainer}>
+                <Icon name="hanger" size={48} color={subTextColor} />
+                <Text style={[styles.noProductsText, { color: textColor }]}>
+                  {shelfProducts.length === 0 
+                    ? "Your shelf is empty"
+                    : "No products found in this category"
+                  }
+                </Text>
+                <Text style={[styles.noProductsSubtext, { color: subTextColor }]}>
+                  {shelfProducts.length === 0 
+                    ? "Browse products and tap the hanger icon to add them to your shelf"
+                    : "Try a different category filter"
+                  }
+                </Text>
+                {shelfProducts.length === 0 && (
+                  <TouchableOpacity
+                    style={[styles.refreshButton, { backgroundColor: '#FF6347' }]}
+                    onPress={() => setActiveTab('recommended')}
+                  >
+                    <Icon name="sparkles" size={16} color="#FFFFFF" />
+                    <Text style={styles.refreshButtonText}>Browse Products</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              <FlatList
+                data={filteredProducts}
+                renderItem={renderProductItem}
+                keyExtractor={(item) => item.id || Math.random().toString()}
+                numColumns={2}
+                columnWrapperStyle={styles.productRow}
+                showsVerticalScrollIndicator={false}
+                scrollEnabled={false} // Disable scrolling since it's inside a ScrollView
+                ListFooterComponent={<View style={{ height: 20 }} />}
+              />
+            )
           )}
         </View>
       </Animated.ScrollView>
@@ -1512,11 +1636,11 @@ const ThreeDScreen: React.FC = () => {
             </View>
             
             <View style={[
-              styles.photoTipContainer, 
-              { 
-                backgroundColor: isDarkMode ? 'rgba(10, 132, 255, 0.1)' : 'rgba(0, 122, 255, 0.05)',
-                borderColor: isDarkMode ? 'rgba(10, 132, 255, 0.2)' : 'rgba(0, 122, 255, 0.1)'
-              }
+                        styles.photoTipContainer, 
+          { 
+            backgroundColor: isDarkMode ? 'rgba(255, 107, 107, 0.1)' : 'rgba(239, 61, 71, 0.05)',
+            borderColor: isDarkMode ? 'rgba(255, 107, 107, 0.2)' : 'rgba(239, 61, 71, 0.1)'
+          }
             ]}>
               <Icon name="information-circle-outline" size={16} color={mainColor} />
               <Text style={[styles.photoTipText, { color: subTextColor }]}>
@@ -1531,7 +1655,7 @@ const ThreeDScreen: React.FC = () => {
                 handleTakePhoto();
               }}
             >
-              <View style={[styles.optionIcon, { backgroundColor: 'rgba(10, 132, 255, 0.1)' }]}>
+              <View style={[styles.optionIcon, { backgroundColor: 'rgba(239, 61, 71, 0.1)' }]}>
                 <Icon name="camera" size={24} color={mainColor} />
               </View>
               <View style={styles.optionTextContainer}>
@@ -1552,7 +1676,7 @@ const ThreeDScreen: React.FC = () => {
                 handleSelectFromGallery();
               }}
             >
-              <View style={[styles.optionIcon, { backgroundColor: 'rgba(10, 132, 255, 0.1)' }]}>
+              <View style={[styles.optionIcon, { backgroundColor: 'rgba(239, 61, 71, 0.1)' }]}>
                 <Icon name="images" size={24} color={mainColor} />
               </View>
               <View style={styles.optionTextContainer}>
@@ -1764,7 +1888,7 @@ const ThreeDScreen: React.FC = () => {
                       styles.addUrlButton, 
                       { 
                         borderColor: mainColor,
-                        backgroundColor: isDarkMode ? 'rgba(10, 132, 255, 0.1)' : 'rgba(0, 122, 255, 0.05)'
+                        backgroundColor: isDarkMode ? 'rgba(255, 107, 107, 0.1)' : 'rgba(239, 61, 71, 0.05)'
                       }
                     ]}
                     onPress={() => {
@@ -2249,17 +2373,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  lockBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  lockText: {
-    fontSize: 12,
-    marginLeft: 4,
-  },
   
   // Create model related styles
   createModelContainer: {
@@ -2370,6 +2483,42 @@ const styles = StyleSheet.create({
     marginTop: 30,
     marginBottom: 30,
   },
+  
+  // Tab system styles
+  tabContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  tabBackground: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 4,
+    flex: 1,
+    marginRight: 12,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  activeTab: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
   categoriesContainer: {
     marginBottom: 16,
   },
@@ -2402,6 +2551,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginVertical: 16,
+  },
+  noProductsSubtext: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 20,
   },
   refreshButton: {
     flexDirection: 'row',

@@ -1,12 +1,12 @@
 export const text = {
   splash: {
-    leftPanel: 'FSI',
-    rightPanel: 'ING',
-    dash: '-',
+    leftPanel: 'DRIP',
+    rightPanel: 'OUT',
+    dash: '',
   },
   welcome: {
     title: 'Welcome to DripOut',
-    subtitle: 'Discover and Share a Fit—Your Style, Your Way.',
+    subtitle: 'Discover and Share Your Style, Your Way.',
     buttons: {
       getStarted: "Let's Get Started",
       alreadyHaveAccount: 'Already have an account?',
@@ -103,7 +103,6 @@ export const text = {
       social: {
         google: 'Continue with Google',
         apple: 'Continue with Apple',
-        pinterest: 'Continue with Pinterest',
       },
       divider: 'Or continue with',
       footer: {

@@ -146,17 +146,17 @@ const ApiInfoScreen: React.FC<{ onDismiss: () => void }> = ({ onDismiss }) => {
         <View style={[styles.infoCard, { backgroundColor: cardBgColor }]}>
           <Text style={[styles.infoTitle, { color: textColor }]}>For Developers</Text>
           <Text style={[styles.infoText, { color: secondaryTextColor }]}>
-            Check the productService.ts file and update the API_BASE_URL to match your environment:
+            Check the src/Config/apiConfig.ts file and update the API URLs to match your environment:
           </Text>
           
           <View style={[styles.codeBlock, { backgroundColor: isDarkMode ? '#000000' : '#F0F0F0' }]}>
             <Text style={[styles.codeText, { color: isDarkMode ? '#E0E0E0' : '#333333' }]}>
-              // For iOS Simulator{'\n'}
-              API_BASE_URL = 'http://localhost:8000';{'\n\n'}
-              // For Android Emulator{'\n'}
-              API_BASE_URL = 'http://10.0.2.2:8000';{'\n\n'}
-              // For Physical Device{'\n'}
-              API_BASE_URL = 'http://YOUR_COMPUTER_IP:8000';
+              // In src/Config/apiConfig.ts{'\n'}
+              const API_URLS = {'{'}
+              {'\n'}  IOS_DEVICE: 'http://YOUR_IP:8000',{'\n'}
+              {'\n'}  ANDROID_DEVICE: 'http://YOUR_IP:8000',{'\n'}
+              {'\n'}  // ... other configurations{'\n'}
+              {'}'};
             </Text>
           </View>
         </View>

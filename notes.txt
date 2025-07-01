@@ -2,24 +2,6 @@
 implement limit on try-on to 5 free per day
 
 
-in my closet, pressing and holding any item 9 either in saved outfits or my items should show an option to delete ( and should actually delete from database as well)
-implement option to delete posts as well in optimizedUserProfileScreen ( only valid if the user == post.author)
-DONE: the detail screen (my closet > saved otufits > tapping any saved outfits ) could be made more beautiful. The try on again button looks terrible - revamp. Overall idea is good though, just need to fix the placements of the outfit Id, the style of the button, the sizing of all components on the card,etc
-
-DONE: In Discover page, when a chip is selected under trending searches, the chip is pasted to the typing area - which is good. however a dialog box is displayed telling the user to "please enter a search term" - which
-is terrible because the user just selected a chip but hasnt yet clicked the search button. needs fixing
-
-
-DONE: In social feed - i think the post card can be revamped. all elements in the card are important but the arrangement and look are distasteful and doesnt feel the same level of class as other parts of the application. 
-Also - when a user makes a post, if user adds links for items in post, trigger on_demand_scraping to get those items from web and save to db. Also, save items along with post for easy retrieval
-Also - images uploaded in the create post screen > details look cropped. allow user to pinch in/out  to choose sizing
-furthermore, if a post has a link, maybe add a subtle glowy highlight to the featured pieces so users know it is clickable. and when clicked, instead of taking users directly to the website, maybe display
-a pop-up dialog box of product detail page * exactly like product detail page from home screen * and there if the user wants to, they can choose to go to the website
-
-
-social Feed loads slowly. Not terribly slowly but not user friendly like apps like instagram even though there are significantly less posts
-
-fix invalid prop type- invalid prop name
 
 home page -  move search and notification buttons to the far right but keep alignment with title. When a user clicks on notification button - display some message like * feature coming soon . same for search button
 
@@ -34,4 +16,99 @@ Possible improvment - history for fashion advisor
 
 Post picture cropped? 
 
-Fix home screen and splash screen
+
+Implement log in with gmail apple 
+Continuous load in overview screen? when getting to the end ( lets say 60/100), load more to feel like endless scrolling
+in onboarding - maybe show followers they might fw based on the choices they made in onboarding? also show founder 
+
+
+Next task: Im thinking about adding a limit to the number of times a user can attempt the try-on feature within 24 hours say - 5 times. After the user has exceeded 5 times, we alert them telling them they have to wait 12 hours 
+  for the count to reset ( only because its in development and its for a closed beta ). What do you think?
+
+✻ Thinking…
+
+  The user is asking about implementing a rate limiting feature for the try-on functionality. They want to limit users to 5 try-on attempts within 24 hours, and after exceeding that limit, users need to wait 12 hours for the 
+  count to reset.
+
+  This is a good idea for a closed beta since it:
+  1. Controls resource usage during development
+  2. Manages server load for try-on processing
+  3. Provides controlled testing environment
+  4. Can gather usage patterns
+
+  I should analyze their current try-on implementation to understand how to implement this rate limiting feature. Let me search for try-on related code first.
+
+  Since I'm in plan mode, I need to research the current implementation and then present a plan for implementing the rate limiting feature.
+
+⏺ That's a smart approach for a closed beta! Rate limiting the try-on feature will help manage server resources and gather controlled usage data. Let me research the current try-on implementation to understand how to best
+  implement this rate limiting system.
+
+⏺ Task(Find try-on feature implementation)
+  ⎿  User rejected Claude's plan:
+     ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+     │ Try-On Rate Limiting & Usage Tracking Implementation Plan                                                                                                                │
+     │                                                                                                                                                                          │
+     │ Overview                                                                                                                                                                 │
+     │                                                                                                                                                                          │
+     │ Implement comprehensive rate limiting and usage tracking for the virtual try-on functionality to control costs and prevent abuse while maintaining good user experience. │
+     │                                                                                                                                                                          │
+     │ Core Components to Create/Modify                                                                                                                                         │
+     │                                                                                                                                                                          │
+     │ 1. Try-On Usage Service (src/services/tryOnUsageService.ts)                                                                                                              │
+     │                                                                                                                                                                          │
+     │ - Create centralized service for tracking and limiting try-on requests                                                                                                   │
+     │ - Implement multiple rate limiting strategies (per-minute, daily, monthly)                                                                                               │
+     │ - Store usage data in Firestore with user-specific collections                                                                                                           │
+     │ - Handle quota enforcement and grace periods                                                                                                                             │
+     │ - Provide usage analytics and reporting                                                                                                                                  │
+     │                                                                                                                                                                          │
+     │ 2. Enhanced Try-On Service Integration                                                                                                                                   │
+     │                                                                                                                                                                          │
+     │ - Modify src/services/recommendationService.ts to integrate usage tracking                                                                                               │
+     │ - Add pre-request validation and post-request logging                                                                                                                    │
+     │ - Implement retry logic with backoff for rate-limited requests                                                                                                           │
+     │ - Add cost estimation and tracking per API call                                                                                                                          │
+     │                                                                                                                                                                          │
+     │ 3. UI Components for Usage Display                                                                                                                                       │
+     │                                                                                                                                                                          │
+     │ - Create usage indicator components showing remaining quotas                                                                                                             │
+     │ - Add premium upgrade prompts when limits are reached                                                                                                                    │
+     │ - Implement usage history and analytics display                                                                                                                          │
+     │ - Create admin dashboard components for monitoring                                                                                                                       │
+     │                                                                                                                                                                          │
+     │ 4. Database Schema (Firestore)                                                                                                                                           │
+     │                                                                                                                                                                          │
+     │ - user_tryon_usage/{userId} - Individual user usage tracking                                                                                                             │
+     │ - tryon_analytics/global - System-wide analytics                                                                                                                         │
+     │ - tryon_quotas/tiers - Different user tier configurations                                                                                                                │
+     │                                                                                                                                                                          │
+     │ Implementation Features                                                                                                                                                  │
+     │                                                                                                                                                                          │
+     │ Rate Limiting Strategy                                                                                                                                                   │
+     │                                                                                                                                                                          │
+     │ - Free Tier: 5 try-ons per day, 1 per 5 minutes                                                                                                                          │
+     │ - Premium Tier: 50 try-ons per day, 1 per minute                                                                                                                         │
+     │ - Pro Tier: 200 try-ons per day, unlimited frequency                                                                                                                     │
+     │                                                                                                                                                                          │
+     │ Usage Tracking Metrics                                                                                                                                                   │
+     │                                                                                                                                                                          │
+     │ - Total requests, successful completions, failures                                                                                                                       │
+     │ - API response times and cost tracking                                                                                                                                   │
+     │ - User behavior analytics (most used features, peak times)                                                                                                               │
+     │ - Error rate monitoring and alerting                                                                                                                                     │
+     │                                                                                                                                                                          │
+     │ User Experience Enhancements                                                                                                                                             │
+     │                                                                                                                                                                          │
+     │ - Graceful degradation when approaching limits                                                                                                                           │
+     │ - Clear messaging about quota status                                                                                                                                     │
+     │ - Smart queuing for rate-limited requests                                                                                                                                │
+     │ - Usage reset notifications and reminders                                                                                                                                │
+     │                                                                                                                                                                          │
+     │ This implementation will provide robust cost control while maintaining user satisfaction through transparent usage policies and smooth premium upgrade paths.            │
+     ╰────────────────
+
+testaccount    
+testacc123
+
+fix sign in with apple and google
+fix forgot password flow ( looks terrible )

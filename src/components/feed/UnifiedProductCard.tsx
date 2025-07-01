@@ -7,10 +7,16 @@ import {
   TouchableOpacity,
   Animated,
   Dimensions,
+  ToastAndroid,
+  Platform,
+  Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../../styles/theme/colors';
 import { SharedElement } from 'react-navigation-shared-element';
+import ShelfIcon from '../common/ShelfIcon';
+import { useShelf } from '../../contexts/ShelfContext';
+import { processSizeData, getDisplaySize } from '../../utils/sizeUtils';
 
 interface ProductImage {
   id: string;
@@ -26,10 +32,11 @@ export interface UnifiedProductCardProps {
   currency?: string;
   images: ProductImage[];
   productUrl?: string;
+  sizes?: string[]; // Available sizes for the product
   
-  // Simplified actions - only 2 primary actions
+  // Simplified actions - shelf button replaces add to cart
   onCardPress?: () => void;
-  onAddToCart?: () => void;
+  onAddToShelf?: () => void; // New shelf functionality
   onSave?: () => void; // Replaces like/bookmark functionality
   
   // Layout props
@@ -40,6 +47,10 @@ export interface UnifiedProductCardProps {
   
   // Card type for different data completeness
   cardType?: 'full' | 'simple' | 'partial';
+  
+  // Size display options
+  showSizes?: boolean; // Whether to show sizes in the card
+  maxSizesToShow?: number; // Maximum number of sizes to display
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -53,19 +64,35 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
   currency = '$',
   images,
   productUrl,
+  sizes,
   onCardPress,
-  onAddToCart,
+  onAddToShelf,
   onSave,
   cardWidth = DEFAULT_CARD_WIDTH,
   cardStyle,
   imageAspectRatio = 1.2,
   isDarkMode = false,
   cardType = 'full',
+  showSizes = false,
+  maxSizesToShow = 3,
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isImageLoading, setIsImageLoading] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  
+  // Shelf context
+  const { checkIsInShelf, addProductToShelf, removeProductFromShelf } = useShelf();
+  const [isInShelf, setIsInShelf] = useState(false);
+
+  // Check shelf status on mount and when shelf context changes
+  useEffect(() => {
+    const checkShelfStatus = () => {
+      const inShelf = checkIsInShelf(id);
+      setIsInShelf(inShelf);
+    };
+    checkShelfStatus();
+  }, [id, checkIsInShelf]);
 
   // Theme colors
   const themeColors = isDarkMode ? colors.dark : colors.light;
@@ -95,8 +122,62 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
     onCardPress?.();
   };
 
-  const handleAddToCart = () => {
-    onAddToCart?.();
+  const handleShelfToggle = async (newIsInShelf: boolean) => {
+    try {
+      setIsInShelf(newIsInShelf); // Optimistic update
+      
+      if (newIsInShelf) {
+        // Add to shelf
+        const shelfProduct = {
+          id,
+          name: name || 'Unnamed Product',
+          brand,
+          price,
+          currency,
+          images,
+          productUrl,
+        };
+        
+        const success = await addProductToShelf(shelfProduct, 'overview');
+        
+        if (success) {
+          // Show success feedback
+          const message = 'Added to shelf';
+          if (Platform.OS === 'android') {
+            ToastAndroid.show(message, ToastAndroid.SHORT);
+          } else {
+            // On iOS, you could use a different feedback mechanism
+            // For now, we'll use Alert for consistency
+            Alert.alert('Success', message);
+          }
+          onAddToShelf?.(); // Call optional callback
+        } else {
+          // Revert optimistic update on failure
+          setIsInShelf(false);
+          Alert.alert('Error', 'Failed to add to shelf');
+        }
+      } else {
+        // Remove from shelf
+        const success = await removeProductFromShelf(id);
+        
+        if (success) {
+          const message = 'Removed from shelf';
+          if (Platform.OS === 'android') {
+            ToastAndroid.show(message, ToastAndroid.SHORT);
+          } else {
+            Alert.alert('Success', message);
+          }
+        } else {
+          // Revert optimistic update on failure
+          setIsInShelf(true);
+          Alert.alert('Error', 'Failed to remove from shelf');
+        }
+      }
+    } catch (error) {
+      // Revert optimistic update on error
+      setIsInShelf(!newIsInShelf);
+      Alert.alert('Error', 'Something went wrong');
+    }
   };
 
   // Get main image
@@ -105,6 +186,13 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
 
   // Format price display
   const formattedPrice = `${currency}${price.toFixed(2)}`;
+
+  // Process sizes for display
+  const processedSizes = processSizeData(sizes);
+  const displaySizes = showSizes && processedSizes.length > 0 
+    ? processedSizes.slice(0, maxSizesToShow)
+    : [];
+  const hasMoreSizes = processedSizes.length > maxSizesToShow;
 
   // Determine what info to show based on card type and available data
   const showBrand = cardType !== 'simple' && brand;
@@ -200,20 +288,51 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
             </SharedElement>
           )}
           
-          {/* Price and Add to Cart Row */}
+          {/* Sizes */}
+          {displaySizes.length > 0 && (
+            <View style={styles.sizesContainer}>
+              <View style={styles.sizesRow}>
+                {displaySizes.map((size, index) => (
+                  <Text
+                    key={size.id}
+                    style={[styles.sizeChip, { 
+                      backgroundColor: isDarkMode ? '#333' : '#F0F0F0',
+                      color: textSecondary 
+                    }]}
+                  >
+                    {getDisplaySize(size)}
+                  </Text>
+                ))}
+                {hasMoreSizes && (
+                  <Text style={[styles.moreSizes, { color: textSecondary }]}>
+                    +{processedSizes.length - maxSizesToShow}
+                  </Text>
+                )}
+              </View>
+            </View>
+          )}
+          
+          {/* Price and Shelf Button Row */}
           <View style={styles.bottomRow}>
             <Text style={[styles.price, { color: textPrimary }]}>
               {formattedPrice}
             </Text>
             
-            {/* Add to Cart Button - Primary Action */}
-            <TouchableOpacity 
-              style={[styles.addToCartButton, { backgroundColor: themeColors.primary }]}
-              onPress={handleAddToCart}
-              hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
-            >
-              <Icon name="plus" size={16} color="#FFFFFF" />
-            </TouchableOpacity>
+            {/* Shelf Button - Primary Action */}
+            <View style={styles.shelfButtonContainer}>
+              <ShelfIcon
+                isInShelf={isInShelf}
+                onToggle={handleShelfToggle}
+                size={16}
+                activeColor="#FF6347"
+                inactiveColor={textSecondary}
+                backgroundColor={themeColors.primary}
+                showBackground={true}
+                variant="hanger"
+                showAnimation={true}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              />
+            </View>
           </View>
           
           {/* External Link Indicator for Partial Cards */}
@@ -318,9 +437,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     flex: 1,
   },
-  addToCartButton: {
+  shelfButtonContainer: {
     borderRadius: 8,
-    padding: 8,
+    padding: 4,
     justifyContent: 'center',
     alignItems: 'center',
     minWidth: 32,
@@ -335,6 +454,31 @@ const styles = StyleSheet.create({
   externalLinkText: {
     fontSize: 10,
     fontWeight: '500',
+  },
+  sizesContainer: {
+    marginBottom: 6,
+  },
+  sizesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  sizeChip: {
+    fontSize: 10,
+    fontWeight: '500',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 4,
+    marginBottom: 2,
+    textAlign: 'center',
+    minWidth: 20,
+  },
+  moreSizes: {
+    fontSize: 10,
+    fontWeight: '500',
+    fontStyle: 'italic',
+    marginLeft: 2,
   },
 });
 

@@ -144,14 +144,12 @@ const ProductDetailsModal = React.memo(({
       onRequestClose={onClose}
       statusBarTranslucent={true}
     >
-      <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
-        <TouchableOpacity 
-          style={StyleSheet.absoluteFill} 
-          activeOpacity={1} 
-          onPress={onClose} 
-        />
-        
-        <View 
+      <TouchableOpacity 
+        style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.6)' }]}
+        activeOpacity={1} 
+        onPress={onClose} 
+      >
+        <TouchableOpacity
           style={[
             styles.modernModalContent,
             { 
@@ -159,6 +157,8 @@ const ProductDetailsModal = React.memo(({
               maxHeight: height * 0.85,
             }
           ]}
+          activeOpacity={1}
+          onPress={(e) => e.stopPropagation()}
         >
           {/* Modern Header */}
           <View style={[styles.modernModalHeader]}>
@@ -345,8 +345,8 @@ const ProductDetailsModal = React.memo(({
             {/* Bottom spacing */}
             <View style={{ height: 32 }} />
           </ScrollView>
-        </View>
-      </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
     </Modal>
   );
 });
@@ -2270,7 +2270,6 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 8,
     alignSelf: 'center',
-    marginVertical: 'auto',
   },
   modernModalHeader: {
     flexDirection: 'row',

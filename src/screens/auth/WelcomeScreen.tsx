@@ -4,7 +4,7 @@ import { useTheme } from '../../styles/themeprovider';
 import SlidingPanels from '../../components/common/SlidingPanels';
 import BottomSheetWelcome from '../../components/common/BottomSheetWelcome';
 import { appStateManager } from '../../utils/appStateManager';
-import HomeScreen from '../HomeScreen';
+import OverviewScreen from '../OverviewScreen';
 import { createWelcomeStyles } from '../../styles/components/welcome.styles';
 import { WelcomeScreenProps } from '../../types/components';
 import ProviderLoginModal from '../../components/common/ProviderLoginModal';
@@ -20,7 +20,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
   const opacityAnim = useRef(new Animated.Value(0)).current;
   // State for the provider login modal
   const [providerModalVisible, setProviderModalVisible] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<'google' | 'apple' | 'pinterest' | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<'google' | 'apple' | null>(null);
   
   // Get Google auth hook for monitoring state (using stub implementation)
   const { user, isNewUser, userData } = useGoogleAuth();
@@ -86,12 +86,12 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
     });
   };
 
-  const handleSocialSignIn = (provider: 'google' | 'apple' | 'pinterest') => {
+  const handleSocialSignIn = (provider: 'google' | 'apple') => {
     setSelectedProvider(provider);
     setProviderModalVisible(true);
   };
 
-  const handleProviderLogin = (provider: 'google' | 'apple' | 'pinterest') => {
+  const handleProviderLogin = (provider: 'google' | 'apple') => {
     // This is handled by the ProviderLoginModal component
     console.log(`Provider auth initiated: ${provider}`);
   };
@@ -104,8 +104,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
   return (
     // Parent container
     <View style={{ flex: 1 }}>
-      {/* Render HomeScreen in the background */}
-      <HomeScreen />
+      {/* Render OverviewScreen in the background */}
+      <OverviewScreen isBackgroundMode={true} />
       
       {/* Overlay with Welcome content */}
       <Animated.View

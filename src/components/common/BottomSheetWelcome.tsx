@@ -171,16 +171,6 @@ const BottomSheetWelcome: React.FC<BottomSheetWelcomeProps> = ({
           >
             <Icon name="apple" size={24} color={theme.text.primary} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={{
-              ...authStyles.socialButton,
-              ...theme.elevation.light,
-              backgroundColor: theme.background, // Ensure solid background for shadow
-            }}
-            onPress={() => onSocialSignIn('pinterest')}
-          >
-            <Icon name="pinterest" size={24} color={theme.text.primary} />
-          </TouchableOpacity>
         </View>
       </View>
     </Animated.View>

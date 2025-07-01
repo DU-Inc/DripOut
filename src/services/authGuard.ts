@@ -28,13 +28,16 @@ class AuthGuard {
     // Clear any existing interval
     this.stopAuthChecks();
     
-    // Immediate check
-    this.performAuthCheck();
-    
-    // Set up periodic checks
-    this.authCheckInterval = setInterval(() => {
+    // Add a delay to allow AppStateManager to finish initialization
+    setTimeout(() => {
+      // Immediate check
       this.performAuthCheck();
-    }, this.AUTH_CHECK_INTERVAL);
+      
+      // Set up periodic checks
+      this.authCheckInterval = setInterval(() => {
+        this.performAuthCheck();
+      }, this.AUTH_CHECK_INTERVAL);
+    }, 2000); // 2 second delay
   }
 
   /**

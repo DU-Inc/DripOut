@@ -21,6 +21,8 @@ import {
   ImageBackground,
   Pressable,
   Alert,
+  TextInput,
+  Keyboard,
 } from 'react-native';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useTheme } from "../styles/themeprovider";
@@ -42,6 +44,18 @@ import { fetchFashionNews } from '../services/newsService';
 
 // Import product service to fetch from API
 import { fetchRandomProducts, Product } from '../services/productService';
+// Import welcome cache for background mode
+import { getCachedWelcomeProducts } from '../services/welcomeProductCache';
+// Import product cache for improved performance
+import { 
+  getTrendingProducts, 
+  getNewDropsProducts, 
+  getEditorsPicksProducts,
+  needsBackgroundRefresh,
+  searchProductsWithCache 
+} from '../services/productCache';
+// Import auth for user-specific caching
+import { auth } from '../Config/firebaseconfig';
 
 // Create an extended Product interface with optional title field
 interface ExtendedProduct extends Product {
@@ -104,7 +118,12 @@ const ITEM_SPACING = 6; // Consistent spacing between items
 const INITIAL_LOAD_COUNT = 10; // Number of items to load initially
 const LOAD_MORE_COUNT = 10; // Number of items to load when scrolling
 
-const OverviewScreen: React.FC = () => {
+// Add props interface for OverviewScreen
+interface OverviewScreenProps {
+  isBackgroundMode?: boolean; // For welcome screen background display
+}
+
+const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = false }) => {
   const navigation = useNavigation<OverviewScreenNavigationProp>();
   const { isDarkMode } = useTheme();
   const systemColorScheme = useColorScheme(); // Get system color scheme as backup
@@ -178,6 +197,20 @@ const OverviewScreen: React.FC = () => {
   const [activeNewsCardId, setActiveNewsCardId] = useState<string | null>(null);
   const [activeOutfitActionCardId, setActiveOutfitActionCardId] = useState<string | null>(null);
   
+  // Search state
+  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<FormattedProduct[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchMeta, setSearchMeta] = useState<{
+    total: number;
+    searchMethod: string;
+    searchTime: number;
+  } | null>(null);
+  const searchInputRef = useRef<TextInput>(null);
+  const searchTimeoutRef = useRef<number | null>(null);
+  
   // Determine current theme
   const currentIsDarkMode = isDarkMode ?? systemColorScheme === 'dark';
   
@@ -214,107 +247,301 @@ const OverviewScreen: React.FC = () => {
   }, []);
   
   // Helper to format image array; returns null if no valid images
-  function formatImages(images: any, productId: string): {id: string; url: string}[] | null {
+  function formatImages(images: any, productId?: string): {id: string; url: string}[] | null {
     if (!Array.isArray(images) || images.length === 0) {
-      logger.warn(`Skipping product ${productId} due to missing images`);
+      logger.warn(`Skipping product ${productId || 'unknown'} due to missing images`);
       return null;
     }
     return images.map((img: any, idx: number) => {
       if (typeof img === 'string') {
-        return { id: `${productId}-${idx}`, url: img };
+        return { id: `${productId || 'unknown'}-${idx}`, url: img };
       }
       if (img && img.url) {
-        return { id: img.id || `${productId}-${idx}`, url: img.url };
+        return { id: img.id || `${productId || 'unknown'}-${idx}`, url: img.url };
       }
-      return { id: `${productId}-${idx}`, url: '' };
+      return { id: `${productId || 'unknown'}-${idx}`, url: '' };
     });
   }
 
-  // Load products from API instead of feed.json
+  // Load products using cache-first approach or fallback for background mode
   useEffect(() => {
-    const loadProductsFromAPI = async () => {
+    const loadProductsWithCache = async () => {
       try {
-        // Fetch random products from API
-        let apiProducts = await fetchRandomProducts(5); // Get a good number of products for various displays
-
-        if (!isMountedRef.current) return; // Don't update state if unmounted
-
-        // Log a sample product to debug the structure
-        if (apiProducts.length > 0) {
-          console.log('Sample product structure:', JSON.stringify(apiProducts[0], null, 2));
-          // Log the image URLs for debugging
-          if (Array.isArray(apiProducts[0].images)) {
-            console.log('Image URLs from API:', apiProducts[0].images.map(img => img.url || img));
-          }
-        }
-
-        // Helper function to format products for unified card
-        const formatProductForUnifiedCard = (product: ExtendedProduct, idPrefix: string, cardType: 'full' | 'simple' | 'partial' = 'full'): FormattedProduct | null => {
-          const imgs = formatImages(product.images, product.id);
-          if (!imgs) return null;
+        if (isBackgroundMode) {
+          // Background mode: Use welcome cache only (no API calls)
+          console.log('OverviewScreen: Loading products from welcome cache for background mode');
+          const apiProducts = await getCachedWelcomeProducts();
           
-          return {
-            id: product.id || `${idPrefix}-${Math.random().toString(36).substring(2, 9)}`,
-            name: product.name || 'Unnamed Product',
-            brand: product.brand || 'Unknown Brand',
-            price: typeof product.price === 'number' ? product.price : 0,
-            currency: product.currency || '$',
-            images: imgs,
-            productUrl: product.productUrl || '',
-            cardType,
-            title: product.name || 'Unnamed Product', // For backward compatibility
-            description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'}`,
+          if (!isMountedRef.current) return;
+          
+          // Format welcome cache products for display
+          const formatProductForUnifiedCard = (product: ExtendedProduct, idPrefix: string): FormattedProduct | null => {
+            const imgs = formatImages(product.images, product.id || 'unknown-product');
+            if (!imgs) return null;
+            
+            return {
+              id: product.id || `${idPrefix}-${Math.random().toString(36).substring(2, 9)}`,
+              name: product.name || 'Unnamed Product',
+              brand: product.brand || 'Unknown Brand',
+              price: typeof product.price === 'number' ? product.price : 0,
+              currency: product.currency || '$',
+              images: imgs,
+              productUrl: product.productUrl || '',
+              cardType: 'full',
+              title: product.name || 'Unnamed Product',
+              description: product.description || `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'}`,
+            };
           };
-        };
 
-        // Distribute products across different sections
-        const trendingProducts: FormattedProduct[] = [];
-        const newDropsProducts: FormattedProduct[] = [];
-        const editorsPicksProducts: FormattedProduct[] = [];
+          // Distribute welcome cache products across sections
+          const trendingProducts: FormattedProduct[] = [];
+          const newDropsProducts: FormattedProduct[] = [];
+          const editorsPicksProducts: FormattedProduct[] = [];
 
-        // Distribute products across sections (same API, different presentation)
-        apiProducts.forEach((product, index) => {
-          let formattedProduct: FormattedProduct | null = null;
-          
-          if (index < 10) {
-            // First 10 go to trending (full cards)
-            formattedProduct = formatProductForUnifiedCard(product, 'trending', 'full');
-            if (formattedProduct) trendingProducts.push(formattedProduct);
-          } else if (index < 20) {
-            // Next 10 go to new drops (some with partial data)
-            formattedProduct = formatProductForUnifiedCard(product, 'newdrops', 'partial');
-            if (formattedProduct) newDropsProducts.push(formattedProduct);
-          } else {
-            // Rest go to editor's picks (simple cards)
-            formattedProduct = formatProductForUnifiedCard(product, 'editors', 'simple');
-            if (formattedProduct) editorsPicksProducts.push(formattedProduct);
+          apiProducts.forEach((product, index) => {
+            let formattedProduct: FormattedProduct | null = null;
+            
+            if (index < 8) {
+              formattedProduct = formatProductForUnifiedCard(product, 'trending');
+              if (formattedProduct) trendingProducts.push(formattedProduct);
+            } else if (index < 16) {
+              formattedProduct = formatProductForUnifiedCard(product, 'newdrops');
+              if (formattedProduct) newDropsProducts.push(formattedProduct);
+            } else {
+              formattedProduct = formatProductForUnifiedCard(product, 'editors');
+              if (formattedProduct) editorsPicksProducts.push(formattedProduct);
+            }
+          });
+
+          if (isMountedRef.current) {
+            setTrendingProducts(trendingProducts);
+            setNewDropsProducts(newDropsProducts);
+            setEditorsPicksProducts(editorsPicksProducts);
+            setOutfitGroups([]);
+            setIsLoadingOutfits(false);
           }
-        });
+        } else {
+          // Normal mode: Use cache-first approach with background refresh
+          console.log('OverviewScreen: Loading products with cache-first approach');
+          
+          const currentUser = auth().currentUser;
+          const userId = currentUser?.uid;
+          
+          // Load all sections from cache in parallel
+          const [trendingCache, newDropsCache, editorsPicksCache] = await Promise.all([
+            getTrendingProducts(false, userId),
+            getNewDropsProducts(false, userId), 
+            getEditorsPicksProducts(false, userId)
+          ]);
 
-        // Temporarily disable outfit group generation
-        // const generatedOutfitGroups = generateOutfitGroups(formattedProducts, formattedPartialProducts);
+          if (!isMountedRef.current) return;
 
-        if (isMountedRef.current) {
-          // Set the different product sections
-          setTrendingProducts(trendingProducts);
-          setNewDropsProducts(newDropsProducts);
-          setEditorsPicksProducts(editorsPicksProducts);
-          setOutfitGroups([]); // Set to empty array to indicate no outfit groups
-          setIsLoadingOutfits(false);
+          // Helper function to format products for unified card
+          const formatProductForUnifiedCard = (product: Product, idPrefix: string): FormattedProduct => {
+            const imgs = formatImages(product.images, product.id || 'unknown-product');
+            
+            return {
+              id: product.id || `${idPrefix}-${Math.random().toString(36).substring(2, 9)}`,
+              name: product.name || 'Unnamed Product',
+              brand: product.brand || 'Unknown Brand',
+              price: typeof product.price === 'number' ? product.price : 0,
+              currency: product.currency || '$',
+              images: imgs || [{ id: 'placeholder', url: 'https://via.placeholder.com/300x400' }],
+              productUrl: product.productUrl || '',
+              cardType: 'full',
+              title: product.name || 'Unnamed Product',
+              description: product.description || `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'}`,
+            };
+          };
+
+          // Format cached products
+          const formattedTrending = trendingCache.map(p => formatProductForUnifiedCard(p, 'trending'));
+          const formattedNewDrops = newDropsCache.map(p => formatProductForUnifiedCard(p, 'newdrops'));
+          const formattedEditorsPicks = editorsPicksCache.map(p => formatProductForUnifiedCard(p, 'editors'));
+
+          if (isMountedRef.current) {
+            setTrendingProducts(formattedTrending);
+            setNewDropsProducts(formattedNewDrops);
+            setEditorsPicksProducts(formattedEditorsPicks);
+            setOutfitGroups([]);
+            setIsLoadingOutfits(false);
+          }
+
+          // Check if background refresh is needed (non-blocking)
+          needsBackgroundRefresh(userId).then(refreshNeeds => {
+            if (!isMountedRef.current) return;
+            
+            const needsAnyRefresh = refreshNeeds.trending || refreshNeeds.newDrops || refreshNeeds.editorsPicks;
+            
+            if (needsAnyRefresh) {
+              console.log('OverviewScreen: Background refresh needed for some sections');
+              // Background refresh needed sections (fire and forget)
+            }
+          }).catch(error => {
+            console.error('OverviewScreen: Error checking background refresh needs:', error);
+          });
         }
       } catch (error) {
-        console.error('Error loading products from API:', error);
-        setIsLoadingOutfits(false);
+        console.error('Error loading products:', error);
+        if (isMountedRef.current) {
+          setIsLoadingOutfits(false);
+        }
       }
     };
 
-    loadProductsFromAPI();
+    loadProductsWithCache();
+  }, [isBackgroundMode]); // Re-run when background mode changes
+  
+  // Search functions
+  const performSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setSearchMeta(null);
+      setSearchError(null);
+      return;
+    }
+    
+    setIsSearching(true);
+    setSearchError(null);
+    
+    try {
+      const currentUser = auth().currentUser;
+      const userId = currentUser?.uid;
+      
+      console.log(`[OverviewScreen] Searching for: "${query}"`);
+      
+      const searchResponse = await searchProductsWithCache(query, userId, {
+        searchType: 'hybrid',
+        pageSize: 40
+      });
+      
+      if (!isMountedRef.current) return;
+      
+      // Format search results for display
+      const formattedResults = searchResponse.products.map((product: Product, index: number) => {
+        // 🐛 DEBUG: Log only the first product for tracing
+        if (index === 0) {
+          const productId = product.id || 'NO_ID';
+          console.log(`[OVERVIEW DEBUG] First product (${productId}) - Brand BEFORE formatting:`, product.brand);
+          console.log(`[OVERVIEW DEBUG] First product (${productId}) - Full product BEFORE formatting:`, JSON.stringify(product, null, 2));
+        }
+        
+        const imgs = formatImages(product.images, product.id || 'unknown-product');
+        
+        const formattedProduct = {
+          id: product.id || `search-${Math.random().toString(36).substring(2, 9)}`,
+          name: product.name || 'Unnamed Product',
+          brand: product.brand || 'Unknown Brand',
+          price: typeof product.price === 'number' ? product.price : 0,
+          currency: product.currency || '$',
+          images: imgs || [{ id: 'placeholder', url: 'https://via.placeholder.com/300x400' }],
+          productUrl: product.productUrl || '',
+          cardType: 'full' as const,
+          title: product.name || 'Unnamed Product',
+          description: product.description || `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'}`,
+        };
+        
+        // 🐛 DEBUG: Log only the first formatted product
+        if (index === 0) {
+          const productId = product.id || 'NO_ID';
+          console.log(`[OVERVIEW DEBUG] First product (${productId}) - Brand AFTER formatting:`, formattedProduct.brand);
+          console.log(`[OVERVIEW DEBUG] First product (${productId}) - Full formatted product:`, JSON.stringify(formattedProduct, null, 2));
+        }
+        
+        return formattedProduct;
+      });
+      
+      setSearchResults(formattedResults);
+      setSearchMeta({
+        total: searchResponse.total,
+        searchMethod: searchResponse.search_method,
+        searchTime: searchResponse.search_time_ms
+      });
+      
+      console.log(`[OverviewScreen] Search completed: ${formattedResults.length} results found`);
+      
+    } catch (error) {
+      console.error('[OverviewScreen] Search error:', error);
+      if (isMountedRef.current) {
+        setSearchError('Search failed. Please try again.');
+        setSearchResults([]);
+        setSearchMeta(null);
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsSearching(false);
+      }
+    }
+  }, []);
+  
+  // Debounced search handler
+  const handleSearchInput = useCallback((text: string) => {
+    setSearchQuery(text);
+    
+    // Clear existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    // Set new timeout for debounced search
+    searchTimeoutRef.current = setTimeout(() => {
+      performSearch(text);
+    }, 500); // 500ms debounce
+  }, [performSearch]);
+  
+  // Toggle search mode
+  const toggleSearchMode = useCallback(() => {
+    setIsSearchMode(prev => {
+      const newSearchMode = !prev;
+      
+      if (newSearchMode) {
+        // Entering search mode
+        setTimeout(() => {
+          searchInputRef.current?.focus();
+        }, 100);
+      } else {
+        // Exiting search mode
+        setSearchQuery('');
+        setSearchResults([]);
+        setSearchMeta(null);
+        setSearchError(null);
+        Keyboard.dismiss();
+        
+        // Clear search timeout
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+        }
+      }
+      
+      return newSearchMode;
+    });
+  }, []);
+  
+  // Clear search
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchMeta(null);
+    setSearchError(null);
+    
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+  }, []);
+  
+  // Cleanup search timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
   }, []);
   
   // Function to generate outfit groups with various combinations
   const generateOutfitGroups = (
     fullProducts: FormattedProduct[], 
-    partialProducts: FormattedPartialProduct[]
+    partialProducts: FormattedProduct[]
   ): OutfitGroup[] => {
     // Shuffle the products to ensure randomness
     const shuffledFullProducts = [...fullProducts].sort(() => 0.5 - Math.random());
@@ -323,7 +550,7 @@ const OverviewScreen: React.FC = () => {
     const result: OutfitGroup[] = [];
     
     // Helper to convert product data to OutfitProduct format with unique ID
-    const convertToOutfitProduct = (product: FormattedProduct | FormattedPartialProduct, outfitIndex: number, productIndex: number): OutfitProduct => {
+    const convertToOutfitProduct = (product: FormattedProduct, outfitIndex: number, productIndex: number): OutfitProduct => {
       // Create a unique ID by combining the original product ID with outfit and product indices
       const uniqueProductId = `product-${outfitIndex}-${productIndex}-${Math.random().toString(36).substring(2, 7)}`;
       
@@ -525,6 +752,11 @@ const OverviewScreen: React.FC = () => {
   
   // Fetch news on mount, but only once after splash screen animations
   useEffect(() => {
+    if (isBackgroundMode) {
+      console.log('OverviewScreen: Skipping news loading in background mode');
+      return;
+    }
+    
     // Wait for animations to complete before fetching news
     InteractionManager.runAfterInteractions(() => {
       if (isMountedRef.current && !hasLoadedNewsRef.current) {
@@ -532,59 +764,107 @@ const OverviewScreen: React.FC = () => {
         fetchNews();
       }
     });
-  }, [fetchNews]);
+  }, [fetchNews, isBackgroundMode]);
   
   // Simplified action handlers for the new unified card design
   const handleSave = useCallback((id: string) => {
     handleAction('save', id);
   }, []);
 
-  const handleAddToCart = useCallback((id: string) => {
-    handleAction('cart', id);
+  const handleAddToShelf = useCallback((id: string) => {
+    handleAction('shelf', id);
   }, []);
 
 
   // Handle product card press - search across all product sections
   const handleProductPress = useCallback((productId: string, currentImageIndex = 0) => {
-    // Find the product data across all sections
-    const allProducts = [...trendingProducts, ...newDropsProducts, ...editorsPicksProducts];
-    let rawProduct = allProducts.find(p => p.id === productId);
+    // Disable interactions in background mode
+    if (isBackgroundMode) {
+      console.log('OverviewScreen: Product interactions disabled in background mode');
+      return;
+    }
     
-    // If not found by ID, try to find by other possible identifiers
-    if (!rawProduct) {
-      logger.warn(`Product with ID ${productId} not found directly - trying alternative methods`);
-      
-      // Try to find by partial ID match (in case of composite IDs)
-      rawProduct = allProducts.find(p => p.id.includes(productId) || productId.includes(p.id));
+    // 🐛 DEBUG: Check if we're in search mode
+    console.log(`[PRODUCT PRESS DEBUG] Product ID: ${productId}, Search mode: ${isSearchMode}, Search results count: ${searchResults.length}`);
+    
+    // Find the product data - prioritize search results when in search mode
+    let rawProduct: any = null;
+    
+    if (isSearchMode && searchResults.length > 0) {
+      // First, try to find in search results
+      rawProduct = searchResults.find(p => p.id === productId);
+      console.log(`[PRODUCT PRESS DEBUG] Looking in search results first, found:`, !!rawProduct);
       
       if (!rawProduct) {
-        // Try to find by URL if available
-        rawProduct = allProducts.find(p => 
-          p.productUrl === productId || 
-          (p.images && p.images.length > 0 && p.images[0].url === productId)
-        );
+        // Try to find by partial ID match in search results
+        rawProduct = searchResults.find(p => p.id.includes(productId) || productId.includes(p.id));
+        console.log(`[PRODUCT PRESS DEBUG] Partial match in search results:`, !!rawProduct);
+      }
+    }
+    
+    // If not found in search results (or not in search mode), look in all products
+    if (!rawProduct) {
+      const allProducts = [...trendingProducts, ...newDropsProducts, ...editorsPicksProducts];
+      rawProduct = allProducts.find(p => p.id === productId);
+      console.log(`[PRODUCT PRESS DEBUG] Looking in all products, found:`, !!rawProduct);
+      
+      // If not found by ID, try to find by other possible identifiers
+      if (!rawProduct) {
+        logger.warn(`Product with ID ${productId} not found directly - trying alternative methods`);
+        
+        // Try to find by partial ID match (in case of composite IDs)
+        rawProduct = allProducts.find(p => p.id.includes(productId) || productId.includes(p.id));
         
         if (!rawProduct) {
-          // Last resort: just use the first product as a fallback to avoid crashes
-          logger.error(`Could not find product with ID or URL ${productId} - using fallback`);
-          rawProduct = allProducts[0];
+          // Try to find by URL if available
+          rawProduct = allProducts.find(p => 
+            p.productUrl === productId || 
+            (p.images && p.images.length > 0 && p.images[0].url === productId)
+          );
           
           if (!rawProduct) {
-            logger.error('No products available to use as fallback');
-            return; // Exit if no products are available
+            // Last resort: just use the first product as a fallback to avoid crashes
+            logger.error(`Could not find product with ID or URL ${productId} - using fallback`);
+            rawProduct = allProducts[0];
+            
+            if (!rawProduct) {
+              logger.error('No products available to use as fallback');
+              return; // Exit if no products are available
+            }
           }
         }
       }
     }
     
+    // 🆕 COMPREHENSIVE LOGGING: Raw product from API
+    console.log('🚀 [OverviewScreen] === PRODUCT NAVIGATION START ===');
+    console.log('🚀 [OverviewScreen] Product ID being navigated to:', productId);
+    console.log('🚀 [OverviewScreen] Raw product from API (before formatting):');
+    console.log(JSON.stringify(rawProduct, null, 2));
+    console.log('🚀 [OverviewScreen] Raw product keys:', Object.keys(rawProduct));
+    
+    // Log specific fields that might be missing
+    console.log('🚀 [OverviewScreen] Field check:');
+    console.log('  - id:', rawProduct.id || 'NO_ID');
+    console.log('  - name:', rawProduct.name);
+    console.log('  - title:', (rawProduct as any).title);
+    console.log('  - brand:', rawProduct.brand);
+    console.log('  - price:', rawProduct.price, '(type:', typeof rawProduct.price, ')');
+    console.log('  - description:', (rawProduct as any).description);
+    console.log('  - productUrl:', rawProduct.productUrl);
+    console.log('  - url (server field):', (rawProduct as any).url);
+    console.log('  - images count:', rawProduct.images?.length || 0);
+    console.log('  - currency:', rawProduct.currency);
+    console.log('  - sizes:', rawProduct.sizes);
+    
     // Format the product data to ensure it has all necessary fields
     // for the ExpandedProductScreen
     const productToPass = {
-      id: rawProduct.id,
+      id: rawProduct.id || 'unknown-product',
       productName: rawProduct.name || rawProduct.title || 'Unnamed Product',
       productImage: rawProduct.images && rawProduct.images.length > 0 ? rawProduct.images[0].url : '',
       additionalImages: rawProduct.images && rawProduct.images.length > 1 
-        ? rawProduct.images.slice(1).map(img => img.url) 
+        ? rawProduct.images.slice(1).map((img: any) => img.url) 
         : [],
       price: typeof rawProduct.price === 'number' ? rawProduct.price : 0,
       brand: rawProduct.brand || '',
@@ -593,6 +873,20 @@ const OverviewScreen: React.FC = () => {
       productUrl: rawProduct.productUrl || '', // Include URL as it might be used as identifier
       // Add any other fields needed by ExpandedProductScreen
     };
+
+    // 🆕 COMPREHENSIVE LOGGING: Formatted product being passed
+    console.log('🚀 [OverviewScreen] Formatted product (after client-side formatting):');
+    console.log(JSON.stringify(productToPass, null, 2));
+    console.log('🚀 [OverviewScreen] Formatted product keys:', Object.keys(productToPass));
+    
+    // Log the transformation details
+    console.log('🚀 [OverviewScreen] Transformation details:');
+    console.log('  - Original name -> productName:', rawProduct.name, '->', productToPass.productName);
+    console.log('  - Original description -> description:', (rawProduct as any).description, '->', productToPass.description);
+    console.log('  - Original price -> price:', rawProduct.price, '->', productToPass.price);
+    console.log('  - Original brand -> brand:', rawProduct.brand, '->', productToPass.brand);
+    console.log('  - Images transformation:', rawProduct.images?.length || 0, '->', productToPass.images.length);
+    console.log('  - Product URL transformation:', rawProduct.productUrl, '->', productToPass.productUrl);
     
     // Debug logging for URL mapping
     console.log('[OverviewScreen] Product navigation debug:');
@@ -611,6 +905,15 @@ const OverviewScreen: React.FC = () => {
         // Log the product we're passing to help with debugging
         logger.log(`Navigating to ExpandedProductScreen with product ID: ${productToPass.id}`);
         
+        // 🆕 COMPREHENSIVE LOGGING: Navigation parameters
+        console.log('🚀 [OverviewScreen] Navigation parameters:');
+        console.log(JSON.stringify({
+          productId: productToPass.id,
+          sourcePosition: { x: pageX, y: pageY, width, height },
+          product: productToPass,
+          initialImageIndex: currentImageIndex
+        }, null, 2));
+        
         // Navigate with the position, product data, and current image index
         navigation.navigate('ExpandedProductScreen2', { 
           productId: productToPass.id, // Use the actual found product ID
@@ -623,18 +926,30 @@ const OverviewScreen: React.FC = () => {
           product: productToPass,
           initialImageIndex: currentImageIndex
         });
+        
+        console.log('🚀 [OverviewScreen] === PRODUCT NAVIGATION END ===');
       });
     } else {
       // Fallback if ref isn't available
       logger.log(`Navigating to ExpandedProductScreen (fallback) with product ID: ${productToPass.id}`);
+      
+      // 🆕 COMPREHENSIVE LOGGING: Fallback navigation parameters
+      console.log('🚀 [OverviewScreen] Fallback navigation parameters:');
+      console.log(JSON.stringify({
+        productId: productToPass.id,
+        product: productToPass,
+        initialImageIndex: currentImageIndex
+      }, null, 2));
       
       navigation.navigate('ExpandedProductScreen2', { 
         productId: productToPass.id, // Use the actual found product ID
         product: productToPass,
         initialImageIndex: currentImageIndex
       });
+      
+      console.log('🚀 [OverviewScreen] === PRODUCT NAVIGATION END (FALLBACK) ===');
     }
-  }, [navigation, trendingProducts, newDropsProducts, editorsPicksProducts]);
+  }, [navigation, trendingProducts, newDropsProducts, editorsPicksProducts, isBackgroundMode, isSearchMode, searchResults]);
   
   // Simplified card press handler
   const handleCardPress = useCallback((productId: string) => {
@@ -659,8 +974,8 @@ const OverviewScreen: React.FC = () => {
   // Consolidated action handlers to reduce callbacks
   const handleAction = useCallback((action: string, id: string) => {
     switch (action) {
-      case 'cart':
-        logger.log('Add to cart:', id);
+      case 'shelf':
+        logger.log('Add to shelf:', id);
         break;
       case 'save':
         logger.log('Save/Bookmark:', id);
@@ -725,7 +1040,8 @@ const OverviewScreen: React.FC = () => {
   // Get pseudo-random aspect ratio for a product - simplified for performance
   const getAspectRatioForProduct = (product: any, index: number) => {
     // Simplified calculation to reduce processing
-    const seed = (product.id.length + index * 7) % 20;
+    const productId = product.id || 'unknown-product';
+    const seed = (productId.length + index * 7) % 20;
     return 1.0 + (seed * 0.03);
   };
 
@@ -734,38 +1050,39 @@ const OverviewScreen: React.FC = () => {
     const product = item as FormattedProduct;
     
     // Double-check that product has valid images
+    const productId = product.id || 'unknown-product';
     if (!product.images || product.images.length === 0 || !product.images[0].url) {
-      logger.warn(`Skipping product ${product.id} - no images`);
-      return null;
+      logger.warn(`Skipping product ${productId} - no images`);
+      return <View style={{ height: 0, width: 0 }} />; // Return empty view instead of null
     }
     
     const aspectRatio = getAspectRatioForProduct(product, i);
     
     // Create a ref for this product card if it doesn't exist
-    if (!productRefs.current[product.id]) {
-      productRefs.current[product.id] = React.createRef<View>();
+    if (!productRefs.current[productId]) {
+      productRefs.current[productId] = React.createRef<View>();
     }
     
     return (
       <View 
-        key={`unified-product-${product.id}-${i}`}
-        ref={productRefs.current[product.id]}
+        key={`unified-product-${productId}-${i}`}
+        ref={productRefs.current[productId]}
         style={{
           margin: ITEM_SPACING / 2,
           marginBottom: ITEM_SPACING,
         }}
       >
         <UnifiedProductCard
-          id={product.id}
+          id={productId}
           name={product.name}
           brand={product.brand}
           price={product.price}
           currency={product.currency}
           images={product.images}
           productUrl={product.productUrl}
-          onCardPress={() => handleCardPress(product.id)}
-          onAddToCart={() => handleAddToCart(product.id)}
-          onSave={() => handleSave(product.id)}
+          onCardPress={() => handleCardPress(productId)}
+          onAddToShelf={() => handleAddToShelf(productId)}
+          onSave={() => handleSave(productId)}
           isDarkMode={currentIsDarkMode}
           cardWidth={calculatedItemWidth}
           imageAspectRatio={aspectRatio}
@@ -774,7 +1091,7 @@ const OverviewScreen: React.FC = () => {
         />
       </View>
     );
-  }, [currentIsDarkMode, calculatedItemWidth, getAspectRatioForProduct, handleCardPress, handleAddToCart, handleSave]);
+  }, [currentIsDarkMode, calculatedItemWidth, getAspectRatioForProduct, handleCardPress, handleAddToShelf, handleSave]);
 
 
   
@@ -912,13 +1229,13 @@ const OverviewScreen: React.FC = () => {
     )(event);
   }, [scrollY]);
   
-  // Handle loading more items - updated for new sections
+  // Handle loading more items - progressive reveal only (no API calls)
   const handleLoadMore = useCallback(() => {
     if (isLoadingMore || !isMountedRef.current) return;
     
     setIsLoadingMore(true);
     
-    // Progressive loading: Trending -> News -> New Drops -> Editor's Picks
+    // Progressive reveal: Trending -> News -> New Drops -> Editor's Picks
     if (displayedTrendingCount < trendingProducts.length) {
       setDisplayedTrendingCount(prev => Math.min(prev + LOAD_MORE_COUNT, trendingProducts.length));
     }
@@ -932,7 +1249,7 @@ const OverviewScreen: React.FC = () => {
       setDisplayedEditorsPicksCount(prev => Math.min(prev + LOAD_MORE_COUNT, editorsPicksProducts.length));
     }
     
-    // Clear loading state after a slight delay
+    // Clear loading state immediately since no API calls
     if (loadMoreTimerRef.current) {
       clearTimeout(loadMoreTimerRef.current);
     }
@@ -942,7 +1259,7 @@ const OverviewScreen: React.FC = () => {
         setIsLoadingMore(false);
       }
       loadMoreTimerRef.current = null;
-    }, 500);
+    }, 200); // Reduced delay since no API calls
   }, [isLoadingMore, displayedTrendingCount, trendingProducts.length, displayedNewsCount, newsArticles.length, displayedNewDropsCount, newDropsProducts.length, displayedEditorsPicksCount, editorsPicksProducts.length]);
   
   
@@ -981,6 +1298,67 @@ const OverviewScreen: React.FC = () => {
       />
     );
   }, [renderUnifiedProductItem, themeColors.text.secondary]);
+
+  // Render search results section
+  const renderSearchResults = useCallback(() => {
+    if (isSearching) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={accentColor} />
+          <Text style={[styles.emptyText, { color: themeColors.text.secondary, marginTop: 8 }]}>
+            Searching products...
+          </Text>
+        </View>
+      );
+    }
+    
+    if (searchError) {
+      return (
+        <View style={styles.emptyContent}>
+          <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+            {searchError}
+          </Text>
+          <TouchableOpacity 
+            style={[styles.retryButton, { borderColor: accentColor }]}
+            onPress={() => performSearch(searchQuery)}
+          >
+            <Text style={[styles.retryText, { color: accentColor }]}>
+              Retry Search
+            </Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    if (searchQuery.trim() && searchResults.length === 0 && !isSearching) {
+      return (
+        <View style={styles.emptyContent}>
+          <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+            No products found for "{searchQuery}"
+          </Text>
+          <Text style={[styles.emptySubText, { color: themeColors.text.secondary }]}>
+            Try adjusting your search terms
+          </Text>
+        </View>
+      );
+    }
+    
+    if (searchResults.length > 0) {
+      return (
+        <MasonryList
+          data={searchResults}
+          numColumns={NUM_COLUMNS}
+          renderItem={renderUnifiedProductItem}
+          keyExtractor={(item): string => item.id}
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={false} // Parent ScrollView handles scrolling
+          contentContainerStyle={styles.masonryContentContainer}
+        />
+      );
+    }
+    
+    return null;
+  }, [isSearching, searchError, searchQuery, searchResults, accentColor, themeColors.text.secondary, renderUnifiedProductItem, performSearch]);
 
   // Render outfit groups section
   const renderOutfitGroups = useCallback(() => {
@@ -1102,10 +1480,10 @@ const OverviewScreen: React.FC = () => {
           <View style={styles.rightSection}>
             <TouchableOpacity 
               style={styles.headerButton}
-              onPress={() => Alert.alert('Search', 'Coming soon!')}
+              onPress={toggleSearchMode}
             >
               <Icon 
-                name="search-outline" 
+                name={isSearchMode ? "close-outline" : "search-outline"} 
                 size={24} 
                 color={themeColors.text.primary} 
               />
@@ -1123,6 +1501,59 @@ const OverviewScreen: React.FC = () => {
           </View>
         </View>
       </Animated.View>
+      
+      {/* Search Input */}
+      {isSearchMode && (
+        <View style={[styles.searchContainer, { 
+          backgroundColor: bgColor,
+          borderBottomColor: themeColors.border 
+        }]}>
+          <View style={[styles.searchInputContainer, { 
+            backgroundColor: currentIsDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+            borderColor: themeColors.border 
+          }]}>
+            <Icon 
+              name="search-outline" 
+              size={20} 
+              color={themeColors.text.secondary} 
+              style={styles.searchIcon}
+            />
+            <TextInput
+              ref={searchInputRef}
+              style={[styles.searchInput, { 
+                color: themeColors.text.primary,
+                backgroundColor: 'transparent'
+              }]}
+              placeholder="Search for products..."
+              placeholderTextColor={themeColors.text.secondary}
+              value={searchQuery}
+              onChangeText={handleSearchInput}
+              returnKeyType="search"
+              onSubmitEditing={() => performSearch(searchQuery)}
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+                <Icon 
+                  name="close-circle" 
+                  size={20} 
+                  color={themeColors.text.secondary} 
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {/* Search Meta Info */}
+          {searchMeta && (
+            <View style={styles.searchMetaContainer}>
+              <Text style={[styles.searchMetaText, { color: themeColors.text.secondary }]}>
+                {searchMeta.total} results using {searchMeta.searchMethod} search ({searchMeta.searchTime}ms)
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
       
       {/* Filter tabs - REMOVED FOR MVP */}
       {/* <View style={[styles.filterContainer, { borderBottomColor: themeColors.border }]}>
@@ -1147,12 +1578,12 @@ const OverviewScreen: React.FC = () => {
           // Set loading state
           setIsLoadingOutfits(true);
           try {
-            // Fetch new random products from API  
-            const apiProducts = await fetchRandomProducts(30);
+            // Fetch fresh products from API with same large batch size
+            const apiProducts = await fetchRandomProducts(80);
             if (apiProducts.length > 0) {
               // Helper function to format products for unified card (same as in initial load)
               const formatProductForUnifiedCard = (product: ExtendedProduct, idPrefix: string, cardType: 'full' | 'simple' | 'partial' = 'full'): FormattedProduct | null => {
-                const imgs = formatImages(product.images, product.id);
+                const imgs = formatImages(product.images, product.id || 'unknown-product');
                 if (!imgs) return null;
                 
                 return {
@@ -1165,11 +1596,11 @@ const OverviewScreen: React.FC = () => {
                   productUrl: product.productUrl || '',
                   cardType,
                   title: product.name || 'Unnamed Product',
-                  description: `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'}`,
+                  description: product.description || `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'}`,
                 };
               };
 
-              // Distribute products across different sections (same logic as initial load)
+              // Distribute products across different sections with consistent 'full' card type
               const trendingProducts: FormattedProduct[] = [];
               const newDropsProducts: FormattedProduct[] = [];
               const editorsPicksProducts: FormattedProduct[] = [];
@@ -1177,23 +1608,31 @@ const OverviewScreen: React.FC = () => {
               apiProducts.forEach((product, index) => {
                 let formattedProduct: FormattedProduct | null = null;
                 
-                if (index < 10) {
+                if (index < 20) {
+                  // First 20 go to trending (full cards)
                   formattedProduct = formatProductForUnifiedCard(product, 'trending', 'full');
                   if (formattedProduct) trendingProducts.push(formattedProduct);
-                } else if (index < 20) {
-                  formattedProduct = formatProductForUnifiedCard(product, 'newdrops', 'partial');
+                } else if (index < 40) {
+                  // Next 20 go to new drops (full cards for consistency)
+                  formattedProduct = formatProductForUnifiedCard(product, 'newdrops', 'full');
                   if (formattedProduct) newDropsProducts.push(formattedProduct);
                 } else {
-                  formattedProduct = formatProductForUnifiedCard(product, 'editors', 'simple');
+                  // Rest go to editor's picks (full cards for consistency)
+                  formattedProduct = formatProductForUnifiedCard(product, 'editors', 'full');
                   if (formattedProduct) editorsPicksProducts.push(formattedProduct);
                 }
               });
 
-              // Update the new product sections
+              // Update the new product sections and reset display counts for fresh start
               setTrendingProducts(trendingProducts);
               setNewDropsProducts(newDropsProducts);
               setEditorsPicksProducts(editorsPicksProducts);
               setOutfitGroups([]);
+              
+              // Reset display counts to initial values for fresh browsing experience
+              setDisplayedTrendingCount(INITIAL_LOAD_COUNT);
+              setDisplayedNewDropsCount(0);
+              setDisplayedEditorsPicksCount(0);
             }
           } catch (error) {
             console.error('Error refreshing products:', error);
@@ -1213,35 +1652,65 @@ const OverviewScreen: React.FC = () => {
           }
         }}
       >
-        {/* Trending Now Section */}
-        {trendingProducts.length > 0 && (
+        {/* Search Results Section */}
+        {isSearchMode ? (
           <>
-            {renderSectionHeader('Trending Now')}
-            {renderProductSection(trendingProducts, displayedTrendingCount)}
+            {searchQuery.trim() && (
+              <>
+                {renderSectionHeader(`Search Results${searchMeta ? ` (${searchMeta.total})` : ''}`)}
+                {renderSearchResults()}
+              </>
+            )}
+            {!searchQuery.trim() && (
+              <View style={styles.searchPlaceholder}>
+                <Icon 
+                  name="search-outline" 
+                  size={64} 
+                  color={themeColors.text.secondary} 
+                  style={styles.searchPlaceholderIcon}
+                />
+                <Text style={[styles.searchPlaceholderText, { color: themeColors.text.secondary }]}>
+                  Search for fashion products
+                </Text>
+                <Text style={[styles.searchPlaceholderSubtext, { color: themeColors.text.secondary }]}>
+                  Try searching for "dress", "shoes", "bag", etc.
+                </Text>
+              </View>
+            )}
           </>
-        )}
-
-        {/* Fashion News Section - Integrated naturally */}
-        {shouldShowNews && (
+        ) : (
           <>
-            {renderSectionHeader('Latest in Fashion')}
-            {renderNewsItems()}
-          </>
-        )}
+            {/* Trending Now Section */}
+            {trendingProducts.length > 0 && (
+              <>
+                {renderSectionHeader('Trending Now')}
+                {renderProductSection(trendingProducts, displayedTrendingCount)}
+              </>
+            )}
 
-        {/* New Drops Section */}
-        {newDropsProducts.length > 0 && displayedTrendingCount >= trendingProducts.length && (
-          <>
-            {renderSectionHeader('New Drops')}
-            {renderProductSection(newDropsProducts, displayedNewDropsCount)}
-          </>
-        )}
+            {/* Fashion News Section - Integrated naturally */}
+            {shouldShowNews && (
+              <>
+                {renderSectionHeader('Latest in Fashion')}
+                {renderNewsItems()}
+              </>
+            )}
 
-        {/* Editor's Picks Section */}
-        {editorsPicksProducts.length > 0 && displayedNewDropsCount >= newDropsProducts.length && (
-          <>
-            {renderSectionHeader("Editor's Picks")}
-            {renderProductSection(editorsPicksProducts, displayedEditorsPicksCount)}
+            {/* New Drops Section */}
+            {newDropsProducts.length > 0 && displayedTrendingCount >= trendingProducts.length && (
+              <>
+                {renderSectionHeader('New Drops')}
+                {renderProductSection(newDropsProducts, displayedNewDropsCount)}
+              </>
+            )}
+
+            {/* Editor's Picks Section */}
+            {editorsPicksProducts.length > 0 && displayedNewDropsCount >= newDropsProducts.length && (
+              <>
+                {renderSectionHeader("Founder's Picks")}
+                {renderProductSection(editorsPicksProducts, displayedEditorsPicksCount)}
+              </>
+            )}
           </>
         )}
         
@@ -1459,6 +1928,73 @@ const styles = StyleSheet.create({
   outfitGroupsContainer: {
     paddingHorizontal: 1,
     paddingVertical: 0,
+  },
+  // Search styles
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 0.5,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    ...defaultTextStyle,
+    paddingVertical: 0,
+  },
+  clearButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  searchMetaContainer: {
+    paddingTop: 8,
+    paddingHorizontal: 4,
+  },
+  searchMetaText: {
+    fontSize: 12,
+    ...defaultTextStyle,
+    opacity: 0.7,
+  },
+  searchPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+    paddingHorizontal: 32,
+  },
+  searchPlaceholderIcon: {
+    marginBottom: 16,
+    opacity: 0.3,
+  },
+  searchPlaceholderText: {
+    fontSize: 18,
+    fontWeight: '600',
+    ...defaultTextStyle,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  searchPlaceholderSubtext: {
+    fontSize: 14,
+    ...defaultTextStyle,
+    textAlign: 'center',
+    opacity: 0.7,
+  },
+  emptySubText: {
+    fontSize: 14,
+    ...defaultTextStyle,
+    textAlign: 'center',
+    opacity: 0.7,
+    marginTop: 4,
   },
 });
 

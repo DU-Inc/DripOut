@@ -1,7 +1,7 @@
 import PantsIcon from '../assets/icons/pants.svg';
 import jewelryIcon from '../assets/icons/jewelry.svg';
 import watchIcon from '../assets/icons/watch.svg';
-// Fallback stock silhouette avatar URL (Gravatar “mp” default)
+// Fallback stock silhouette avatar URL (Gravatar "mp" default)
 const DEFAULT_AVATAR_URL = 'https://www.gravatar.com/avatar/?d=mp&f=y';
 
 
@@ -98,6 +98,17 @@ import { useTheme } from '../styles/themeprovider';
 
 import { getCachedFeedPosts, Post } from '../services/postService';
 import { getUserProfile, UserProfile } from '../services/firestoreService';
+import { 
+  hasCachedLike, 
+  hasCachedSave, 
+  hasCachedFollow, 
+  updateLikeCache, 
+  updateSaveCache, 
+  updateFollowCache,
+  batchUpdateLikesCache,
+  batchUpdateSavesCache,
+  batchUpdateFollowsCache 
+} from '../services/interactionCache';
 import { formatDistanceToNow } from 'date-fns';
 
 import { OutfitItem } from '../services/postService';
@@ -606,6 +617,10 @@ const SocialScreen: React.FC = () => {
   const [commentsText, setCommentsText] = useState<Record<string, string>>({});
   const [isAddingComment, setIsAddingComment] = useState<string | null>(null); // Track which post is adding a comment
   
+  // Background refresh state
+  const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<number>(0);
+  
   // Messaging state
   const [conversations, setConversations] = useState<ConversationWithDetails[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
@@ -626,17 +641,25 @@ const SocialScreen: React.FC = () => {
   const panXValues = useRef<Record<string, Animated.Value>>({});
   const panResponders = useRef<Record<string, any>>({});
 
-  // Fetch posts from Firebase
+  // Fetch posts from Firebase with caching and interaction data
   const fetchPosts = async (forceRefresh = false) => {
     console.log('🔄 fetchPosts called with forceRefresh =', forceRefresh);
     try {
-      setIsLoading(true);
+      if (forceRefresh) {
+        setIsLoading(true);
+      } else {
+        setIsBackgroundRefreshing(true);
+      }
+      
       // Get posts from Firestore with caching
       console.log('📥 Getting posts from Firestore with getCachedFeedPosts()');
       const posts = await getCachedFeedPosts(forceRefresh);
       console.log(`📦 Received ${posts.length} posts from Firestore`);
       console.log('📊 Post sample:', posts.length > 0 ? JSON.stringify(posts[0], null, 2) : 'No posts');
       setFirebasePosts(posts);
+      
+      // Update last refresh time
+      setLastRefreshTime(Date.now());
       
       // Convert to FashionPost format
       console.log('🔄 Converting posts to FashionPost format');
@@ -664,7 +687,7 @@ const SocialScreen: React.FC = () => {
         const upvotes = post.likes || 0;
         const saves = Math.floor(Math.random() * 200) + 50; // In the future, we'd count the actual saves
         
-        // Check if current user has liked or saved the post
+        // Check if current user has liked or saved the post - cache first approach
         let isSaved = false;
         let isUpvoted = false;
         let isFollowing = false;
@@ -672,13 +695,29 @@ const SocialScreen: React.FC = () => {
         
         if (currentUser && post.id) {
           try {
-            // Get real like status
-            isUpvoted = await hasUserLikedPost(currentUser.uid, post.id);
-            console.log(`🔍 User ${currentUser.uid} liked post ${post.id}? ${isUpvoted}`);
+            // Try cache first for like status
+            const cachedLike = await hasCachedLike(post.id);
+            if (cachedLike !== null) {
+              isUpvoted = cachedLike;
+              console.log(`🚀 Using cached like status for post ${post.id}: ${isUpvoted}`);
+            } else {
+              // Cache miss - get from API and update cache
+              isUpvoted = await hasUserLikedPost(currentUser.uid, post.id);
+              await updateLikeCache(post.id, isUpvoted);
+              console.log(`🔍 Fetched and cached like status for post ${post.id}: ${isUpvoted}`);
+            }
             
-            // Get real save status
-            isSaved = await hasUserSavedPost(currentUser.uid, post.id);
-            console.log(`🔍 User ${currentUser.uid} saved post ${post.id}? ${isSaved}`);
+            // Try cache first for save status
+            const cachedSave = await hasCachedSave(post.id);
+            if (cachedSave !== null) {
+              isSaved = cachedSave;
+              console.log(`🚀 Using cached save status for post ${post.id}: ${isSaved}`);
+            } else {
+              // Cache miss - get from API and update cache
+              isSaved = await hasUserSavedPost(currentUser.uid, post.id);
+              await updateSaveCache(post.id, isSaved);
+              console.log(`🔍 Fetched and cached save status for post ${post.id}: ${isSaved}`);
+            }
           } catch (err) {
             console.error('Error checking post interaction status:', err);
             // Default to not liked/saved on error
@@ -691,11 +730,20 @@ const SocialScreen: React.FC = () => {
           isUpvoted = Math.random() > 0.6;
         }
         
-        // Check actual follow status if we have a valid user ID
+        // Check actual follow status if we have a valid user ID - cache first approach
         if (currentUser && post.userId && isRealUserId(post.userId)) {
           try {
-            isFollowing = await isUserFollowing(currentUser.uid, post.userId);
-            console.log(`👤 User ${currentUser.uid} following ${post.userId}? ${isFollowing}`);
+            // Try cache first for follow status
+            const cachedFollow = await hasCachedFollow(post.userId);
+            if (cachedFollow !== null) {
+              isFollowing = cachedFollow;
+              console.log(`🚀 Using cached follow status for user ${post.userId}: ${isFollowing}`);
+            } else {
+              // Cache miss - get from API and update cache
+              isFollowing = await isUserFollowing(currentUser.uid, post.userId);
+              await updateFollowCache(post.userId, isFollowing);
+              console.log(`👤 Fetched and cached follow status for user ${post.userId}: ${isFollowing}`);
+            }
           } catch (err) {
             console.error('Error checking follow status:', err);
             // Default to not following on error
@@ -811,6 +859,7 @@ const SocialScreen: React.FC = () => {
       setFashionPosts([]);
     } finally {
       setIsLoading(false);
+      setIsBackgroundRefreshing(false);
     }
   };
 
@@ -850,6 +899,28 @@ const SocialScreen: React.FC = () => {
     fetchPosts();
     fetchConversations();
   }, []);
+  
+  // Background refresh when cache might be stale
+  useEffect(() => {
+    const checkForBackgroundRefresh = () => {
+      const now = Date.now();
+      const timeSinceLastRefresh = now - lastRefreshTime;
+      const BACKGROUND_REFRESH_THRESHOLD = 10 * 60 * 1000; // 10 minutes
+      
+      // If it's been more than 10 minutes since last refresh, do a background refresh
+      if (timeSinceLastRefresh > BACKGROUND_REFRESH_THRESHOLD && !isBackgroundRefreshing && !isLoading) {
+        console.log('🔄 Background refresh triggered - cache might be stale');
+        fetchPosts(false); // Background refresh, not force refresh
+      }
+    };
+    
+    // Check on mount and when focus returns to the screen
+    const unsubscribe = navigation.addListener('focus', () => {
+      checkForBackgroundRefresh();
+    });
+    
+    return unsubscribe;
+  }, [navigation, lastRefreshTime, isBackgroundRefreshing, isLoading]);
   
   // Function to send a message
   const handleSendMessage = async () => {
@@ -951,6 +1022,9 @@ const SocialScreen: React.FC = () => {
         return p;
       }));
       
+      // Update cache immediately for instant response
+      await updateFollowCache(userId, !post.isFollowing);
+      
       // Make the actual API call
       if (post.isFollowing) {
         // If currently following, unfollow
@@ -980,6 +1054,9 @@ const SocialScreen: React.FC = () => {
         }
         return p;
       }));
+      
+      // Revert cache
+      await updateFollowCache(userId, post.isFollowing ?? false);
       
       // Show error to user
       alert('Failed to update follow status. Please try again.');
@@ -1040,7 +1117,7 @@ const SocialScreen: React.FC = () => {
     }
   };
   
-  // Handle upvote action
+  // Handle upvote action with caching
   const handleUpvoteToggle = async (postId: string) => {
     // Current user must be logged in
     const currentUser = auth().currentUser;
@@ -1059,18 +1136,23 @@ const SocialScreen: React.FC = () => {
       return;
     }
     
+    const newIsUpvoted = !post.isUpvoted;
+    
     try {
       // Optimistically update UI
       setFashionPosts(prev => prev.map(p => {
         if (p.id === postId) {
           return {
             ...p,
-            isUpvoted: !p.isUpvoted,
-            upvotes: p.isUpvoted ? Math.max(0, p.upvotes - 1) : p.upvotes + 1
+            isUpvoted: newIsUpvoted,
+            upvotes: newIsUpvoted ? p.upvotes + 1 : Math.max(0, p.upvotes - 1)
           };
         }
         return p;
       }));
+      
+      // Update cache immediately for instant response on future checks
+      await updateLikeCache(postId, newIsUpvoted);
       
       // Make the actual API call
       const isNowLiked = await toggleLikePost(currentUser.uid, postId);
@@ -1090,6 +1172,9 @@ const SocialScreen: React.FC = () => {
         return p;
       }));
       
+      // Revert cache
+      await updateLikeCache(postId, post.isUpvoted);
+      
       // Show error to user
       alert('Failed to update like status. Please try again.');
     }
@@ -1098,7 +1183,7 @@ const SocialScreen: React.FC = () => {
   // Alias for handleUpvoteToggle to maintain compatibility with existing code
   const handleLikeToggle = handleUpvoteToggle;
   
-  // Handle save action
+  // Handle save action with caching
   const handleSaveToggle = async (postId: string) => {
     // Current user must be logged in
     const currentUser = auth().currentUser;
@@ -1117,17 +1202,22 @@ const SocialScreen: React.FC = () => {
       return;
     }
     
+    const newIsSaved = !post.isSaved;
+    
     try {
       // Optimistically update UI
       setFashionPosts(prev => prev.map(p => {
         if (p.id === postId) {
           return {
             ...p,
-            isSaved: !p.isSaved
+            isSaved: newIsSaved
           };
         }
         return p;
       }));
+      
+      // Update cache immediately for instant response on future checks
+      await updateSaveCache(postId, newIsSaved);
       
       // Make the actual API call
       const isNowSaved = await toggleSavePost(currentUser.uid, postId);
@@ -1145,6 +1235,9 @@ const SocialScreen: React.FC = () => {
         }
         return p;
       }));
+      
+      // Revert cache
+      await updateSaveCache(postId, post.isSaved);
       
       // Show error to user
       alert('Failed to update save status. Please try again.');
@@ -2836,13 +2929,14 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     borderWidth: 0,
+    backgroundColor: '#FFFFFF', // Default solid background for shadow efficiency
     // Enhanced multi-layered shadow system
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.12,
     shadowRadius: 24,
-    // backgroundColor will be set dynamically via cardBgColor
+    // backgroundColor can be overridden dynamically via cardBgColor
   },
   inspirationHeader: {
     paddingHorizontal: 16,
@@ -2859,14 +2953,10 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     marginRight: 12,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-    // Enhanced shadow for profile images
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    // Remove shadow properties - they cannot be applied to Image components
+    // If shadow is needed, apply it to a wrapper View instead
   },
   userTextInfo: {
     flex: 1,
@@ -2949,7 +3039,7 @@ const styles = StyleSheet.create({
   galleryContainer: {
     position: 'relative',
     height: width * 0.8,
-    backgroundColor: 'transparent',
+    backgroundColor: '#FFFFFF', // Solid background for shadow efficiency
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 8,

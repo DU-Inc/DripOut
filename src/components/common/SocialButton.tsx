@@ -6,7 +6,7 @@ import { createButtonStyles } from '../../styles/common/button.styles';
 import { SocialButtonProps } from '../../types/common';
 
 type SocialProviderProps = {
-  provider: 'google' | 'apple' | 'pinterest';
+  provider: 'google' | 'apple';
   onPress: () => void;
   style?: any;
 };
@@ -21,8 +21,6 @@ const SocialButton: React.FC<SocialProviderProps> = ({ provider, onPress, style 
         return 'google';
       case 'apple':
         return 'apple';
-      case 'pinterest':
-        return 'pinterest';
       default:
         return 'account';
     }
@@ -34,8 +32,6 @@ const SocialButton: React.FC<SocialProviderProps> = ({ provider, onPress, style 
         return '#DB4437';
       case 'apple':
         return isDarkMode ? '#FFFFFF' : '#000000';
-      case 'pinterest':
-        return '#E60023';
       default:
         return theme.text.primary;
     }
