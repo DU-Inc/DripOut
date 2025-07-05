@@ -23,6 +23,15 @@ import { searchProducts, Product, checkApiHealth } from '../services/recommendat
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useOptimizedProfile } from '../hooks/useOptimizedProfile';
 import LinearGradient from 'react-native-linear-gradient';
+import { auth } from '../Config/firebaseconfig';
+import { 
+  createFashionAdvisorSession, 
+  saveFashionAdvisorMessage, 
+  getFashionAdvisorMessages,
+  subscribeToFashionAdvisorMessages,
+  generateSessionTitle,
+  FashionAdvisorMessage as StoredMessage
+} from '../services/fashionAdvisorChatService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -71,19 +80,16 @@ const FashionAdvisorChatScreen: React.FC = () => {
     };
   }, [userProfile, userPreferences]);
   
-  // Get initial query from route params if provided
+  // Get initial query and session ID from route params if provided
   const initialQuery = (route.params as any)?.initialQuery || '';
+  const sessionId = (route.params as any)?.sessionId;
   
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      type: 'advisor',
-      text: "Hi there! I'm your personal fashion advisor. 👗✨\n\nI can help you with anything fashion-related! Try asking me things like:\n• \"I need an outfit for a dinner date\"\n• \"Show me bohemian style dresses\"\n• \"What should I wear to a job interview?\"\n• \"I want comfortable workout clothes\"\n\nWhat can I help you style today?",
-      timestamp: Date.now(),
-    }
-  ]);
+  // Chat state
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState(initialQuery);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
+  const [isLoadingSession, setIsLoadingSession] = useState(false);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -103,6 +109,42 @@ const FashionAdvisorChatScreen: React.FC = () => {
   const advisorBubbleColor = isDarkMode ? '#222232' : '#F2F2F7';
   const inputBgColor = isDarkMode ? '#16171F' : '#F8F8F8';
   const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
+
+  // Prepare conversation context for API calls
+  const prepareConversationContext = (currentMessages: ChatMessage[], newUserMessage: ChatMessage) => {
+    // Get recent conversation history (last 6 messages to keep payload reasonable)
+    const recentMessages = currentMessages.slice(-6);
+    
+    // Format conversation history
+    const conversationHistory = recentMessages.map(msg => ({
+      type: msg.type,
+      text: msg.text || '',
+      timestamp: msg.timestamp,
+      // Include lightweight product data for context
+      products: msg.products?.map(product => ({
+        name: product.name,
+        url: product.url,
+        description: product.description,
+        price: product.price,
+        brand: product.brand
+      })) || []
+    }));
+
+    // Add the new user message to the history
+    conversationHistory.push({
+      type: newUserMessage.type,
+      text: newUserMessage.text || '',
+      timestamp: newUserMessage.timestamp,
+      products: []
+    });
+
+    return {
+      conversation_history: conversationHistory,
+      session_id: currentSessionId,
+      message_count: currentMessages.length + 1,
+      is_follow_up: currentMessages.length > 1 // True if this isn't the first message
+    };
+  };
   
   useEffect(() => {
     // Entrance animation
@@ -119,13 +161,61 @@ const FashionAdvisorChatScreen: React.FC = () => {
       })
     ]).start();
     
+    // Load existing session or create new one
+    if (currentSessionId) {
+      loadExistingSession(currentSessionId);
+    } else {
+      // Show welcome message for new session
+      setMessages([{
+        id: 'welcome',
+        type: 'advisor',
+        text: "Hi there! I'm your personal fashion advisor. 👗✨\n\nI can help you with anything fashion-related! Try asking me things like:\n• \"I need an outfit for a dinner date\"\n• \"Show me bohemian style dresses\"\n• \"What should I wear to a job interview?\"\n• \"I want comfortable workout clothes\"\n\nWhat can I help you style today?",
+        timestamp: Date.now(),
+      }]);
+    }
+    
     // Auto-send initial query if provided
-    if (initialQuery.trim()) {
+    if (initialQuery.trim() && !currentSessionId) {
       setTimeout(() => {
         handleSendMessage();
       }, 1000);
     }
-  }, []);
+  }, [currentSessionId]);
+
+  // Load existing session
+  const loadExistingSession = async (sessionId: string) => {
+    try {
+      setIsLoadingSession(true);
+      console.log(`Loading existing session: ${sessionId}`);
+      
+      const storedMessages = await getFashionAdvisorMessages(sessionId);
+      
+      // Convert stored messages to chat format
+      const chatMessages: ChatMessage[] = storedMessages.map(msg => ({
+        id: msg.id || `msg-${Date.now()}`,
+        type: msg.type,
+        text: msg.text,
+        timestamp: msg.timestamp?.toDate?.()?.getTime() || Date.now(),
+        products: msg.products,
+        isLoading: false
+      }));
+      
+      setMessages(chatMessages);
+      console.log(`Loaded ${chatMessages.length} messages from session`);
+      
+    } catch (error) {
+      console.error('Error loading session:', error);
+      // Fallback to welcome message
+      setMessages([{
+        id: 'welcome',
+        type: 'advisor',
+        text: "Hi there! I'm your personal fashion advisor. 👗✨\n\nI can help you with anything fashion-related! Try asking me things like:\n• \"I need an outfit for a dinner date\"\n• \"Show me bohemian style dresses\"\n• \"What should I wear to a job interview?\"\n• \"I want comfortable workout clothes\"\n\nWhat can I help you style today?",
+        timestamp: Date.now(),
+      }]);
+    } finally {
+      setIsLoadingSession(false);
+    }
+  };
   
   const handleSendMessage = async () => {
     if (!inputText.trim() || isLoading) return;
@@ -142,6 +232,33 @@ const FashionAdvisorChatScreen: React.FC = () => {
     setInputText('');
     setIsLoading(true);
     
+    // Create session if this is the first message
+    let sessionId = currentSessionId;
+    if (!sessionId) {
+      try {
+        const title = generateSessionTitle(userMessage.text || '');
+        sessionId = await createFashionAdvisorSession(title, userMessage.text || '');
+        setCurrentSessionId(sessionId);
+        console.log(`✅ Created new session: ${sessionId} with title: "${title}"`);
+      } catch (error) {
+        console.error('Error creating session:', error);
+      }
+    }
+    
+    // Save user message to database
+    if (sessionId) {
+      try {
+        await saveFashionAdvisorMessage(sessionId, {
+          userId: auth().currentUser?.uid || '',
+          type: 'user',
+          text: userMessage.text,
+          query: userMessage.text
+        });
+      } catch (error) {
+        console.error('Error saving user message:', error);
+      }
+    }
+    
     // Scroll to bottom
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
@@ -155,25 +272,29 @@ const FashionAdvisorChatScreen: React.FC = () => {
       
       if (isConnected) {
         try {
-          // Try API call with user profile
-          console.log('🔍 FashionAdvisorChat: Sending user profile to searchProducts:', combinedUserProfile);
-          const results = await searchProducts(userMessage.text!, [0, 1000], 6, combinedUserProfile);
+          // Prepare conversation context for API
+          const conversationContext = prepareConversationContext(messages, userMessage);
           
-          if (results && results.length > 0) {
-            // Products found - create response with products
+          // Try API call with user profile and conversation context
+          console.log('🔍 FashionAdvisorChat: Sending user profile to searchProducts:', combinedUserProfile);
+          console.log('💬 FashionAdvisorChat: Sending conversation context:', conversationContext);
+          const results = await searchProducts(userMessage.text!, [0, 1000], 6, combinedUserProfile, conversationContext);
+          
+          if (results.products && results.products.length > 0) {
+            // Products found - create response with products and advisor message
             advisorResponse = {
               id: `advisor-${Date.now()}`,
               type: 'advisor',
-              text: `Great choice! I found some amazing options for "${userMessage.text}". Here are my top recommendations:`,
-              products: results,
+              text: results.advisorMessage, // Use the actual advisor message from API
+              products: results.products,
               timestamp: Date.now(),
             };
           } else {
-            // No products found - text only response with natural language examples
+            // No products found - use advisor message or fallback
             advisorResponse = {
               id: `advisor-${Date.now()}`,
               type: 'advisor',
-              text: `I couldn't find specific items for "${userMessage.text}" in my current catalog, but I'd love to help you find something perfect! ✨\n\nTry describing your needs more specifically, like:\n• "I need a romantic outfit for a first date"\n• "Show me professional blazers under $150"\n• "What's trending in streetwear this season?"\n• "I want a vintage-inspired summer look"\n\nWhat occasion or style are you shopping for?`,
+              text: results.advisorMessage || `I couldn't find specific items for "${userMessage.text}" in my current catalog, but I'd love to help you find something perfect! ✨\n\nTry describing your needs more specifically, like:\n• "I need a romantic outfit for a first date"\n• "Show me professional blazers under $150"\n• "What's trending in streetwear this season?"\n• "I want a vintage-inspired summer look"\n\nWhat occasion or style are you shopping for?`,
               timestamp: Date.now(),
             };
           }
@@ -200,6 +321,21 @@ const FashionAdvisorChatScreen: React.FC = () => {
       // Add advisor response
       setMessages(prev => [...prev, advisorResponse]);
       
+      // Save advisor message to database
+      if (sessionId) {
+        try {
+          await saveFashionAdvisorMessage(sessionId, {
+            userId: auth().currentUser?.uid || '',
+            type: 'advisor',
+            text: advisorResponse.text,
+            products: advisorResponse.products,
+            productsFound: advisorResponse.products?.length || 0
+          });
+        } catch (error) {
+          console.error('Error saving advisor message:', error);
+        }
+      }
+      
     } catch (error) {
       // Error handling with natural language encouragement
       const errorResponse: ChatMessage = {
@@ -210,6 +346,20 @@ const FashionAdvisorChatScreen: React.FC = () => {
       };
       
       setMessages(prev => [...prev, errorResponse]);
+      
+      // Save error message to database
+      if (sessionId) {
+        try {
+          await saveFashionAdvisorMessage(sessionId, {
+            userId: auth().currentUser?.uid || '',
+            type: 'advisor',
+            text: errorResponse.text,
+            productsFound: 0
+          });
+        } catch (error) {
+          console.error('Error saving error message:', error);
+        }
+      }
     } finally {
       setIsLoading(false);
       setTimeout(() => {
@@ -227,6 +377,8 @@ const FashionAdvisorChatScreen: React.FC = () => {
   const renderMessage = ({ item, index }: { item: ChatMessage; index: number }) => {
     const isUser = item.type === 'user';
     const hasProducts = item.products && item.products.length > 0;
+    
+
     
     return (
       <Animated.View
@@ -248,27 +400,25 @@ const FashionAdvisorChatScreen: React.FC = () => {
         
         <View style={styles.messageContent}>
           {/* Text bubble */}
-          {item.text && (
-            <View
+          <View
+            style={[
+              styles.messageBubble,
+              isUser 
+                ? [styles.userBubble, { backgroundColor: userBubbleColor }]
+                : [styles.advisorBubble, { backgroundColor: advisorBubbleColor }]
+            ]}
+          >
+            <Text
               style={[
-                styles.messageBubble,
+                styles.messageText,
                 isUser 
-                  ? [styles.userBubble, { backgroundColor: userBubbleColor }]
-                  : [styles.advisorBubble, { backgroundColor: advisorBubbleColor }]
+                  ? styles.userMessageText
+                  : [styles.advisorMessageText, { color: textColor }]
               ]}
             >
-              <Text
-                style={[
-                  styles.messageText,
-                  isUser 
-                    ? styles.userMessageText
-                    : [styles.advisorMessageText, { color: textColor }]
-                ]}
-              >
-                {item.text}
-              </Text>
-            </View>
-          )}
+              {item.text}
+            </Text>
+          </View>
           
           {/* Products carousel */}
           {hasProducts && (
@@ -362,7 +512,12 @@ const FashionAdvisorChatScreen: React.FC = () => {
             <Text style={[styles.headerSubtitle, { color: subTextColor }]}>Your personal stylist</Text>
           </View>
         </View>
-        <View style={styles.headerRight} />
+        <TouchableOpacity
+          style={styles.historyButton}
+          onPress={() => navigation.navigate('FashionAdvisorHistory' as never)}
+        >
+          <Icon name="time-outline" size={24} color={textColor} />
+        </TouchableOpacity>
       </View>
       
       {/* Messages */}
@@ -458,6 +613,10 @@ const styles = StyleSheet.create({
   },
   headerRight: {
     width: 40,
+  },
+  historyButton: {
+    padding: 8,
+    marginLeft: 8,
   },
   chatContainer: {
     flex: 1,

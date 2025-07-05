@@ -13,7 +13,8 @@ import {
 import { useTheme } from '../styles/themeprovider';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import OnboardingBubbles from '../components/Onboarding/OnboardingBubbles';
+import AlphabeticalListSelector from '../components/common/AlphabeticalListSelector';
+import { loadBrands } from '../services/brandDataService';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -59,6 +60,10 @@ const OnboardingBrandsScreen: React.FC = () => {
   // State for tutorial overlay
   const [showTutorialOverlay, setShowTutorialOverlay] = useState(false);
   
+  // State for brands data
+  const [brands, setBrands] = useState<string[]>([]);
+  const [brandsLoading, setBrandsLoading] = useState(true);
+  
   useEffect(() => {
     // Update hasSelections whenever selectedBrands changes
     setHasSelections(selectedBrands.length > 0);
@@ -95,6 +100,26 @@ const OnboardingBrandsScreen: React.FC = () => {
       ])
     ).start();
   };
+  
+  // Load brands data
+  useEffect(() => {
+    const loadBrandsData = async () => {
+      try {
+        setBrandsLoading(true);
+        const loadedBrands = await loadBrands();
+        setBrands(loadedBrands);
+        console.log(`Loaded ${loadedBrands.length} brands for selection`);
+      } catch (error) {
+        console.error('Error loading brands:', error);
+        // Fallback to empty array - component will show loading state
+        setBrands([]);
+      } finally {
+        setBrandsLoading(false);
+      }
+    };
+    
+    loadBrandsData();
+  }, []);
   
   useEffect(() => {
     console.log("OnboardingBrandsScreen mounted");
@@ -470,20 +495,32 @@ const OnboardingBrandsScreen: React.FC = () => {
         <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
           Select the brands you love to wear and shop from.
         </Text>
+        <Text style={[styles.disclaimer, { color: theme.text.secondary }]}>
+          Brand list will keep evolving and we aren't forever going to be limited to only the brands you see here.
+        </Text>
       </View>
 
-      <View style={styles.bubblesContainer}>
-        <OnboardingBubbles 
-          type="brands"
-          options={[
-            'Nike', 'Adidas', 'Puma', 'Under Armour', 'New Balance',
-            'Levi\'s', 'Gap', 'H&M', 'Zara', 'Uniqlo',
-            'Calvin Klein', 'Tommy Hilfiger', 'Ralph Lauren', 'Gucci', 'Louis Vuitton',
-            'Supreme', 'Off-White', 'Balenciaga', 'Yeezy', 'Jordan',
-            'North Face', 'Patagonia', 'Columbia', 'Vans', 'Converse'
-          ]}
-          onSelectionChange={() => {}}
-        />
+      <View style={styles.selectorContainer}>
+        {brandsLoading ? (
+          <View style={styles.loadingContainer}>
+            <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
+              Loading brands...
+            </Text>
+          </View>
+        ) : (
+          <AlphabeticalListSelector
+            items={brands}
+            selectedItems={selectedBrands}
+            onItemToggle={(brand) => {
+              if (selectedBrands.includes(brand)) {
+                removeBrand(brand);
+              } else {
+                addBrand(brand);
+              }
+            }}
+            type="brands"
+          />
+        )}
       </View>
 
       <View style={styles.footer}>
@@ -602,10 +639,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     lineHeight: 22,
   },
-  bubblesContainer: {
+  selectorContainer: {
     flex: 1,
     marginVertical: 20,
-    position: 'relative',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  disclaimer: {
+    fontSize: 14,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    lineHeight: 20,
+    marginTop: 8,
+    fontStyle: 'italic',
   },
   footer: {
     paddingHorizontal: 20,

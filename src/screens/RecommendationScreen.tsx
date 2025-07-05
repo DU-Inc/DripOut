@@ -29,6 +29,10 @@ import { db, auth } from '../Config/firebaseconfig';
 import { useOptimizedProfile } from '../hooks/useOptimizedProfile';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
+import { 
+  getFashionAdvisorSessions, 
+  FashionAdvisorSessionWithDetails 
+} from '../services/fashionAdvisorChatService';
 
 // Get screen dimensions
 const { width, height } = Dimensions.get('window');
@@ -658,51 +662,7 @@ const getProfessionalGreeting = (userProfile?: any) => {
   };
 };
 
-// Professional trending categories with sophisticated metadata
-const TRENDING_CATEGORIES = [
-  { 
-    title: 'Summer Essentials', 
-    description: 'Curated seasonal pieces',
-    trend: 'rising',
-    growth: '+12%',
-    category: 'seasonal'
-  },
-  { 
-    title: 'Performance Wear', 
-    description: 'Athletic & activewear',
-    trend: 'stable',
-    growth: '+8%',
-    category: 'lifestyle'
-  },
-  { 
-    title: 'Urban Footwear', 
-    description: 'Contemporary sneakers',
-    trend: 'rising',
-    growth: '+15%',
-    category: 'footwear'
-  },
-  { 
-    title: 'Heritage Denim', 
-    description: 'Premium & vintage styles',
-    trend: 'stable',
-    growth: '+6%',
-    category: 'classics'
-  },
-  { 
-    title: 'Statement Pieces', 
-    description: 'Bold accessories & jewelry',
-    trend: 'rising',
-    growth: '+18%',
-    category: 'accessories'
-  },
-  { 
-    title: 'Sustainable Fashion', 
-    description: 'Eco-conscious brands',
-    trend: 'rising',
-    growth: '+22%',
-    category: 'sustainable'
-  }
-];
+
 
 // Generate sophisticated personalized recommendations
 const getPersonalizedRecommendations = (userProfile: any) => {
@@ -799,6 +759,10 @@ const RecommendationScreen: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [searchMode, setSearchMode] = useState<'input' | 'chat'>('input');
   
+  // Chat history state
+  const [recentSessions, setRecentSessions] = useState<FashionAdvisorSessionWithDetails[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  
   // Product modal state
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -815,9 +779,6 @@ const RecommendationScreen: React.FC = () => {
   const cancelButtonAnim = useRef(new Animated.Value(0)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const headerGradientAnim = useRef(new Animated.Value(0)).current;
-  const categoryPressAnim = useRef<Animated.Value[]>(
-    TRENDING_CATEGORIES.map(() => new Animated.Value(1))
-  ).current;
 
   // Ref for scrolling to bottom of chat
   const chatScrollRef = useRef<ScrollView>(null);
@@ -847,6 +808,20 @@ const RecommendationScreen: React.FC = () => {
     ? ['rgba(255, 255, 255, 0.02)', 'rgba(255, 255, 255, 0.01)', 'rgba(255, 255, 255, 0.02)']
     : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.01)', 'rgba(0, 0, 0, 0.02)'];
   
+  // Load recent chat sessions
+  const loadRecentSessions = async () => {
+    try {
+      setLoadingSessions(true);
+      const sessions = await getFashionAdvisorSessions();
+      // Only show last 2 sessions for the recommendation screen
+      setRecentSessions(sessions.slice(0, 2));
+    } catch (error) {
+      console.error('Error loading recent sessions:', error);
+    } finally {
+      setLoadingSessions(false);
+    }
+  };
+
   // Check API connection on component mount and fetch user profile
   useEffect(() => {
     const checkConnection = async () => {
@@ -859,6 +834,7 @@ const RecommendationScreen: React.FC = () => {
     };
     
     checkConnection();
+    loadRecentSessions(); // Load recent chat sessions
     console.log('🔄 DEBUG: RecommendationScreen mounted, profile loading handled by useOptimizedProfile hook');
     startPremiumAnimations();
   }, []);
@@ -955,11 +931,14 @@ const RecommendationScreen: React.FC = () => {
       
       // Proceed with search
       let results;
+      let advisorMessage: string | undefined;
       
 
       
       try {
-        results = await searchProducts(searchQuery, [0, 1000], 10, userProfile);
+        const searchResponse = await searchProducts(searchQuery, [0, 1000], 10, userProfile);
+        results = searchResponse.products;
+        advisorMessage = searchResponse.advisorMessage;
       } catch (apiError) {
         // If the API fails, use mock data for demo purposes
         console.log('Using mock data due to API error:', apiError);
@@ -971,7 +950,7 @@ const RecommendationScreen: React.FC = () => {
         id: `system-${Date.now()}`,
         type: 'system',
         text: results && results.length > 0 
-          ? `Here are some ${searchQuery.toLowerCase()} options I found for you:` 
+          ? (advisorMessage || `Here are some ${searchQuery.toLowerCase()} options I found for you:`)
           : `I couldn't find any ${searchQuery.toLowerCase()} that match your style. Maybe try a different search?`,
         timestamp: Date.now(),
         products: results && results.length > 0 ? results : undefined
@@ -1172,7 +1151,8 @@ const RecommendationScreen: React.FC = () => {
     try {
       // Re-fetch user profile using optimized hook
       await refreshProfile();
-      // Add haptic feedback (removed - not available)
+      // Reload recent chat sessions
+      await loadRecentSessions();
       // Simulate refresh delay for premium feel
       await new Promise(resolve => setTimeout(() => resolve(undefined), 1000));
     } catch (error) {
@@ -1182,36 +1162,7 @@ const RecommendationScreen: React.FC = () => {
     }
   };
 
-  // Professional category interaction handlers
-  const handleCategoryPressIn = (index: number) => {
-    Animated.spring(categoryPressAnim[index], {
-      toValue: 0.98,
-      useNativeDriver: true,
-      friction: 8,
-      tension: 400
-    }).start();
-  };
 
-  const handleCategoryPressOut = (index: number) => {
-    Animated.spring(categoryPressAnim[index], {
-      toValue: 1,
-      useNativeDriver: true,
-      friction: 8,
-      tension: 400
-    }).start();
-  };
-
-  const handleCategoryLongPress = (category: any, index: number) => {
-    // Professional category preview
-    Alert.alert(
-      category.title,
-      `${category.description}\nGrowth: ${category.growth} this month\n\nExplore this category?`,
-      [
-        { text: 'Explore', onPress: () => handleSuggestedSearch(category.title) },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
-  };
 
   // Open product URL
   const openProductUrl = (url: string) => {
@@ -1235,6 +1186,13 @@ const RecommendationScreen: React.FC = () => {
     }, 300);
   };
   
+  // Handle session click to continue conversation
+  const handleSessionPress = (session: FashionAdvisorSessionWithDetails) => {
+    navigation.navigate('FashionAdvisorChat' as never, {
+      sessionId: session.id
+    } as never);
+  };
+
   // Handle favoriting a product
   const handleFavoriteProduct = async (product: Product) => {
     try {
@@ -1346,43 +1304,43 @@ const RecommendationScreen: React.FC = () => {
     );
   };
 
-  // Professional trending categories with sophisticated design
-  const renderTrendingCategories = () => {
-    const personalizedRecs = getPersonalizedRecommendations(userProfile);
-    
+  // Recent chat history with sophisticated design
+  const renderRecentChatHistory = () => {
     return (
       <View style={styles.categoriesContainer}>
-        {/* Personalized Recommendations */}
-        {personalizedRecs.length > 0 && (
+        {/* Recent Conversations */}
+        {recentSessions.length > 0 && (
           <View style={styles.personalizedSection}>
             <View style={styles.professionalSectionHeader}>
               <Text style={[styles.sectionTitleProfessional, { color: textColor }]}>
-                Recommended for You
+                Recent Conversations
               </Text>
               <Text style={[styles.sectionSubtitle, { color: subTextColor }]}>
-                Based on your preferences and activity
+                Continue your fashion advisor chats
               </Text>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
-              {personalizedRecs.map((rec, index) => (
+              {recentSessions.map((session, index) => (
                 <TouchableOpacity 
-                  key={`rec-${index}`}
+                  key={`session-${session.id}`}
                   style={[styles.recommendationCard, { backgroundColor: cardBgColor, borderColor }]}
-                  onPress={() => handleSuggestedSearch(rec.title)}
+                  onPress={() => handleSessionPress(session)}
+                  activeOpacity={0.8}
                 >
                   <View style={styles.cardContent}>
                     <View style={styles.cardHeader}>
                       <Text style={[styles.cardTitle, { color: textColor }]}>
-                        {rec.title}
+                        {session.title}
                       </Text>
-                      <View style={[styles.confidenceBadge, { backgroundColor: accentColor + '20' }]}>
-                        <Text style={[styles.confidenceText, { color: accentColor }]}>
-                          {rec.confidence}%
-                        </Text>
+                      <View style={[styles.chatBadge, { backgroundColor: mainColor + '20' }]}>
+                        <Icon name="chatbubbles" size={14} color={mainColor} />
                       </View>
                     </View>
                     <Text style={[styles.cardDescription, { color: subTextColor }]}>
-                      {rec.description}
+                      {session.preview}
+                    </Text>
+                    <Text style={[styles.sessionTime, { color: subTextColor }]}>
+                      {session.lastMessageTime}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -1390,74 +1348,6 @@ const RecommendationScreen: React.FC = () => {
             </ScrollView>
           </View>
         )}
-        
-        {/* Trending Categories */}
-        <View style={styles.trendingSection}>
-          <View style={styles.professionalSectionHeader}>
-            <Text style={[styles.sectionTitleProfessional, { color: textColor }]}>
-              Trending Categories
-            </Text>
-            <Text style={[styles.sectionSubtitle, { color: subTextColor }]}>
-              Popular fashion categories this week
-            </Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 24 }}
-          >
-            {TRENDING_CATEGORIES.map((category, index) => (
-              <Animated.View
-                key={index}
-                style={{
-                  marginRight: 16,
-                  transform: [{ scale: categoryPressAnim[index] }]
-                }}
-              >
-                <TouchableOpacity 
-                  style={[styles.categoryCard, { backgroundColor: cardBgColor, borderColor }]}
-                  onPress={() => handleSuggestedSearch(category.title)}
-                  onPressIn={() => handleCategoryPressIn(index)}
-                  onPressOut={() => handleCategoryPressOut(index)}
-                  onLongPress={() => handleCategoryLongPress(category, index)}
-                  delayLongPress={800}
-                  activeOpacity={0.95}
-                >
-                  <View style={styles.categoryContent}>
-                    <View style={styles.categoryHeader}>
-                      <Text style={[styles.categoryTitle, { color: textColor }]}>
-                        {category.title}
-                      </Text>
-                      <View style={styles.trendIndicator}>
-                        {category.trend === 'rising' ? (
-                          <View style={styles.risingTrend}>
-                            <Icon name="trending-up" size={12} color={mainColor} />
-                            <Text style={[styles.growthText, { color: mainColor }]}>
-                              {category.growth}
-                            </Text>
-                          </View>
-                        ) : (
-                          <View style={styles.stableTrend}>
-                            <Icon name="remove" size={12} color={subTextColor} />
-                            <Text style={[styles.growthText, { color: subTextColor }]}>
-                              {category.growth}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                    <Text style={[styles.categoryDescription, { color: subTextColor }]}>
-                      {category.description}
-                    </Text>
-                    <Text style={[styles.categoryTag, { color: accentColor }]}>
-                      {category.category.toUpperCase()}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </Animated.View>
-            ))}
-          </ScrollView>
-        </View>
       </View>
     );
   };
@@ -1591,7 +1481,7 @@ const RecommendationScreen: React.FC = () => {
                 </Text>
               </View>
               
-              {renderTrendingCategories()}
+              {renderRecentChatHistory()}
               
               <View style={styles.professionalTipsContainer}>
                 <Text style={[styles.professionalTipsTitle, { color: textColor }]}>
@@ -2103,6 +1993,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  chatBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sessionTime: {
+    fontSize: 12,
+    marginTop: 8,
+    opacity: 0.7,
+    fontWeight: '500',
   },
   cardDescription: {
     fontSize: 16,

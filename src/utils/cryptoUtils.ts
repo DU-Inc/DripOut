@@ -7,6 +7,7 @@ import CryptoJS from 'crypto-js';
  * @returns Random nonce string
  */
 export const generateSecureNonce = (length: number = 32): string => {
+  console.log('🎲 CryptoUtils: Generating secure nonce with length:', length);
   const charset = '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
   
   // Generate cryptographically secure random string
@@ -17,6 +18,7 @@ export const generateSecureNonce = (length: number = 32): string => {
     nonce += charset[randomValue];
   }
   
+  console.log('✅ CryptoUtils: Nonce generated successfully, length:', nonce.length);
   return nonce;
 };
 
@@ -26,7 +28,10 @@ export const generateSecureNonce = (length: number = 32): string => {
  * @returns SHA256 hash as hex string
  */
 export const sha256Hash = (input: string): string => {
-  return CryptoJS.SHA256(input).toString(CryptoJS.enc.Hex);
+  console.log('🔐 CryptoUtils: Generating SHA256 hash for input length:', input.length);
+  const hash = CryptoJS.SHA256(input).toString(CryptoJS.enc.Hex);
+  console.log('✅ CryptoUtils: SHA256 hash generated, length:', hash.length);
+  return hash;
 };
 
 /**

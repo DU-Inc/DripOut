@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createUserProfile, updateBiometricPreference } from './firestoreService';
 import { authCache } from '../utils/authCacheManager';
 import { appStateManager } from '../utils/appStateManager';
+import { sessionManager } from '../utils/sessionManager';
 import { Alert, Platform } from 'react-native';
 
 // Define custom error codes for better error handling
@@ -604,7 +605,8 @@ export const signOutUser = async () => {
     // Clear all auth-related storage and user-specific caches
     await Promise.all([
       ...itemsToRemove.map(key => AsyncStorage.removeItem(key)),
-      authCache.invalidateCache()
+      authCache.invalidateCache(),
+      sessionManager.clearSession()
     ]);
     
     // Update app state

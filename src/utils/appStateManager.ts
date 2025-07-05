@@ -7,6 +7,7 @@ import { getUserPreferences } from '../services/firestoreService';
 import { AppState as RNAppState } from 'react-native';
 import { initializeWelcomeCache } from '../services/welcomeProductCache';
 import { cleanupShelfOnLogout } from '../services/shelfService';
+import { sessionManager } from './sessionManager';
 
 // Add these to the top of the file with other declarations
 declare const clearInterval: (id: number) => void;
@@ -170,6 +171,9 @@ class AppStateManager {
       
       // Clean up user-specific caches (like shelf products)
       await cleanupShelfOnLogout();
+      
+      // Clear session data
+      await sessionManager.clearSession();
       
       console.log('AppStateManager: Successfully cleared all user data');
     } catch (error) {

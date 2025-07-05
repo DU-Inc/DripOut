@@ -55,7 +55,7 @@
 	<key>NSFaceIDUsageDescription</key>
 	<string>$(PRODUCT_NAME) would like to use Face ID for secure and convenient authentication.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>$(PRODUCT_NAME) would like to use your location.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>DripOut needs access to your microphone for recording videos</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

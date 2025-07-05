@@ -6,9 +6,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 // Using buffer for arraybuffer to base64 conversion
 import { Buffer } from 'buffer';
+import { API_BASE_URL } from '../Config/apiConfig';
 
-// API configuration
-const API_BASE_URL = 'http://192.168.1.224:8000'; // For local development
+// API configuration - now using centralized config
 console.log('📡 Recommendation API configured with base URL:', API_BASE_URL);
 
 // Initialize API client
@@ -77,6 +77,7 @@ export interface Product {
   sizes?: string[];
   color?: string; // Primary color
   brand?: string;
+  site?: string; // Store/site name (e.g., 'H&M', 'Zara')
   
   // Add other fields from products_response if needed
   // source_domain?: string;
@@ -92,6 +93,7 @@ interface RecommendationsApiResponse {
   total_products: number;
   search_terms: string[];
   timestamp: string;
+  advisor_message?: string; // 🆕 NEW: Advisor's personalized response
 }
 
 /**
@@ -101,13 +103,13 @@ export async function searchProducts(
   query: string, 
   priceRange: [number, number] = [0, 1000], 
   limit: number = 10,
-  userProfile?: any // Accept user profile data if available
-): Promise<Product[]> {
-  console.log('🔎 Starting product search for query:', query);
-  console.log('🔍 DEBUG: Received userProfile parameter:', userProfile);
-  console.log('🔍 DEBUG: userProfile type:', typeof userProfile);
-  console.log('🔍 DEBUG: userProfile keys:', userProfile ? Object.keys(userProfile) : 'N/A');
-  console.log('🔍 DEBUG: userProfile stringified:', JSON.stringify(userProfile, null, 2));
+  userProfile?: any, // Accept user profile data if available
+  conversationContext?: any // Accept conversation context for follow-up queries
+): Promise<{ products: Product[]; advisorMessage: string }> {
+    console.log('🔎 Starting product search for query:', query);
+  if (conversationContext) {
+    console.log('⚠️ NOTE: Conversation context is available but not being sent to API (backend does not support it yet)');
+  }
   
   try {
     // Initialize user profile data object
@@ -115,50 +117,36 @@ export async function searchProducts(
 
     // Integrate relevant fields from the provided userProfile object
     if (userProfile) {
-      console.log('👤 DEBUG: User profile data available, integrating preferences');
-      console.log('👤 DEBUG: Profile keys received:', Object.keys(userProfile));
-      console.log('👤 DEBUG: Full profile data received:', JSON.stringify(userProfile, null, 2));
+      console.log('👤 User profile data available, integrating preferences');
 
       // Map age if available
       if (typeof userProfile.userAge === 'number') {
         userProfileData.age = userProfile.userAge;
-        console.log('🎂 Age:', userProfile.userAge);
-      } else {
-        // If age is required by API but not present, you might need a default or omit it
-        // console.log('ℹ️ Age not provided in user profile');
       }
 
       // Map gender if available
       if (userProfile.userGender) {
         const gender = userProfile.userGender.toLowerCase();
         if (gender.includes('male') || gender.includes('man') || gender.includes('men')) {
-          userProfileData.gender = 'male'; // Match expected API value if needed
+          userProfileData.gender = 'male';
         } else if (gender.includes('female') || gender.includes('woman') || gender.includes('women')) {
-          userProfileData.gender = 'female'; // Match expected API value if needed
-        } else {
-          // Decide on a default or omit if gender is unknown/other
-          // userProfileData.gender = 'unisex'; 
+          userProfileData.gender = 'female';
         }
-        console.log('⚧️ Mapped Gender preference:', userProfileData.gender);
       }
 
       // Map style preferences if available
       if (userProfile.preferredStyles && Array.isArray(userProfile.preferredStyles) && userProfile.preferredStyles.length > 0) {
         userProfileData.style_preferences = userProfile.preferredStyles;
-        console.log('🎨 Style preferences:', userProfile.preferredStyles);
       }
 
-      // Map color preferences if available (assuming API expects 'color_preferences')
+      // Map color preferences if available
       if (userProfile.colorPreferences && Array.isArray(userProfile.colorPreferences) && userProfile.colorPreferences.length > 0) {
         userProfileData.color_preferences = userProfile.colorPreferences;
-        console.log('🌈 Color preferences:', userProfile.colorPreferences);
       }
 
-      // Map and normalize preferred stores if available
+      // Map preferred stores if available
       if (userProfile.preferredBrands && Array.isArray(userProfile.preferredBrands) && userProfile.preferredBrands.length > 0) {
-        userProfileData.preferred_stores = userProfile.preferredBrands; // Send original names if API expects them
-        // Or normalize if needed: userProfile.preferredBrands.map(normalizeStoreDomain);
-        console.log('🏬 Preferred brands/stores:', userProfileData.preferred_stores);
+        userProfileData.preferred_stores = userProfile.preferredBrands;
       }
       
       // Add budget object with min/max from priceRange
@@ -166,13 +154,9 @@ export async function searchProducts(
          min: priceRange[0],
          max: priceRange[1]
       };
-      console.log('💰 Budget object:', userProfileData.budget);
 
     } else {
-      console.log('❌ DEBUG: No user profile available, sending minimal profile data');
-      console.log('❌ DEBUG: userProfile is:', userProfile);
-      console.log('❌ DEBUG: userProfile type:', typeof userProfile);
-      console.log('❌ DEBUG: userProfile truthiness:', !!userProfile);
+      console.log('⚠️ No user profile available, sending minimal profile data');
       // Send at least the budget if required, even without full profile
       userProfileData.budget = {
          min: priceRange[0],
@@ -180,14 +164,24 @@ export async function searchProducts(
       };
     }
     
+    // Ensure user_profile has at least some meaningful data to avoid API rejection
+    if (Object.keys(userProfileData).length === 1 && userProfileData.budget) {
+      userProfileData.gender = 'unisex'; // Add a default gender to ensure non-empty profile
+    }
+    
     // Build the request payload according to the *expected* API schema
     const payload = {
       user_query: query,        // Use expected name
       user_profile: userProfileData,
       max_products: limit,      // Use expected name
-      direct_search: false, 
+      direct_search: false
+      // NOTE: conversation_context is not supported by the backend task function yet
+      // The API endpoint accepts it but the task function doesn't have the parameter
+      // ...(conversationContext && {
+      //   conversation_context: conversationContext
+      // })
     };
-    console.log('📦 Request payload prepared:', JSON.stringify(payload));
+    console.log('📦 Request payload prepared:', JSON.stringify(payload, null, 2));
     
     // Step 1: Initiate the recommendations task
     console.log('⏳ Sending request to start recommendations task:', `${API_BASE_URL}/recommendations`);
@@ -232,26 +226,20 @@ export async function searchProducts(
             
             if (!result || !result.products || result.products.length === 0) {
               console.log('ℹ️ No products found from recommendations');
-              resolve([]); // Return empty array instead of rejecting
+              resolve({ 
+                products: [], 
+                advisorMessage: result?.advisor_message || "I couldn't find any products matching your request. Could you try a different search term?" 
+              });
               return;
             }
             
             console.log('✅ Successfully received', result.products.length, 'recommendations');
+            console.log('💬 Advisor message:', result.advisor_message || 'No advisor message provided');
             
-            // Debug logging for API response products
-            console.log('🔍 DEBUG: API Response Products:');
-            result.products.forEach((product: any, index: number) => {
-              console.log(`📦 Product ${index + 1}:`, {
-                name: product.name,
-                price: product.price,
-                priceType: typeof product.price,
-                brand: product.brand,
-                url: product.url,
-                fullProduct: JSON.stringify(product, null, 2)
-              });
+            resolve({
+              products: result.products,
+              advisorMessage: result.advisor_message || "Here are some great products I found for you!"
             });
-            
-            resolve(result.products);
             
           } else if (status === 'FAILURE') {
             // Task failed
@@ -304,17 +292,30 @@ export async function searchProducts(
       
       if (error.response?.status === 404) {
         throw new Error('Recommendations endpoint not found. Please check if the API is running.');
-      } else if (error.response?.status === 422) {
+      } else       if (error.response?.status === 422) {
         // Extract detailed error message
         let errorMessage = 'Invalid request data for recommendations.';
         try {
           if (error.response?.data && typeof error.response.data === 'object') {
             const responseData = error.response.data as any;
+            console.error('🔍 FULL 422 ERROR DETAILS:', JSON.stringify(responseData, null, 2));
+            
             if (responseData.detail) {
               if (typeof responseData.detail === 'string') {
                 errorMessage = responseData.detail;
               } else if (Array.isArray(responseData.detail)) {
-                errorMessage = responseData.detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+                // Log each validation error in detail
+                responseData.detail.forEach((err: any, index: number) => {
+                  console.error(`❌ Validation Error ${index + 1}:`, {
+                    type: err.type,
+                    message: err.msg,
+                    location: err.loc,
+                    input: err.input
+                  });
+                });
+                errorMessage = responseData.detail.map((err: any) => 
+                  `${err.loc?.join('.') || 'unknown'}: ${err.msg}`
+                ).join(', ');
               }
             }
           }

@@ -50,7 +50,9 @@ export type RootStackParamList = {
   UserDetailScreen: { userId: string; username?: string };
   SearchScreen: undefined;
   MessagingScreen: { conversationId?: string; otherUserId?: string; otherUserName?: string };
-  FashionAdvisorChat: { initialQuery?: string } | undefined;
+  FashionAdvisorChat: { initialQuery?: string; sessionId?: string } | undefined;
+  FashionAdvisorHistory: undefined;
+  FashionAdvisorSession: { sessionId: string; sessionTitle?: string } | undefined;
   FollowersFollowingScreen: {
     initialTab?: 'followers' | 'following';
     userId: string;

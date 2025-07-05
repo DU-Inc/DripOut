@@ -1,5 +1,7 @@
 import firestore from '@react-native-firebase/firestore';
-import { auth, db } from '../../Config/firebaseconfig';
+import { auth, db, firestoreDB, getAuth } from '../../Config/firebaseconfig';
+import { collection, query, where, getDocs, doc, setDoc } from '@react-native-firebase/firestore';
+import { fetchSignInMethodsForEmail, createUserWithEmailAndPassword, updateProfile } from '@react-native-firebase/auth';
 import { sendAndStoreVerificationCode, verifyCode } from '../email/emailService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { appStateManager } from '../../utils/appStateManager';
@@ -113,9 +115,10 @@ export const isEmailAlreadyInUse = async (email: string): Promise<{ inUse: boole
       return { inUse: false, errorMessage: formatValidation.errorMessage };
     }
     
-    // Check if email is already registered in Firebase Auth
+    // Check if email is already registered in Firebase Auth (using modular API)
     try {
-      const signInMethods = await auth().fetchSignInMethodsForEmail(email);
+      const auth = getAuth();
+      const signInMethods = await fetchSignInMethodsForEmail(auth, email);
       if (signInMethods && signInMethods.length > 0) {
         return { 
           inUse: true, 
@@ -137,11 +140,9 @@ export const isEmailAlreadyInUse = async (email: string): Promise<{ inUse: boole
       // Otherwise, user doesn't exist in Auth, which is what we want
     }
     
-    // Also check if email is already in use in Firestore
-    const querySnapshot = await db
-      .collection('users')
-      .where('email', '==', email)
-      .get();
+    // Also check if email is already in use in Firestore (using modular API)
+    const q = query(collection(firestoreDB, 'users'), where('email', '==', email));
+    const querySnapshot = await getDocs(q);
     
     if (!querySnapshot.empty) {
       return { 
@@ -200,9 +201,10 @@ export const isUsernameTaken = async (username: string): Promise<boolean> => {
 // Step 1: Send verification code to email
 export const sendVerificationCode = async (email: string): Promise<boolean> => {
   try {
-    // Check if email is already registered in Firebase Auth
+    // Check if email is already registered in Firebase Auth (using modular API)
     try {
-      const signInMethods = await auth().fetchSignInMethodsForEmail(email);
+      const auth = getAuth();
+      const signInMethods = await fetchSignInMethodsForEmail(auth, email);
       if (signInMethods && signInMethods.length > 0) {
         throw new Error(SignupErrorTypes.EMAIL_ALREADY_IN_USE);
       }
@@ -214,11 +216,9 @@ export const sendVerificationCode = async (email: string): Promise<boolean> => {
       // Otherwise, user doesn't exist in Auth, which is what we want
     }
 
-    // Also check if email is already in use in Firestore
-    const querySnapshot = await db
-      .collection('users')
-      .where('email', '==', email)
-      .get();
+    // Also check if email is already in use in Firestore (using modular API)
+    const q = query(collection(firestoreDB, 'users'), where('email', '==', email));
+    const querySnapshot = await getDocs(q);
     
     if (!querySnapshot.empty) {
       throw new Error(SignupErrorTypes.EMAIL_ALREADY_IN_USE);

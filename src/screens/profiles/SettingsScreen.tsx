@@ -22,9 +22,9 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
-import { db } from '../../Config/firebaseconfig';
-// Using React Native Firebase - no separate imports needed
-import { auth } from '../../Config/firebaseconfig';
+import { db, firestoreDB, authInstance } from '../../Config/firebaseconfig';
+import { doc, deleteDoc } from '@react-native-firebase/firestore';
+import { deleteUser, getAuth } from '@react-native-firebase/auth';
 import { signOutUser } from '../../services/auth';
 import { 
   UserProfile, 
@@ -39,6 +39,8 @@ import FeatherIcon from 'react-native-vector-icons/Feather';
 import { resetOnboardingStatus } from '../../utils/resetOnboarding';
 import { takePhotoWithCamera, selectImageFromLibrary, ImageAsset } from '../../services/imagePickerService';
 import { uploadImageAndGetURL } from '../../services/storageService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { appStateManager } from '../../utils/appStateManager';
 
 // Set default text styles for SF Pro font family
 const defaultTextStyle = {
@@ -95,6 +97,10 @@ const SettingsScreen: React.FC = () => {
   const [bottomSize, setBottomSize] = useState(preferences?.bottomsSize || '');
   const [shoeSize, setShoeSize] = useState(preferences?.shoeSize || '');
   
+  // States for email editing modal
+  const [emailModalVisible, setEmailModalVisible] = useState(false);
+  const [editingEmail, setEditingEmail] = useState('');
+  
   // Define standardized options
   const genderOptions = ['Male', 'Female', 'Non-binary', 'Prefer not to say', 'Other'];
   const bodyTypeOptions = ['Slim', 'Athletic', 'Average', 'Curvy', 'Plus Size', 'Petite', 'Tall'];
@@ -113,7 +119,8 @@ const SettingsScreen: React.FC = () => {
 
   // Load user profile and preferences
   useEffect(() => {
-    const userId = auth().currentUser?.uid;
+    const auth = getAuth();
+    const userId = auth.currentUser?.uid;
     if (userId) {
       // Listen for profile updates
       const profileUnsubscribe = db.collection('users').doc(userId).onSnapshot((docSnapshot) => {
@@ -256,10 +263,11 @@ const SettingsScreen: React.FC = () => {
   };
 
   const handleSaveProfile = async () => {
-    if (!editedProfile || !auth().currentUser) return;
+    const auth = getAuth();
+    if (!editedProfile || !auth.currentUser) return;
     
     try {
-      const userId = auth().currentUser.uid;
+      const userId = auth.currentUser.uid;
       const userRef = db.collection('users').doc(userId);
       
       // Create clean update data, removing any undefined values
@@ -405,8 +413,37 @@ const SettingsScreen: React.FC = () => {
                 { 
                   text: 'Yes, Delete', 
                   style: 'destructive',
-                  onPress: () => {
-                    Alert.alert('Account Deletion', 'This feature will be implemented in a future update.');
+                  onPress: async () => {
+                    try {
+                      const auth = getAuth();
+                      const currentUser = auth.currentUser;
+                      if (!currentUser) {
+                        Alert.alert('Error', 'No user is currently signed in.');
+                        return;
+                      }
+
+                      // 1. Delete user document from Firestore (using modular API)
+                      const userDocRef = doc(firestoreDB, 'users', currentUser.uid);
+                      await deleteDoc(userDocRef);
+                      console.log('User document deleted from Firestore');
+
+                      // 2. Delete Firebase Auth user account (using modular API)
+                      await deleteUser(currentUser);
+                      console.log('Firebase Auth user deleted');
+
+                      // 3. Clear local storage
+                      await AsyncStorage.removeItem('firebaseUserToken');
+                      console.log('Local storage cleared');
+
+                      // 4. Reset app state
+                      appStateManager.setAuthenticated(false);
+                      appStateManager.setOnboarding(false);
+                      
+                      Alert.alert('Account Deleted', 'Your account has been permanently deleted.');
+                    } catch (error: any) {
+                      console.error('Error deleting account:', error);
+                      Alert.alert('Error', 'Failed to delete account. Please try again.');
+                    }
                   }
                 }
               ]
@@ -463,14 +500,15 @@ const SettingsScreen: React.FC = () => {
   const uploadProfilePicture = async (image: ImageAsset) => {
     try {
       // Wait for auth state to be fully initialized
+      const auth = getAuth();
       await new Promise((resolve) => {
-        const unsubscribe = auth().onAuthStateChanged((user) => {
+        const unsubscribe = auth.onAuthStateChanged((user) => {
           unsubscribe();
           resolve(user);
         });
       });
       
-      const currentUser = auth().currentUser;
+      const currentUser = auth.currentUser;
       console.log('🔐 Profile Picture Upload: Current user:', currentUser ? 'Authenticated' : 'Not authenticated');
       console.log('🔐 Profile Picture Upload: User ID:', currentUser?.uid);
       console.log('🔐 Profile Picture Upload: Profile data:', profile ? 'Available' : 'Not available');
@@ -540,10 +578,11 @@ const SettingsScreen: React.FC = () => {
     bottomsSize?: string;
     shoeSize?: string;
   }) => {
-    if (!auth().currentUser) return;
+    const auth = getAuth();
+    if (!auth.currentUser) return;
     
     try {
-      const userId = auth().currentUser.uid;
+      const userId = auth.currentUser.uid;
       
       // Create or update user preferences
       const updatedPreferences = {
@@ -565,6 +604,57 @@ const SettingsScreen: React.FC = () => {
     } catch (error) {
       console.error('Error updating preferences:', error);
       Alert.alert('Error', 'Failed to save your preferences. Please try again.');
+    }
+  };
+
+  const saveEmail = async (email: string) => {
+    const auth = getAuth();
+    if (!auth.currentUser) return;
+    
+    try {
+      const currentUser = auth.currentUser;
+      const userId = currentUser.uid;
+      
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        Alert.alert('Invalid Email', 'Please enter a valid email address.');
+        return;
+      }
+      
+      // Update Firestore user document
+      await db.collection('users').doc(userId).update({
+        email: email,
+        updatedAt: new Date()
+      });
+      
+      // Update Firebase Auth user profile
+      try {
+        await currentUser.updateEmail(email);
+      } catch (authError: any) {
+        console.warn('Could not update Firebase Auth email:', authError.message);
+        // Continue anyway - the email is saved in Firestore
+      }
+      
+      // Propagate email update to other collections
+      await propagateProfileUpdates(userId, { email });
+      
+      // Update local state
+      const updatedProfile = {
+        ...profile,
+        email: email,
+        updatedAt: new Date()
+      };
+      setProfile(updatedProfile);
+      setEditedProfile(updatedProfile);
+      
+      Alert.alert('Email Updated', 'Your email address has been saved successfully.');
+      setEmailModalVisible(false);
+      setEditingEmail('');
+      
+    } catch (error) {
+      console.error('Error updating email:', error);
+      Alert.alert('Error', 'Failed to update email address. Please try again.');
     }
   };
 
@@ -664,6 +754,50 @@ const SettingsScreen: React.FC = () => {
               onPress={() => savePreferences({ topsSize: topSize, bottomsSize: bottomSize, shoeSize })}
             >
               <Text style={styles.saveModalButtonText}>Save Sizes</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  // Render email input modal
+  const renderEmailModal = () => {
+    return (
+      <View style={[styles.modalContent, { backgroundColor: cardBgColor }]}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: textColor }]}>Add Email Address</Text>
+          <TouchableOpacity onPress={() => setEmailModalVisible(false)}>
+            <Icon name="close-outline" size={24} color={textColor} />
+          </TouchableOpacity>
+        </View>
+        
+        <View style={[styles.modalBody, { paddingBottom: 20 }]}>
+          <Text style={[styles.modalSectionTitle, { color: textColor }]}>
+            Enter your email address to receive important notifications and updates
+          </Text>
+          
+          <View style={styles.modalForm}>
+            <View style={styles.formGroup}>
+              <Text style={[styles.formLabel, { color: subTextColor }]}>Email Address</Text>
+              <TextInput 
+                style={[styles.formInput, { backgroundColor: surfaceColor, color: textColor, borderColor }]}
+                value={editingEmail}
+                onChangeText={setEditingEmail}
+                placeholder="your@email.com"
+                placeholderTextColor={subTextColor}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            
+            <TouchableOpacity 
+              style={[styles.saveModalButton, { backgroundColor: mainColor, opacity: editingEmail.trim() ? 1 : 0.6 }]}
+              onPress={() => saveEmail(editingEmail.trim())}
+              disabled={!editingEmail.trim()}
+            >
+              <Text style={styles.saveModalButtonText}>Save Email</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1258,8 +1392,12 @@ const SettingsScreen: React.FC = () => {
             {renderSettingItem(
               'mail', 
               'Email Address', 
-              'Your account email', 
-              profile?.email || 'Not set'
+              profile?.email ? 'Your account email' : 'Tap to add your email', 
+              profile?.email || 'Not set',
+              !profile?.email ? () => {
+                setEditingEmail('');
+                setEmailModalVisible(true);
+              } : undefined
             )}
             {renderSettingItem(
               'shield', 
@@ -1289,7 +1427,8 @@ const SettingsScreen: React.FC = () => {
               preferences?.pushNotifications ?? true, 
               () => {
                 if (preferences) {
-                  setUserPreferences(auth().currentUser!.uid, {
+                  const auth = getAuth();
+                  setUserPreferences(auth.currentUser!.uid, {
                     ...preferences,
                     pushNotifications: !preferences.pushNotifications
                   }).then(() => {
@@ -1308,7 +1447,8 @@ const SettingsScreen: React.FC = () => {
               preferences?.emailNotifications ?? true, 
               () => {
                 if (preferences) {
-                  setUserPreferences(auth().currentUser!.uid, {
+                  const auth = getAuth();
+                  setUserPreferences(auth.currentUser!.uid, {
                     ...preferences,
                     emailNotifications: !preferences.emailNotifications
                   }).then(() => {
@@ -1413,15 +1553,53 @@ const SettingsScreen: React.FC = () => {
           <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
             {renderSettingItem(
               'refresh-cw', 
-              'Reset Onboarding', 
-              'Show onboarding flow on next login', 
+              'Start Onboarding Now', 
+              'Immediately go to onboarding flow', 
               undefined, 
               async () => {
-                await resetOnboardingStatus();
                 Alert.alert(
-                  'Onboarding Reset', 
-                  'You will see the onboarding flow next time you log in.',
-                  [{ text: 'OK' }]
+                  'Start Onboarding', 
+                  'This will take you to the onboarding flow now. Any current onboarding selections will be cleared.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { 
+                      text: 'Start Onboarding', 
+                      onPress: async () => {
+                        try {
+                          console.log('🔴 Starting onboarding reset flow');
+                          
+                          // Reset onboarding status
+                          await resetOnboardingStatus();
+                          
+                          // Clear any existing onboarding data from storage
+                          await AsyncStorage.removeItem('selectedStyles');
+                          await AsyncStorage.removeItem('selectedBrands');
+                          await AsyncStorage.removeItem('sizingData');
+                          await AsyncStorage.removeItem('onboardingCompletedSteps');
+                          await AsyncStorage.removeItem('onboardingFilledSteps');
+                          await AsyncStorage.removeItem('sessionSkippedSteps');
+                          console.log('🟡 Cleared AsyncStorage data');
+                          
+                          // Context will be automatically cleared when onboarding starts fresh
+                          console.log('🟡 AsyncStorage cleared - context will reset on onboarding start');
+                          
+                          // Set app state to require onboarding
+                          appStateManager.setOnboarding(true);
+                          
+                          // Small delay to ensure context clears before navigation
+                          setTimeout(() => {
+                            console.log('🟢 Navigating to onboarding');
+                            // Navigate to onboarding
+                            navigation.navigate('Onboarding' as any, { directNavigation: true });
+                          }, 100);
+                          
+                        } catch (error) {
+                          console.error('Error starting onboarding:', error);
+                          Alert.alert('Error', 'Failed to start onboarding. Please try again.');
+                        }
+                      }
+                    }
+                  ]
                 );
               },
               secondaryColor
@@ -1465,6 +1643,24 @@ const SettingsScreen: React.FC = () => {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Email Modal */}
+      {emailModalVisible && (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setEmailModalVisible(false)}
+          statusBarTranslucent={true}
+        >
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+            style={[styles.modalContainer, { backgroundColor: modalBgColor }]}
+          >
+            {renderEmailModal()}
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
 
       {/* Selection/Form Modals */}
       {modalVisible && selectedSection && (

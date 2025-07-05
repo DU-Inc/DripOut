@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Alert, Animated
 import { useTheme } from '../styles/themeprovider';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import OnboardingBubbles from '../components/Onboarding/OnboardingBubbles';
+import EnhancedStyleBubbles from '../components/Onboarding/EnhancedStyleBubbles';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/NavigationTypes';
 import { useOnboardingContext } from '../context/OnboardingContext';
@@ -50,6 +50,14 @@ const OnboardingScreen: React.FC = () => {
   
   // State for tutorial overlay
   const [showTutorialOverlay, setShowTutorialOverlay] = useState(false);
+  
+  // Hardcoded styles list as requested
+  const availableStyles = [
+    'Casual', 'Formal', 'Streetwear', 'Athletic', 'Vintage',
+    'Minimalist', 'Bohemian', 'Preppy', 'Grunge', 'Hipster',
+    'Classic', 'Punk', 'Business', 'Retro', 'Sporty',
+    'Urban', 'Chic', 'Elegant', 'Indie'
+  ];
   
   useEffect(() => {
     // Update hasSelections whenever selectedStyles changes
@@ -535,15 +543,8 @@ const OnboardingScreen: React.FC = () => {
       </View>
 
       <View style={styles.bubblesContainer}>
-        <OnboardingBubbles 
-          type="styles"
-          options={[
-            'Casual', 'Formal', 'Streetwear', 'Athletic', 'Vintage',
-            'Minimalist', 'Bohemian', 'Preppy', 'Grunge', 'Hipster',
-            'Classic', 'Punk', 'Business', 'Retro', 'Sporty',
-            'Urban', 'Chic', 'Elegant', 'Indie'
-          ]}
-          onSelectionChange={() => {}}
+        <EnhancedStyleBubbles
+          options={availableStyles}
         />
       </View>
 

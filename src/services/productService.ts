@@ -62,28 +62,7 @@ export interface SearchRequest {
 }
 
 import { Platform } from 'react-native';
-
-// Available API endpoints - uncomment the one you need
-const API_ENDPOINTS = {
-  // For iOS simulator
-  IOS_SIMULATOR: 'http://localhost:8000',
-  // For Android emulator
-  ANDROID_EMULATOR: 'http://10.0.2.2:8000',
-  // For localhost with different port
-  LOCAL_ALT_PORT: 'http://localhost:3000',
-  // For physical device on same network (replace with your computer's IP)
-  LOCAL_NETWORK: 'http://192.168.1.100:8000',
-  // If you have a public API endpoint
-  PRODUCTION: 'https://api.dripout.app/api',
-  // For testing - ngrok creates a tunnel to your localhost (replace with your ngrok URL)
-  NGROK: 'https://abcd1234.ngrok.io',
-};
-
-// Local development API URL
-const LOCAL_DEV_URL = 'http://192.168.1.224:8000';
-
-// Set the API endpoint directly to your local development URL
-let API_BASE_URL = LOCAL_DEV_URL;
+import { API_BASE_URL } from '../Config/apiConfig';
 
 // For debugging - log the current API URL
 console.log(`Using API base URL: ${API_BASE_URL}`);
