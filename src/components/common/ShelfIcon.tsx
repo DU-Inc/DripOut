@@ -25,8 +25,10 @@ export interface ShelfIconProps {
   activeColor?: string;
   /** Color when not in shelf */
   inactiveColor?: string;
-  /** Background color */
-  backgroundColor?: string;
+  /** Background color when active */
+  activeBackgroundColor?: string;
+  /** Background color when inactive */
+  inactiveBackgroundColor?: string;
   /** Whether to show background circle */
   showBackground?: boolean;
   /** Icon style variant */
@@ -43,6 +45,8 @@ export interface ShelfIconProps {
   showAnimation?: boolean;
   /** Hit slop for better touch targets */
   hitSlop?: { top: number; bottom: number; left: number; right: number };
+  /** Whether the user is a guest (disables animations and state updates) */
+  isGuest?: boolean;
 }
 
 const ShelfIcon: React.FC<ShelfIconProps> = ({
@@ -51,7 +55,8 @@ const ShelfIcon: React.FC<ShelfIconProps> = ({
   size = 20,
   activeColor = '#FF6347',
   inactiveColor = '#8E8E93',
-  backgroundColor = 'rgba(0,0,0,0.6)',
+  activeBackgroundColor = '#FF6347',
+  inactiveBackgroundColor = 'rgba(0,0,0,0.1)',
   showBackground = true,
   variant = 'hanger',
   disabled = false,
@@ -60,6 +65,7 @@ const ShelfIcon: React.FC<ShelfIconProps> = ({
   textStyle,
   showAnimation = true,
   hitSlop = { top: 10, bottom: 10, left: 10, right: 10 },
+  isGuest = false,
 }) => {
   const [localIsInShelf, setLocalIsInShelf] = useState(isInShelf);
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -70,9 +76,10 @@ const ShelfIcon: React.FC<ShelfIconProps> = ({
     setLocalIsInShelf(isInShelf);
   }, [isInShelf]);
 
-  // Animation when state changes
+  // Animation when state changes (disabled for guests)
   useEffect(() => {
-    if (showAnimation) {
+    if (showAnimation && !isGuest) {
+      // Scale and opacity animation only (background color handled by state)
       Animated.sequence([
         Animated.parallel([
           Animated.timing(scaleAnim, {
@@ -100,13 +107,18 @@ const ShelfIcon: React.FC<ShelfIconProps> = ({
         ]),
       ]).start();
     }
-  }, [localIsInShelf, showAnimation]);
+  }, [localIsInShelf, showAnimation, isGuest, scaleAnim, opacityAnim]);
 
   const handlePress = () => {
     if (disabled) return;
 
     const newState = !localIsInShelf;
-    setLocalIsInShelf(newState);
+    
+    // Only update local state if user is not a guest
+    if (!isGuest) {
+      setLocalIsInShelf(newState);
+    }
+    
     onToggle?.(newState);
   };
 
@@ -128,10 +140,14 @@ const ShelfIcon: React.FC<ShelfIconProps> = ({
     return localIsInShelf ? activeColor : inactiveColor;
   };
 
+  // Get background color based on state (no animation to avoid conflicts)
+  const getBackgroundColor = () => {
+    return localIsInShelf ? activeBackgroundColor : inactiveBackgroundColor;
+  };
+
   const containerStyle: ViewStyle = [
     styles.container,
     showBackground && {
-      backgroundColor,
       borderRadius: size / 2 + 4,
       padding: 6,
     },
@@ -150,6 +166,11 @@ const ShelfIcon: React.FC<ShelfIconProps> = ({
       <Animated.View
         style={[
           styles.iconContainer,
+          showBackground && {
+            backgroundColor: getBackgroundColor(),
+            borderRadius: size / 2 + 4,
+            padding: 6,
+          },
           {
             transform: [{ scale: scaleAnim }],
             opacity: opacityAnim,

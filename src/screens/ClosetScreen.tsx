@@ -18,7 +18,7 @@ import {
 } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import Icon from "react-native-vector-icons/Ionicons";
-import FeatherIcon from "react-native-vector-icons/Feather";
+
 import { useTheme } from "../styles/themeprovider";
 import { db, auth } from "../Config/firebaseconfig";
 import firestore from '@react-native-firebase/firestore';
@@ -26,6 +26,9 @@ import { useNavigation } from "@react-navigation/native";
 import { NavigationProp } from '@react-navigation/native';
 import { Linking } from 'react-native';
 import { RootStackParamList, MainTabParamList } from '../types/NavigationTypes';
+import { appStateManager } from '../utils/appStateManager';
+import LockOverlay from '../components/common/LockOverlay';
+import { useGuestLock } from '../hooks/useGuestLock';
 
 type NavigationType = NavigationProp<RootStackParamList>;
 
@@ -181,7 +184,7 @@ const ProductDetailsModal = React.memo(({
               onPress={() => item.url && Linking.openURL(item.url)}
               disabled={!item.url}
             >
-              <FeatherIcon name="external-link" size={20} color={item.url ? textColor : subTextColor} />
+                                <Icon name="open-outline" size={20} color={item.url ? textColor : subTextColor} />
             </TouchableOpacity>
           </View>
 
@@ -202,7 +205,7 @@ const ProductDetailsModal = React.memo(({
                 {/* Floating Brand Badge */}
                 <View style={styles.modernFloatingBadge}>
                   <View style={[styles.modernBrandBadge, { backgroundColor: mainColor }]}>
-                    <FeatherIcon name="tag" size={14} color="#FFFFFF" />
+                    <Icon name="pricetag" size={14} color="#FFFFFF" />
                     <Text style={styles.modernBrandBadgeText}>{item.brand}</Text>
                   </View>
                 </View>
@@ -238,7 +241,7 @@ const ProductDetailsModal = React.memo(({
                   onPress={() => item.url && onOpenProduct(item.url)}
                   disabled={!item.url}
                 >
-                  <FeatherIcon name="shopping-cart" size={18} color="#FFFFFF" />
+                  <Icon name="cart" size={18} color="#FFFFFF" />
                   <Text style={styles.modernPrimaryActionText}>
                     {item.url ? 'Shop Now' : 'No Link'}
                   </Text>
@@ -255,7 +258,7 @@ const ProductDetailsModal = React.memo(({
                   style={[styles.modernSecondaryAction, { backgroundColor: surfaceColor, borderColor: borderColor }]}
                   onPress={() => onRemoveFavorite(item)}
                 >
-                  <FeatherIcon name="heart" size={16} color="#FF4757" />
+                  <Icon name="heart" size={16} color="#FF4757" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -274,7 +277,7 @@ const ProductDetailsModal = React.memo(({
               <View style={styles.modernDetailsList}>
                 <View style={[styles.modernDetailItem, { backgroundColor: surfaceColor }]}>
                   <View style={[styles.modernDetailIcon, { backgroundColor: `${mainColor}15` }]}>
-                    <FeatherIcon name="tag" size={18} color={mainColor} />
+                    <Icon name="pricetag" size={18} color={mainColor} />
                   </View>
                   <View style={styles.modernDetailContent}>
                     <Text style={[styles.modernDetailLabel, { color: subTextColor }]}>Brand</Text>
@@ -402,6 +405,24 @@ const ClosetScreen: React.FC = () => {
   const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';
   const mainColor = isDarkMode ? '#FF4870' : '#EF3D47'; // Red primary
   const cardBgColor = isDarkMode ? '#16171F' : '#FFFFFF';
+
+  // Guest lock functionality
+  const isGuest = appStateManager.isGuest();
+  const closetLock = useGuestLock({ 
+    feature: 'managing your closet', 
+    title: 'Build Your Digital Closet!',
+    message: 'Sign in to save outfits, favorite products, and manage your personal collection.'
+  });
+  const outfitLock = useGuestLock({ 
+    feature: 'viewing outfit details', 
+    title: 'Explore Outfit Details!',
+    message: 'Sign in to view detailed outfit breakdowns and styling tips.'
+  });
+  const productLock = useGuestLock({ 
+    feature: 'viewing product details', 
+    title: 'Discover Product Details!',
+    message: 'Sign in to view product information, prices, and shop links.'
+  });
   const surfaceColor = isDarkMode ? '#242535' : '#F5F5F5';
   const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
   const accentColor = isDarkMode ? '#564DFF' : '#4D41D0'; // Secondary color
@@ -865,8 +886,18 @@ const ClosetScreen: React.FC = () => {
           borderColor: borderColor
         }
       ]}
-      onPress={() => showProductDetails(item)}
-      onLongPress={() => deleteFavoriteProduct(item)}
+      onPress={() => {
+        const actionAllowed = productLock.lockAction(() => {
+          showProductDetails(item);
+        });
+        if (!actionAllowed) return;
+      }}
+      onLongPress={() => {
+        const actionAllowed = productLock.lockAction(() => {
+          deleteFavoriteProduct(item);
+        });
+        if (!actionAllowed) return;
+      }}
       delayLongPress={500}
     >
       <View style={styles.productImageContainer}>
@@ -942,10 +973,18 @@ const ClosetScreen: React.FC = () => {
         }
       ]}
       onPress={() => {
-        // Show product details
-        Alert.alert("Product Details", `${item.name} by ${item.brand}\nCategory: ${item.category}\nWorn ${item.timesWorn || 0} times`);
+        const actionAllowed = productLock.lockAction(() => {
+          // Show product details
+          Alert.alert("Product Details", `${item.name} by ${item.brand}\nCategory: ${item.category}\nWorn ${item.timesWorn || 0} times`);
+        });
+        if (!actionAllowed) return;
       }}
-      onLongPress={() => deleteOwnedProduct(item)}
+      onLongPress={() => {
+        const actionAllowed = productLock.lockAction(() => {
+          deleteOwnedProduct(item);
+        });
+        if (!actionAllowed) return;
+      }}
       delayLongPress={500}
     >
       <View style={styles.productImageContainer}>
@@ -1012,7 +1051,7 @@ const ClosetScreen: React.FC = () => {
   const renderEmptyOutfits = () => (
     <View style={styles.emptyStateContainer}>
       <View style={[styles.emptyIconContainer, { backgroundColor: surfaceColor }]}>
-        <FeatherIcon name="shopping-bag" size={32} color={mainColor} />
+                      <Icon name="bag-outline" size={32} color={mainColor} />
       </View>
       <Text style={[styles.emptyStateTitle, { color: textColor }]}>
         No Saved Outfits Yet
@@ -1032,7 +1071,7 @@ const ClosetScreen: React.FC = () => {
   const renderEmptyFavorites = () => (
     <View style={styles.emptyStateContainer}>
       <View style={[styles.emptyIconContainer, { backgroundColor: surfaceColor }]}>
-        <FeatherIcon name="heart" size={32} color={mainColor} />
+                      <Icon name="heart" size={32} color={mainColor} />
       </View>
       <Text style={[styles.emptyStateTitle, { color: textColor }]}>
         No Favorite Products Yet
@@ -1052,7 +1091,7 @@ const ClosetScreen: React.FC = () => {
   const renderEmptyOwned = () => (
     <View style={styles.emptyStateContainer}>
       <View style={[styles.emptyIconContainer, { backgroundColor: surfaceColor }]}>
-        <FeatherIcon name="package" size={32} color={mainColor} />
+                      <Icon name="cube-outline" size={32} color={mainColor} />
       </View>
       <Text style={[styles.emptyStateTitle, { color: textColor }]}>
         No Items in Your Wardrobe
@@ -1100,7 +1139,7 @@ const ClosetScreen: React.FC = () => {
           />
         ) : (
           <View style={[styles.noImagePlaceholder, { backgroundColor: surfaceColor }]}>
-            <FeatherIcon name="image" size={24} color={subTextColor} />
+                              <Icon name="image-outline" size={24} color={subTextColor} />
           </View>
         )}
         <View style={styles.outfitProductInfo}>
@@ -1180,7 +1219,7 @@ const ClosetScreen: React.FC = () => {
                   Alert.alert("Share", "Share outfit functionality coming soon!");
                 }}
               >
-                <FeatherIcon name="share" size={20} color={textColor} />
+                                  <Icon name="share-outline" size={20} color={textColor} />
               </TouchableOpacity>
             </View>
           </SafeAreaView>
@@ -1259,7 +1298,7 @@ const ClosetScreen: React.FC = () => {
                     Alert.alert("Delete", "Delete outfit functionality");
                   }}
                 >
-                  <FeatherIcon name="trash-2" size={16} color="#FF4757" />
+                  <Icon name="trash-outline" size={16} color="#FF4757" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -1323,8 +1362,8 @@ const ClosetScreen: React.FC = () => {
 
                       {product.url && (
                         <View style={styles.outfitDetailExternalLinkIndicator}>
-                          <FeatherIcon 
-                            name="external-link" 
+                          <Icon 
+                            name="open-outline" 
                             size={16} 
                             color={subTextColor} 
                           />
@@ -1399,25 +1438,28 @@ const ClosetScreen: React.FC = () => {
         <TouchableOpacity 
           style={[styles.addButton, { backgroundColor: mainColor }]}
           onPress={() => {
-            // Navigate to add item flow or show options
-            Alert.alert(
-              "Add to Closet",
-              "Choose what you want to add:",
-              [
-                {
-                  text: "Try On Outfit",
-                  onPress: () => navigation.navigate('3DTab')
-                },
-                {
-                  text: "Add Owned Item",
-                  onPress: () => Alert.alert("Coming Soon", "This feature will be available soon!")
-                },
-                {
-                  text: "Cancel",
-                  style: "cancel"
-                }
-              ]
-            );
+            const actionAllowed = closetLock.lockAction(() => {
+              // Navigate to add item flow or show options
+              Alert.alert(
+                "Add to Closet",
+                "Choose what you want to add:",
+                [
+                  {
+                    text: "Try On Outfit",
+                    onPress: () => navigation.navigate('3DTab')
+                  },
+                  {
+                    text: "Add Owned Item",
+                    onPress: () => Alert.alert("Coming Soon", "This feature will be available soon!")
+                  },
+                  {
+                    text: "Cancel",
+                    style: "cancel"
+                  }
+                ]
+              );
+            });
+            if (!actionAllowed) return;
           }}
         >
           <Icon name="add" size={22} color="#FFFFFF" />
@@ -1431,7 +1473,12 @@ const ClosetScreen: React.FC = () => {
             styles.tab, 
             activeTab === "outfits" && [styles.activeTab, { borderBottomColor: mainColor }]
           ]}
-          onPress={() => setActiveTab("outfits")}
+          onPress={() => {
+            const actionAllowed = closetLock.lockAction(() => {
+              setActiveTab("outfits");
+            });
+            if (!actionAllowed) return;
+          }}
         >
           <Text 
             style={[
@@ -1447,7 +1494,12 @@ const ClosetScreen: React.FC = () => {
             styles.tab, 
             activeTab === "favorites" && [styles.activeTab, { borderBottomColor: mainColor }]
           ]}
-          onPress={() => setActiveTab("favorites")}
+          onPress={() => {
+            const actionAllowed = closetLock.lockAction(() => {
+              setActiveTab("favorites");
+            });
+            if (!actionAllowed) return;
+          }}
         >
           <Text 
             style={[
@@ -1463,7 +1515,12 @@ const ClosetScreen: React.FC = () => {
             styles.tab, 
             activeTab === "owned" && [styles.activeTab, { borderBottomColor: mainColor }]
           ]}
-          onPress={() => setActiveTab("owned")}
+          onPress={() => {
+            const actionAllowed = closetLock.lockAction(() => {
+              setActiveTab("owned");
+            });
+            if (!actionAllowed) return;
+          }}
         >
           <Text 
             style={[
@@ -1567,6 +1624,17 @@ const ClosetScreen: React.FC = () => {
           />
         </>
       )}
+
+      {/* Lock Overlays for guest users */}
+      <LockOverlay
+        {...closetLock.lockProps}
+      />
+      <LockOverlay
+        {...outfitLock.lockProps}
+      />
+      <LockOverlay
+        {...productLock.lockProps}
+      />
     </SafeAreaView>
   );
 };

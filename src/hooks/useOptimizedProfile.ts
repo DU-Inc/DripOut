@@ -3,6 +3,7 @@ import { auth } from '../Config/firebaseconfig';
 import { profileOptimizationService, ProfileData, LoadingStates } from '../services/profileOptimizationService';
 import { UserProfile, UserPreferences } from '../services/firestoreService';
 import { Post } from '../services/postService';
+import { appStateManager } from '../utils/appStateManager';
 
 interface UseOptimizedProfileReturn {
   // Data
@@ -143,6 +144,49 @@ export const useOptimizedProfile = (): UseOptimizedProfileReturn => {
   
   // Initialize data loading
   const initializeData = useCallback(async () => {
+    // Check if user is guest
+    const isGuest = appStateManager.isGuest();
+    if (isGuest) {
+      // Set guest profile data
+      const guestProfile: UserProfile = {
+        username: 'Guest',
+        email: '',
+        firstName: 'Guest',
+        lastName: 'User',
+        bio: 'Welcome! Sign in to create your personalized profile.',
+        avatarUrl: '',
+        headerImageUrl: '',
+        createdAt: new Date(),
+        onboardingCompleted: false,
+        onboardingStarted: false,
+        isPublic: true,
+        followersCount: 0,
+        followingCount: 0,
+        postsCount: 0,
+        notificationSettings: {
+          pushNotifications: false,
+          emailNotifications: false,
+          followNotifications: false,
+          likeNotifications: false,
+          commentNotifications: false
+        }
+      };
+      
+      safeSetState(() => {
+        setProfile(guestProfile);
+        setLoadingStates({
+          profile: false,
+          preferences: false,
+          posts: false,
+          followCounts: false,
+          savedOutfits: false,
+          favoriteProducts: false,
+        });
+        setIsInitialLoading(false);
+      });
+      return;
+    }
+    
     const user = auth().currentUser;
     if (!user) {
       safeSetState(() => {
@@ -172,6 +216,9 @@ export const useOptimizedProfile = (): UseOptimizedProfileReturn => {
   
   // Refresh data (use cache if available)
   const refresh = useCallback(async () => {
+    // Skip refresh for guest users
+    if (appStateManager.isGuest()) return;
+    
     const user = auth().currentUser;
     if (!user) return;
     
@@ -196,6 +243,9 @@ export const useOptimizedProfile = (): UseOptimizedProfileReturn => {
   
   // Force refresh (clear cache and reload)
   const forceRefresh = useCallback(async () => {
+    // Skip force refresh for guest users
+    if (appStateManager.isGuest()) return;
+    
     const user = auth().currentUser;
     if (!user) return;
     
@@ -234,6 +284,9 @@ export const useOptimizedProfile = (): UseOptimizedProfileReturn => {
   
   // Clear cache
   const clearCache = useCallback(async () => {
+    // Skip clear cache for guest users
+    if (appStateManager.isGuest()) return;
+    
     const user = auth().currentUser;
     if (!user) return;
     

@@ -1,5 +1,6 @@
 import firestore from '@react-native-firebase/firestore';
 import { db } from '../Config/firebaseconfig';
+import { memoryCache, CacheKeys } from './memoryCache';
 
 // Add global setTimeout type declaration at the top of the file
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -118,15 +119,25 @@ export const createUserProfile = async (userId: string, profileData: Partial<Use
  */
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
   try {
-    const userDocRef = db.collection('users').doc(userId);
-    const userDoc = await userDocRef.get();
+    // Use memory-first cache with 1 hour TTL for user profiles
+    const profile = await memoryCache.get(
+      CacheKeys.USER_PROFILE(userId),
+      async () => {
+        console.log(`🔄 Loading user profile from Firestore: ${userId}`);
+        const userDocRef = db.collection('users').doc(userId);
+        const userDoc = await userDocRef.get();
 
-    if (userDoc.exists) {
-      return userDoc.data() as UserProfile;
-    } else {
-      console.log('No such user profile!');
-      return null;
-    }
+        if (userDoc.exists) {
+          return userDoc.data() as UserProfile;
+        } else {
+          console.log('No such user profile!');
+          return null;
+        }
+      },
+      60 * 60 * 1000 // 1 hour TTL for user profiles
+    );
+
+    return profile;
   } catch (error) {
     console.error('Error fetching user profile: ', error);
     return null;
@@ -204,15 +215,25 @@ export const setUserPreferences = async (userId: string, preferencesData: Partia
  */
 export const getUserPreferences = async (userId: string): Promise<UserPreferences | null> => {
   try {
-    const preferencesDocRef = db.collection('user_preferences').doc(userId);
-    const preferencesDoc = await preferencesDocRef.get();
+    // Use memory-first cache with longer TTL for user preferences (they change less frequently)
+    const preferences = await memoryCache.get(
+      CacheKeys.USER_PREFERENCES(userId),
+      async () => {
+        console.log(`🔄 Loading user preferences from Firestore: ${userId}`);
+        const preferencesDocRef = db.collection('user_preferences').doc(userId);
+        const preferencesDoc = await preferencesDocRef.get();
 
-    if (preferencesDoc.exists) {
-      return preferencesDoc.data() as UserPreferences;
-    } else {
-      console.log('No such user preferences!');
-      return null;
-    }
+        if (preferencesDoc.exists) {
+          return preferencesDoc.data() as UserPreferences;
+        } else {
+          console.log('No such user preferences!');
+          return null;
+        }
+      },
+      6 * 60 * 60 * 1000 // 6 hour TTL for user preferences (they change less frequently)
+    );
+
+    return preferences;
   } catch (error) {
     console.error('Error fetching user preferences: ', error);
     return null;

@@ -2,24 +2,12 @@ import React from 'react';
 import { Easing, Dimensions } from 'react-native';
 import { createSharedElementStackNavigator } from 'react-navigation-shared-element';
 import OverviewScreen from '../../screens/OverviewScreen';
-import ExpandedProductScreen2 from '../../screens/ExpandedFeeds/ExpandedProductScreen2';
 import ExpandedNewsScreen from '../../screens/ExpandedFeeds/ExpandedNewsScreen';
 import ExpandedOutfitScreen from '../../screens/ExpandedFeeds/ExpandedOutfitScreen';
 
 // Define the feed stack param list
 export type FeedStackParamList = {
   Overview: undefined;
-  ExpandedProductScreen2: { 
-    productId: string;
-    sourcePosition?: {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    };
-    product?: any;
-    initialImageIndex?: number;
-  };
   ExpandedNewsScreen: {
     articleId: string;
     sourcePosition?: {
@@ -149,36 +137,6 @@ const FeedNavigator: React.FC = () => {
       screenOptions={sharedElementScreenOptions}
     >
       <Stack.Screen name="Overview" component={OverviewScreen} />
-      
-      <Stack.Screen 
-        name="ExpandedProductScreen2" 
-        component={ExpandedProductScreen2}
-        sharedElements={(route, otherRoute, showing) => {
-          const params = route.params;
-          const productId = params?.productId;
-          
-          if (!productId) return [];
-
-          return [
-            {
-              id: `item.${productId}.image`,
-              animation: 'move',
-              resize: 'clip',
-              align: 'center-top',
-              style: {
-                borderRadius: 12,
-                overflow: 'hidden',
-              }
-            },
-            {
-              id: `item.${productId}.title`,
-              animation: 'fade-in',
-              resize: 'clip',
-              align: 'left-center',
-            }
-          ];
-        }}
-      />
 
       <Stack.Screen 
         name="ExpandedNewsScreen" 

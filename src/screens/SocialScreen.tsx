@@ -1,6 +1,3 @@
-import PantsIcon from '../assets/icons/pants.svg';
-import jewelryIcon from '../assets/icons/jewelry.svg';
-import watchIcon from '../assets/icons/watch.svg';
 // Fallback stock silhouette avatar URL (Gravatar "mp" default)
 const DEFAULT_AVATAR_URL = 'https://www.gravatar.com/avatar/?d=mp&f=y';
 
@@ -54,9 +51,10 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Modal,
+  InteractionManager,
 } from 'react-native';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { RootStackParamList, MainTabParamList } from '../types/NavigationTypes';
@@ -90,9 +88,7 @@ const defaultTextStyle = {
   letterSpacing: 0.1, // SF Pro typically has slightly tighter letter spacing
 };
 import Icon from 'react-native-vector-icons/Ionicons';
-import FeatherIcon from 'react-native-vector-icons/Feather';
-import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
-import FontAwesome from 'react-native-vector-icons/FontAwesome';
+import MCIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 // No longer need custom bottom navigation bar with tab navigator
 import { useTheme } from '../styles/themeprovider';
 
@@ -112,6 +108,11 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 
 import { OutfitItem } from '../services/postService';
+import PostHeader from '../components/social/PostHeader';
+import PostGallery from '../components/social/PostGallery';
+import PostContent from '../components/social/PostContent';
+import LockOverlay from '../components/common/LockOverlay';
+import { useGuestLock } from '../hooks/useGuestLock';
 
 // Add type definition for fashion post (enhanced post with UI properties)
 interface FashionPost {
@@ -406,11 +407,11 @@ const ProductDetailsModal: React.FC<{
               }}
               disabled={!scrapedProduct.productUrl && !product.affiliateLink}
             >
-              <FeatherIcon 
-                name="external-link" 
-                size={20} 
-                color={(scrapedProduct.productUrl || product.affiliateLink) ? textColor : subTextColor} 
-              />
+                                <Icon
+                    name="open-outline" 
+                    size={20} 
+                    color={(scrapedProduct.productUrl || product.affiliateLink) ? textColor : subTextColor} 
+                  />
             </TouchableOpacity>
           </View>
 
@@ -458,7 +459,7 @@ const ProductDetailsModal: React.FC<{
                             onPress={() => navigateToPreviousImage(validImages)}
                             activeOpacity={0.7}
                           >
-                            <FeatherIcon name="chevron-left" size={24} color="#FFFFFF" />
+                            <Icon name="chevron-back" size={24} color="#FFFFFF" />
                           </TouchableOpacity>
                         )}
                         
@@ -469,7 +470,7 @@ const ProductDetailsModal: React.FC<{
                             onPress={() => navigateToNextImage(validImages)}
                             activeOpacity={0.7}
                           >
-                            <FeatherIcon name="chevron-right" size={24} color="#FFFFFF" />
+                            <Icon name="chevron-forward" size={24} color="#FFFFFF" />
                           </TouchableOpacity>
                         )}
                       </>
@@ -529,7 +530,7 @@ const ProductDetailsModal: React.FC<{
                 {/* Floating Brand Badge */}
                 <View style={styles.productModalFloatingBadge}>
                                   <View style={[styles.productModalBrandBadge, { backgroundColor: mainColor }]}>
-                  <FeatherIcon name="tag" size={14} color="#FFFFFF" />
+                  <Icon name="pricetag" size={14} color="#FFFFFF" />
                   <Text style={styles.productModalBrandBadgeText}>
                     {product.brand || scrapedProduct.brand}
                   </Text>
@@ -555,7 +556,7 @@ const ProductDetailsModal: React.FC<{
               {/* Store Info */}
               {scrapedProduct.site && (
                 <View style={styles.productModalStoreInfo}>
-                  <FeatherIcon name="shopping-bag" size={16} color={subTextColor} />
+                  <Icon name="bag-outline" size={16} color={subTextColor} />
                   <Text style={[styles.productModalStoreText, { color: subTextColor }]}>
                     Available at {scrapedProduct.site}
                   </Text>
@@ -588,7 +589,7 @@ const ProductDetailsModal: React.FC<{
                   disabled={!scrapedProduct.productUrl && !product.affiliateLink}
                 >
                   <Text style={styles.productModalPrimaryButtonText}>Shop Now</Text>
-                  <FeatherIcon name="shopping-bag" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                  <Icon name="bag-outline" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -620,6 +621,21 @@ const SocialScreen: React.FC = () => {
   // Background refresh state
   const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<number>(0);
+
+  // Guest lock functionality
+  const upvoteLock = useGuestLock({ feature: 'upvoting posts', title: 'Join the conversation!' });
+  const saveLock = useGuestLock({ feature: 'saving posts', title: 'Save your favorites!' });
+  const commentLock = useGuestLock({ feature: 'commenting on posts', title: 'Share your thoughts!' });
+  const createPostLock = useGuestLock({ 
+    feature: 'creating posts', 
+    title: 'Create Your First Post!',
+    message: 'Sign in to share your fashion inspiration with the community.'
+  });
+  const messagingLock = useGuestLock({ 
+    feature: 'messaging', 
+    title: 'Start Conversations!',
+    message: 'Sign in to message other fashion enthusiasts and build connections.'
+  });
   
   // Messaging state
   const [conversations, setConversations] = useState<ConversationWithDetails[]>([]);
@@ -725,9 +741,9 @@ const SocialScreen: React.FC = () => {
             isUpvoted = false;
           }
         } else {
-          // Use random values for demo/testing
-          isSaved = Math.random() > 0.5;
-          isUpvoted = Math.random() > 0.6;
+          // Guest users should see no interactions (all false)
+          isSaved = false;
+          isUpvoted = false;
         }
         
         // Check actual follow status if we have a valid user ID - cache first approach
@@ -750,8 +766,8 @@ const SocialScreen: React.FC = () => {
             isFollowing = false;
           }
         } else {
-          // Use random for demo/test users
-          isFollowing = Math.random() > 0.6;
+          // Guest users should see no follow relationships (all false)
+          isFollowing = false;
         }
         
         // Initialize with empty comments array - we'll only use generated comments for mock posts
@@ -893,12 +909,26 @@ const SocialScreen: React.FC = () => {
     }
   }, [route?.params]);
 
-  // Initial data load
-  useEffect(() => {
-    console.log('🟢 Initial data load - calling fetchPosts()');
-    fetchPosts();
-    fetchConversations();
-  }, []);
+  // Initial data load - only when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🟢 Screen focused - loading critical data');
+      
+      // Load critical data immediately
+      fetchPosts();
+      
+      // Load non-critical data after interactions complete
+      const interactionPromise = InteractionManager.runAfterInteractions(() => {
+        console.log('🔄 Loading non-critical data after interactions complete');
+        fetchConversations();
+      });
+
+      return () => {
+        // Cleanup if user navigates away before interactions complete
+        interactionPromise.cancel();
+      };
+    }, [])
+  );
   
   // Background refresh when cache might be stale
   useEffect(() => {
@@ -1119,6 +1149,15 @@ const SocialScreen: React.FC = () => {
   
   // Handle upvote action with caching
   const handleUpvoteToggle = async (postId: string) => {
+    // Check guest lock first
+    const actionAllowed = upvoteLock.lockAction(() => {
+      performUpvoteToggle(postId);
+    });
+    
+    if (!actionAllowed) return; // Action was blocked by guest lock
+  };
+
+  const performUpvoteToggle = async (postId: string) => {
     // Current user must be logged in
     const currentUser = auth().currentUser;
     if (!currentUser) {
@@ -1185,6 +1224,15 @@ const SocialScreen: React.FC = () => {
   
   // Handle save action with caching
   const handleSaveToggle = async (postId: string) => {
+    // Check guest lock first
+    const actionAllowed = saveLock.lockAction(() => {
+      performSaveToggle(postId);
+    });
+    
+    if (!actionAllowed) return; // Action was blocked by guest lock
+  };
+
+  const performSaveToggle = async (postId: string) => {
     // Current user must be logged in
     const currentUser = auth().currentUser;
     if (!currentUser) {
@@ -1329,6 +1377,15 @@ const SocialScreen: React.FC = () => {
   
   // Toggle comments section expansion - simplified approach
   const toggleComments = async (postId: string) => {
+    // Check guest lock first
+    const actionAllowed = commentLock.lockAction(() => {
+      performToggleComments(postId);
+    });
+    
+    if (!actionAllowed) return; // Action was blocked by guest lock
+  };
+
+  const performToggleComments = async (postId: string) => {
     // Configure layout animation for smooth transitions
     LayoutAnimation.configureNext({
       duration: 300,
@@ -1542,353 +1599,38 @@ const SocialScreen: React.FC = () => {
         ]}
       >
         {/* Card Header with user info, title and publication date */}
-        <View style={styles.inspirationHeader}>
-          {/* User info with profile picture */}
-          <View style={styles.userInfoContainer}>
-            <TouchableOpacity 
-              activeOpacity={0.8}
-              onPress={() => {
-                console.log('PROFILE IMAGE CLICK - userId:', item.userId);
-                
-                // Check if this post is from the current user
-                const currentUser = auth().currentUser;
-                // Add debug logs to see what's causing the mismatch
-                console.log('COMPARING - Post userId:', item.userId, 'type:', typeof item.userId);
-                console.log('COMPARING - Current user uid:', currentUser?.uid, 'type:', typeof currentUser?.uid);
-                console.log('COMPARING - Are they equal?', currentUser?.uid === item.userId);
-                
-                // Check for valid userIds (not unknown or mock users)
-                const isRealUserId = item.userId && 
-                  !item.userId.includes('unknown') && 
-                  !item.userId.includes('mock');
-                  
-                if (currentUser && isRealUserId && item.userId === currentUser.uid) {
-                  // If it's the current user, navigate to ProfileTab
-                  console.log('This is the current user, navigating to ProfileTab');
-                  // Navigate to profile within the same tab group
-                  (navigation as any).jumpTo('ProfileTab');
-                } else {
-                  // Check if this is a mock/unknown user or a real user
-                  const isMockOrUnknown = item.userId && 
-                    (item.userId.includes('unknown') || item.userId.includes('mock'));
-                    
-                  if (isMockOrUnknown) {
-                    console.log('This is a demo/mock user, showing friendly message');
-                    // You could show an alert or toast here instead of navigating
-                    alert('This is a demo profile and not available for viewing.');
-                  } else {
-                    // If it's a real user, navigate to UserDetailScreen
-                    console.log('This is another user, navigating to UserDetailScreen');
-                                            navigation.navigate('UserDetailScreen', { 
-                          userId: item.userId, 
-                          username: item.username
-                        });
-                  }
-                }
-              }}
-            >
-              {item.userAvatar && item.userAvatar.trim() ? (
-                <Image
-                  source={{ uri: item.userAvatar }}
-                  style={[
-                    styles.profileImage,
-                    {
-                      borderWidth: 1,
-                      borderColor: isDarkMode
-                        ? 'rgba(255,255,255,0.2)'
-                        : 'rgba(0,0,0,0.1)'
-                    }
-                  ]}
-                />
-              ) : (
-                <View style={[
-                  styles.profileImage,
-                  {
-                    backgroundColor: '#0D8ABC',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    borderWidth: 1,
-                    borderColor: isDarkMode
-                      ? 'rgba(255,255,255,0.2)'
-                      : 'rgba(0,0,0,0.1)'
-                  }
-                ]}>
-                  <Text style={[
-                    styles.defaultProfileText,
-                    {
-                      color: '#FFFFFF',
-                      fontSize: 16,
-                      fontWeight: 'bold'
-                    }
-                  ]}>
-                    {item.userDisplayName ? 
-                      item.userDisplayName.charAt(0).toUpperCase() : 
-                      item.username.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            <View style={styles.userTextInfo}>
-              <TouchableOpacity 
-                activeOpacity={0.8} 
-                onPress={() => {
-                  console.log('USERNAME CLICK - userId:', item.userId);
-                  
-                  // Check if this post is from the current user
-                  const currentUser = auth().currentUser;
-                  // Add debug logs to see what's causing the mismatch
-                  console.log('COMPARING - Post userId:', item.userId, 'type:', typeof item.userId);
-                  console.log('COMPARING - Current user uid:', currentUser?.uid, 'type:', typeof currentUser?.uid);
-                  console.log('COMPARING - Are they equal?', currentUser?.uid === item.userId);
-                  
-                  // Check for valid userIds (not unknown or mock users)
-                const isRealUserId = item.userId && 
-                  !item.userId.includes('unknown') && 
-                  !item.userId.includes('mock');
-                  
-                if (currentUser && isRealUserId && item.userId === currentUser.uid) {
-                    // If it's the current user, navigate to ProfileTab
-                    console.log('This is the current user, navigating to ProfileTab');
-                    // Navigate to profile within the same tab group
-                    (navigation as any).jumpTo('ProfileTab');
-                  } else {
-                    // Check if this is a mock/unknown user or a real user
-                    const isMockOrUnknown = item.userId && 
-                      (item.userId.includes('unknown') || item.userId.includes('mock'));
-                      
-                    if (isMockOrUnknown) {
-                      console.log('This is a demo/mock user, showing friendly message');
-                      // You could show an alert or toast here instead of navigating
-                      alert('This is a demo profile and not available for viewing.');
-                    } else {
-                      // If it's a real user, navigate to UserDetailScreen
-                      console.log('This is another user, navigating to UserDetailScreen');
-                      navigation.navigate('UserDetailScreen', { 
-                        userId: item.userId, 
-                        username: item.username
-                      });
-                    }
-                  }
-                }}
-              >
-                <View style={styles.usernameContainer}>
-                  <Text style={[styles.username, { color: textColor }]}>
-                    {item.userDisplayName ? item.userDisplayName : `@${item.username}`}
-                  </Text>
-                  {item.username.includes('verified') && (
-                    <View style={styles.verifiedBadge}>
-                      <Icon name="checkmark-circle" size={14} color="#0095F6" />
-                    </View>
-                  )}
-                </View>
-              </TouchableOpacity>
-              <Text style={[styles.publishDate, { color: subTextColor }]}>
-                {item.publishedDate}
-              </Text>
-            </View>
-            <View style={styles.userActionButtons}>
-              {/* Only show action buttons if it's not the current user's post */}
-              {(() => {
-                const currentUser = auth().currentUser;
-                const showActions = currentUser && currentUser.uid !== item.userId && isRealUserId(item.userId);
-                
-                if (showActions) {
-                  return (
-                    <>
-                      <TouchableOpacity 
-                        style={[
-                          styles.followButton,
-                          item.isFollowing ? styles.followingButton : styles.followButton,
-                          { backgroundColor: item.isFollowing ? 'transparent' : mainColor }
-                        ]}
-                        onPress={() => handleFollowToggle(item.id, item.userId)}
-                      >
-                        <Text style={[
-                          styles.followButtonText, 
-                          { color: item.isFollowing ? mainColor : '#FFFFFF' }
-                        ]}>
-                          {item.isFollowing ? 'Following' : 'Follow'}
-                        </Text>
-                      </TouchableOpacity>
-                    </>
-                  );
-                }
-                
-                return (
-                  <TouchableOpacity style={styles.moreOptionsButton}>
-                    <Icon name="ellipsis-horizontal" size={18} color={subTextColor} />
-                  </TouchableOpacity>
-                );
-              })()}
-            </View>
-          </View>
-          
-          {/* Post title */}
-          <View style={styles.titleContainer}>
-            <Text style={[styles.inspirationTitle, { color: textColor }]}>
-              {item.title}
-            </Text>
-          </View>
-        </View>
+        <PostHeader 
+          post={item}
+          styles={styles}
+          isDarkMode={isDarkMode}
+          textColor={textColor}
+          subTextColor={subTextColor}
+          mainColor={mainColor}
+          onFollowToggle={handleFollowToggle}
+        />
 
         {/* Fashion Image Gallery with swipe */}
-        <Animated.View 
-          style={[
-            styles.galleryContainer,
-            {
-              transform: [
-                { 
-                  translateX: panX ? panX.interpolate({
-                    inputRange: [-width, 0, width],
-                    outputRange: [-width * 0.3, 0, width * 0.3],
-                    extrapolate: 'clamp'
-                  }) : 0
-                }
-              ]
-            }
-          ]}
-          {...(panResponder ? panResponder.panHandlers : {})}
-        >
-          <Image 
-            source={{ uri: item.gallery[currentImageIndex] }} 
-            style={styles.galleryImage}
-          />
-          
-          {/* Subtle overlay for depth */}
-          <View style={styles.galleryOverlay} />
-          
-          {/* Inner shadow/border for refinement */}
-          <View style={[
-            styles.galleryInnerShadow,
-            isDarkMode && { borderColor: 'rgba(124, 107, 255, 0.15)' }
-          ]} />
-          
-          {/* Image navigation dots */}
-          {item.gallery.length > 1 && (
-            <View style={styles.galleryDots}>
-              {item.gallery.map((_, i: number) => (
-                <View 
-                  key={`dot-${i}`} 
-                  style={[
-                    styles.galleryDot, 
-                    i === currentImageIndex && {
-                      backgroundColor: isDarkMode ? '#FFFFFF' : '#000000',
-                      width: 8,
-                    }
-                  ]} 
-                />
-              ))}
-            </View>
-          )}
-          
-          {/* Left/Right navigation buttons for gallery */}
-          {item.gallery.length > 1 && (
-            <>
-              {/* Swipe indicators */}
-              <Animated.View 
-                style={[
-                  styles.swipeIndicator, 
-                  styles.swipeIndicatorLeft,
-                  {
-                    opacity: panX.interpolate({
-                      inputRange: [0, 50, 100],
-                      outputRange: [0, 0.5, 0.8],
-                      extrapolate: 'clamp'
-                    })
-                  }
-                ]}
-              >
-                <Icon name="chevron-back" size={32} color="rgba(255,255,255,0.9)" />
-                <Icon name="chevron-back" size={32} color="rgba(255,255,255,0.9)" style={{marginLeft: -15}} />
-              </Animated.View>
-              
-              <Animated.View 
-                style={[
-                  styles.swipeIndicator, 
-                  styles.swipeIndicatorRight,
-                  {
-                    opacity: panX.interpolate({
-                      inputRange: [-100, -50, 0],
-                      outputRange: [0.8, 0.5, 0],
-                      extrapolate: 'clamp'
-                    })
-                  }
-                ]}
-              >
-                <Icon name="chevron-forward" size={32} color="rgba(255,255,255,0.9)" style={{marginRight: -15}} />
-                <Icon name="chevron-forward" size={32} color="rgba(255,255,255,0.9)" />
-              </Animated.View>
-            
-              {/* Regular navigation buttons */}
-              <TouchableOpacity 
-                style={[styles.galleryNavButton, styles.galleryNavLeft]}
-                onPress={() => cycleGalleryImage(item.id, 'prev')}
-              >
-                <Icon name="chevron-back" size={24} color="rgba(255,255,255,0.8)" />
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.galleryNavButton, styles.galleryNavRight]}
-                onPress={() => cycleGalleryImage(item.id, 'next')}
-              >
-                <Icon name="chevron-forward" size={24} color="rgba(255,255,255,0.8)" />
-              </TouchableOpacity>
-            </>
-          )}
-        </Animated.View>
+        <PostGallery 
+          gallery={item.gallery}
+          currentImageIndex={currentImageIndex}
+          panX={panX}
+          panResponder={panResponder}
+          isDarkMode={isDarkMode}
+          styles={styles}
+          onCycleImage={(direction) => cycleGalleryImage(item.id, direction)}
+        />
 
-        {/* Removed aesthetic section - styling moved to user tags */}
-
-        {/* Caption Section */}
-        <View style={styles.captionContainer}>
-                  <Text style={[
-          styles.captionText, 
-          isDarkMode && styles.darkCaptionText,
-          { color: subTextColor }
-        ]}>
-          {isExpanded ? item.caption : (
-            item.caption.length > 120 ? 
-              item.caption.substring(0, 120) + '... ' : 
-              item.caption + ' '
-          )}
-          {!isExpanded && item.caption.length > 120 && (
-            <Text 
-              style={[styles.readMoreText, { color: mainColor }]}
-              onPress={() => toggleExpandPost(item.id)}
-            >
-              Read More
-            </Text>
-          )}
-        </Text>
-        </View>
-
-        {/* Tags Section - Now with enhanced aesthetic styling */}
-        <View style={styles.tagsContainer}>
-          <FlatList
-            data={item.tags}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(_, index) => `tag-${index}`}
-            renderItem={({item: tag, index}) => (
-              <TouchableOpacity 
-                key={`tag-${index}`}
-                style={[
-                  styles.aestheticPill, // Using the beautiful aesthetic pill styling
-                  isDarkMode && styles.darkAestheticPill,
-                  { 
-                    backgroundColor: isDarkMode ? 'rgba(124, 107, 255, 0.12)' : 'rgba(82, 69, 204, 0.08)',
-                    borderColor: isDarkMode ? 'rgba(124, 107, 255, 0.25)' : 'rgba(82, 69, 204, 0.15)',
-                    marginRight: 8, // Space between tags
-                  }
-                ]}
-              >
-                <Text style={[styles.aestheticText, { color: mainColor }]}>
-                  {tag}
-                </Text>
-              </TouchableOpacity>
-            )}
-          />
-        </View>
+        {/* Post Content: Caption and Tags */}
+        <PostContent 
+          caption={item.caption}
+          tags={item.tags}
+          isExpanded={isExpanded}
+          isDarkMode={isDarkMode}
+          subTextColor={subTextColor}
+          mainColor={mainColor}
+          styles={styles}
+          onToggleExpand={() => toggleExpandPost(item.id)}
+        />
 
         {/* Featured Pieces Section */}
                   <View style={[
@@ -1922,50 +1664,55 @@ const SocialScreen: React.FC = () => {
                 decelerationRate="fast"
               >
                 {item.outfitItems.map((piece, i) => {
-                  // Determine icon based on piece type if available, or use fallback
-                  let iconName = 'tshirt-crew';
-                  
+                  // Use MaterialCommunityIcons for clothing icons
+                  let IconComponent = null;
                   if (piece.type) {
                     if (piece.type === 'shirt') {
-                      iconName = 'tshirt-crew';
+                      IconComponent = () => <MCIcon name="tshirt-crew" size={18} color={mainColor} />;
                     } else if (piece.type === 'pants') {
-                      iconName = 'tights';
+                      IconComponent = () => <MCIcon name="tights" size={18} color={mainColor} />;
                     } else if (piece.type === 'shoes') {
-                      iconName = 'shoe-heel';
+                      IconComponent = () => <MCIcon name="shoe-heel" size={18} color={mainColor} />;
                     } else if (piece.type === 'watch') {
-                      iconName = 'watch';
+                      IconComponent = () => <MCIcon name="watch" size={18} color={mainColor} />;
                     } else if (piece.type === 'jewelry') {
                       // Jewelry with item name-based detection
                       const nameLower = piece.name.toLowerCase();
                       if (nameLower.includes('ring')) {
-                        iconName = 'diamond-stone';
+                        IconComponent = () => <MCIcon name="diamond-stone" size={18} color={mainColor} />;
                       } else if (nameLower.includes('necklace') || nameLower.includes('chain')) {
-                        iconName = 'necklace';
+                        IconComponent = () => <MCIcon name="necklace" size={18} color={mainColor} />;
                       } else if (nameLower.includes('bracelet')) {
-                        iconName = 'bracelet';
+                        IconComponent = () => <MCIcon name="bracelet" size={18} color={mainColor} />;
                       } else if (nameLower.includes('earring')) {
-                        iconName = 'ear-hearing';
+                        IconComponent = () => <MCIcon name="ear-hearing" size={18} color={mainColor} />;
                       } else {
-                        iconName = 'diamond-stone'; // Default jewelry icon
+                        IconComponent = () => <MCIcon name="diamond-stone" size={18} color={mainColor} />; // Default jewelry icon
                       }
                     } else if (piece.type === 'accessory') {
                       // Generic accessory - try to detect type from name
                       const nameLower = piece.name.toLowerCase();
                       if (nameLower.includes('watch')) {
-                        iconName = 'watch';
+                        IconComponent = () => <MCIcon name="watch" size={18} color={mainColor} />;
                       } else if (nameLower.includes('glass')) {
-                        iconName = 'sunglasses';
+                        IconComponent = () => <MCIcon name="sunglasses" size={18} color={mainColor} />;
                       } else if (nameLower.includes('hat') || nameLower.includes('cap')) {
-                        iconName = 'hat-fedora';
+                        IconComponent = () => <MCIcon name="hat-fedora" size={18} color={mainColor} />;
                       } else if (nameLower.includes('bag') || nameLower.includes('purse')) {
-                        iconName = 'shopping-outline';
+                        IconComponent = () => <MCIcon name="shopping-outline" size={18} color={mainColor} />;
                       } else {
-                        iconName = 'sunglasses'; // Default accessory icon
+                        IconComponent = () => <MCIcon name="sunglasses" size={18} color={mainColor} />; // Default accessory icon
                       }
                     }
                   } else {
-                    // Fallback if no type
-                    iconName = ['tshirt-crew', 'tights', 'shoe-heel', 'watch'][i % 4];
+                    // Fallback if no type - cycle through available icons
+                    const fallbackIcons = [
+                      () => <MCIcon name="tshirt-crew" size={18} color={mainColor} />,
+                      () => <MCIcon name="tights" size={18} color={mainColor} />,
+                      () => <MCIcon name="shoe-heel" size={18} color={mainColor} />,
+                      () => <MCIcon name="watch" size={18} color={mainColor} />
+                    ];
+                    IconComponent = fallbackIcons[i % fallbackIcons.length];
                   }
                   
                   // Determine if piece has affiliate link and/or scraped product data
@@ -2027,11 +1774,7 @@ const SocialScreen: React.FC = () => {
                       }}
                       activeOpacity={hasLink ? 0.6 : 1}
                     >
-                      <MaterialIcon 
-                        name={iconName}
-                        size={18} 
-                        color={mainColor} 
-                      />
+                                        {IconComponent && <IconComponent />}
                       <View style={styles.pieceDetails}>
                         <Text style={[styles.pieceName, { color: textColor }]} numberOfLines={1}>
                           {piece.name}
@@ -2041,12 +1784,12 @@ const SocialScreen: React.FC = () => {
                             {piece.brand}
                           </Text>
                           {hasLink && (
-                            <FeatherIcon 
-                              name="external-link" 
-                              size={12} 
-                              color={mainColor} 
-                              style={styles.pieceLink}
-                            />
+                                                      <Icon 
+                            name="open-outline" 
+                            size={12} 
+                            color={mainColor} 
+                            style={styles.pieceLink}
+                          />
                           )}
                         </View>
                       </View>
@@ -2057,7 +1800,7 @@ const SocialScreen: React.FC = () => {
             </View>
           ) : (
             <View style={styles.emptyPiecesContainer}>
-              <MaterialIcon name="tshirt-crew-outline" size={24} color={subTextColor} style={{opacity: 0.5}} />
+              <Icon name="shirt-outline" size={24} color={subTextColor} style={{opacity: 0.5}} />
               <Text style={[styles.emptyPiecesText, {color: subTextColor}]}>
                 No featured pieces for this post
               </Text>
@@ -2077,7 +1820,7 @@ const SocialScreen: React.FC = () => {
               ]}
               onPress={() => handleUpvoteToggle(item.id)}
             >
-              <FeatherIcon 
+              <Icon 
                 name="arrow-up" 
                 size={20} 
                 color={item.isUpvoted ? mainColor : iconColor} 
@@ -2101,8 +1844,8 @@ const SocialScreen: React.FC = () => {
               ]}
               onPress={() => toggleComments(item.id)}
             >
-              <FeatherIcon 
-                name="message-circle" 
+              <Icon 
+                name="chatbubbles-outline" 
                 size={20} 
                 color={expandedComments === item.id ? mainColor : iconColor} 
               />
@@ -2127,8 +1870,8 @@ const SocialScreen: React.FC = () => {
             ]}
             onPress={() => handleSaveToggle(item.id)}
           >
-            <FeatherIcon 
-              name={item.isSaved ? "bookmark" : "bookmark"} 
+            <Icon 
+              name={item.isSaved ? "bookmark" : "bookmark-outline"} 
               size={20} 
               color={item.isSaved ? saveColor : iconColor} 
             />
@@ -2169,7 +1912,7 @@ const SocialScreen: React.FC = () => {
                 ]}
                 onPress={() => toggleComments(item.id)}
               >
-                <FeatherIcon name="chevron-up" size={18} color={mainColor} />
+                <Icon name="chevron-up" size={18} color={mainColor} />
               </TouchableOpacity>
             </View>
             
@@ -2180,7 +1923,7 @@ const SocialScreen: React.FC = () => {
                 keyExtractor={(comment) => comment.id}
                 ListEmptyComponent={() => (
                   <View style={styles.emptyCommentsContainer}>
-                    <FeatherIcon name="message-circle" size={24} color={subTextColor} style={{ opacity: 0.5 }} />
+                    <Icon name="chatbubbles-outline" size={24} color={subTextColor} style={{ opacity: 0.5 }} />
                     <Text style={[styles.emptyCommentsText, { color: subTextColor }]}>
                       No comments yet. Be the first to comment!
                     </Text>
@@ -2307,7 +2050,7 @@ const SocialScreen: React.FC = () => {
                           });
                         }}
                       >
-                        <FeatherIcon name="heart" size={14} color={iconColor} />
+                        <Icon name="heart-outline" size={14} color={iconColor} />
                         {comment.likes > 0 && (
                           <Text style={[styles.commentLikeCount, { color: subTextColor }]}>
                             {comment.likes}
@@ -2385,7 +2128,7 @@ const SocialScreen: React.FC = () => {
                 {isAddingComment === item.id ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <FeatherIcon name="send" size={16} color="#FFFFFF" />
+                  <Icon name="send" size={16} color="#FFFFFF" />
                 )}
               </TouchableOpacity>
             </View>
@@ -2505,7 +2248,7 @@ const SocialScreen: React.FC = () => {
                   {isSendingMessage ? (
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
-                    <FeatherIcon name="send" size={20} color="#FFFFFF" />
+                    <Icon name="send" size={20} color="#FFFFFF" />
                   )}
                 </TouchableOpacity>
               </View>
@@ -2590,7 +2333,7 @@ const SocialScreen: React.FC = () => {
                   alert('To message someone, tap on their profile in a post.');
                 }}
               >
-                <FeatherIcon name="edit-2" size={24} color="#FFFFFF" />
+                <Icon name="create-outline" size={24} color="#FFFFFF" />
               </TouchableOpacity>
             </>
           )}
@@ -2609,8 +2352,8 @@ const SocialScreen: React.FC = () => {
                   style={[
             styles.header,
             { 
-              backgroundColor: isDarkMode ? 'rgba(28, 28, 30, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-              borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+              backgroundColor: 'transparent',
+              borderBottomColor: 'transparent',
             }
           ]}
       >
@@ -2631,49 +2374,43 @@ const SocialScreen: React.FC = () => {
           </View>
           <View style={styles.headerRightContainer}>
             <TouchableOpacity 
-              style={styles.searchButton}
+              style={styles.headerButton}
               onPress={() => navigation.navigate('SearchScreen')}
             >
-                                              <FeatherIcon 
-                  name="search" 
-                  size={22} 
-                  color={isDarkMode ? '#007AFF' : '#007AFF'} 
+                                              <Icon 
+                  name="search-outline" 
+                  size={24} 
+                  color={textColor} 
                 />
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.headerIconButton}
-                onPress={() => {
-                  const currentUser = auth().currentUser;
-                  if (!currentUser) {
-                    Alert.alert('Sign In Required', 'You need to be signed in to create a post');
-                    return;
-                  }
+            <TouchableOpacity 
+              style={styles.headerButton}
+              onPress={() => {
+                createPostLock.lockAction(() => {
                   navigation.navigate('CreatePostScreen');
-                }}
-              >
-                <FeatherIcon 
-                  name="plus" 
-                  size={22} 
-                  color={isDarkMode ? '#007AFF' : '#007AFF'} 
-                />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.headerIconButton}
-                onPress={() => {
-                  const currentUser = auth().currentUser;
-                  if (!currentUser) {
-                    Alert.alert('Sign In Required', 'You need to be signed in to view messages');
-                    return;
-                  }
+                });
+              }}
+            >
+              <Icon 
+                name="add-outline" 
+                size={24} 
+                color={textColor} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.headerButton}
+              onPress={() => {
+                messagingLock.lockAction(() => {
                   navigation.navigate('MessagingScreen', {});
-                }}
-              >
-                <FeatherIcon 
-                  name="message-circle" 
-                  size={22} 
-                  color={isDarkMode ? '#007AFF' : '#007AFF'} 
-                />
-              </TouchableOpacity>
+                });
+              }}
+            >
+              <Icon 
+                name="chatbubbles-outline" 
+                size={24} 
+                color={textColor} 
+              />
+            </TouchableOpacity>
             </View>
           </View>
       </View>
@@ -2741,7 +2478,7 @@ const SocialScreen: React.FC = () => {
               styles.emptyContainer,
               { backgroundColor: isDarkMode ? 'transparent' : 'transparent' }
             ]}>
-              <FeatherIcon name="instagram" size={60} color={subTextColor} style={{ opacity: 0.5 }} />
+              <Icon name="logo-instagram" size={60} color={subTextColor} style={{ opacity: 0.5 }} />
               <Text style={[styles.emptyTitle, { color: textColor }]}>
                 No Posts Yet
               </Text>
@@ -2750,7 +2487,11 @@ const SocialScreen: React.FC = () => {
               </Text>
               <TouchableOpacity 
                 style={[styles.createFirstPostButton, { backgroundColor: mainColor }]}
-                onPress={() => navigation.navigate('CreatePostScreen')}
+                onPress={() => {
+                  createPostLock.lockAction(() => {
+                    navigation.navigate('CreatePostScreen');
+                  });
+                }}
               >
                 <Text style={styles.createFirstPostButtonText}>Create Post</Text>
               </TouchableOpacity>
@@ -2776,13 +2517,9 @@ const SocialScreen: React.FC = () => {
         ]}
         onPress={() => {
           console.log("Navigate to create post screen");
-          // Check if user is logged in
-          const currentUser = auth().currentUser;
-          if (!currentUser) {
-            Alert.alert('Sign In Required', 'You need to be signed in to create posts');
-            return;
-          }
-          navigation.navigate('CreatePostScreen');
+          createPostLock.lockAction(() => {
+            navigation.navigate('CreatePostScreen');
+          });
         }}
       >
         <Icon name="add" size={30} color="#FFFFFF" />
@@ -2807,6 +2544,13 @@ const SocialScreen: React.FC = () => {
         subTextColor={subTextColor}
         borderColor={borderColor}
       />
+
+      {/* Guest Lock Overlays */}
+      <LockOverlay {...upvoteLock.lockProps} />
+      <LockOverlay {...saveLock.lockProps} />
+      <LockOverlay {...commentLock.lockProps} />
+      <LockOverlay {...createPostLock.lockProps} />
+      <LockOverlay {...messagingLock.lockProps} />
 
       {/* No longer need custom bottom navigation bar - using Tab Navigator */}
       </SafeAreaView>
@@ -2868,9 +2612,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 16,
     flexDirection: 'column',
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
-    borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
   },
   headerTop: {
     flexDirection: 'row',
@@ -2896,7 +2637,10 @@ const styles = StyleSheet.create({
   headerRightContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
+  },
+  headerButton: {
+    padding: 8,
   },
   headerIconButton: {
     width: 40,

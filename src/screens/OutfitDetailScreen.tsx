@@ -19,8 +19,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { auth, db } from '../Config/firebaseconfig';
 import { useTheme } from '../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
-import FeatherIcon from 'react-native-vector-icons/Feather';
-import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
+
 import { NavigationProp } from '@react-navigation/native';
 import { RootStackParamList } from '../types/NavigationTypes';
 import LinearGradient from 'react-native-linear-gradient';
@@ -208,7 +207,7 @@ const OutfitDetailScreen: React.FC = () => {
             style={[styles.headerButton, { backgroundColor: cardBgColor }]}
             onPress={handleShareOutfit}
           >
-            <FeatherIcon name="share" size={20} color={textColor} />
+                              <Icon name="share-outline" size={20} color={textColor} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -266,7 +265,7 @@ const OutfitDetailScreen: React.FC = () => {
               style={[styles.primaryAction, { backgroundColor: mainColor }]}
               onPress={handleTryOn}
             >
-              <MaterialIcon name="camera-retake" size={18} color="#FFFFFF" />
+                                <Icon name="camera-reverse" size={18} color="#FFFFFF" />
               <Text style={styles.primaryActionText}>Try On</Text>
             </TouchableOpacity>
             
@@ -278,7 +277,7 @@ const OutfitDetailScreen: React.FC = () => {
               {isDeleting ? (
                 <ActivityIndicator size="small" color={mainColor} />
               ) : (
-                <FeatherIcon name="trash-2" size={16} color="#FF4757" />
+                                  <Icon name="trash-outline" size={16} color="#FF4757" />
               )}
             </TouchableOpacity>
           </View>
@@ -312,7 +311,7 @@ const OutfitDetailScreen: React.FC = () => {
                   activeOpacity={product.affiliateLink ? 0.7 : 1}
                 >
                   <View style={[styles.pieceIconContainer, { backgroundColor: `${mainColor}15` }]}>
-                    <MaterialIcon 
+                    <Icon 
                       name={getClothingIcon(product)}
                       size={22} 
                       color={mainColor} 
@@ -337,8 +336,8 @@ const OutfitDetailScreen: React.FC = () => {
 
                   {product.affiliateLink && (
                     <View style={styles.externalLinkIndicator}>
-                      <FeatherIcon 
-                        name="external-link" 
+                      <Icon 
+                        name="open-outline" 
                         size={16} 
                         color={subTextColor} 
                       />
@@ -349,7 +348,7 @@ const OutfitDetailScreen: React.FC = () => {
             </View>
           ) : (
             <View style={styles.emptyPieces}>
-              <MaterialIcon name="tshirt-crew-outline" size={48} color={subTextColor} style={{opacity: 0.5}} />
+              <Icon name="shirt-outline" size={48} color={subTextColor} style={{opacity: 0.5}} />
               <Text style={[styles.emptyPiecesText, { color: subTextColor }]}>
                 No pieces information available
               </Text>

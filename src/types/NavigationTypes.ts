@@ -73,10 +73,21 @@ export type RootStackParamList = {
       createdAt: any;
     };
   };
+  ExpandedProductScreen2: { 
+    productId: string;
+    sourcePosition?: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+    product?: any;
+    initialImageIndex?: number;
+    sourceScreen?: string; // Add source screen information
+  };
   
   // Legacy types for backward compatibility
   Home: undefined;
-  UserProfileScreen: undefined;
   ThreeDScreen: {
     preloadedOutfit?: {
       id: string;

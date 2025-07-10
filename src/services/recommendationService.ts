@@ -104,11 +104,16 @@ export async function searchProducts(
   priceRange: [number, number] = [0, 1000], 
   limit: number = 10,
   userProfile?: any, // Accept user profile data if available
-  conversationContext?: any // Accept conversation context for follow-up queries
+  conversationContext?: any, // Accept conversation context for follow-up queries
+  sessionId?: string // Accept session ID for tracking and debugging
 ): Promise<{ products: Product[]; advisorMessage: string }> {
     console.log('🔎 Starting product search for query:', query);
   if (conversationContext) {
-    console.log('⚠️ NOTE: Conversation context is available but not being sent to API (backend does not support it yet)');
+    console.log('💬 Conversation context available and will be sent to API for better recommendations');
+  }
+  
+  if (sessionId) {
+    console.log('🆔 Session ID available for tracking:', sessionId);
   }
   
   try {
@@ -169,17 +174,18 @@ export async function searchProducts(
       userProfileData.gender = 'unisex'; // Add a default gender to ensure non-empty profile
     }
     
-    // Build the request payload according to the *expected* API schema
+    
     const payload = {
-      user_query: query,        // Use expected name
+      user_query: query,       
       user_profile: userProfileData,
-      max_products: limit,      // Use expected name
-      direct_search: false
-      // NOTE: conversation_context is not supported by the backend task function yet
-      // The API endpoint accepts it but the task function doesn't have the parameter
-      // ...(conversationContext && {
-      //   conversation_context: conversationContext
-      // })
+      max_products: limit,     
+      direct_search: false,
+      ...(sessionId && {
+        session_id: sessionId
+      }),
+      ...(conversationContext && {
+        conversation_context: conversationContext
+      })
     };
     console.log('📦 Request payload prepared:', JSON.stringify(payload, null, 2));
     

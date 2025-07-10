@@ -10,10 +10,10 @@ import { WelcomeScreenProps } from '../../types/components';
 import ProviderLoginModal from '../../components/common/ProviderLoginModal';
 import { auth } from '../../Config/firebaseconfig';
 // Google auth temporarily disabled
-import useGoogleAuth from '../../hooks/useGoogleAuth'; // Using stub implementation
+// import useGoogleAuth from '../../hooks/useGoogleAuth'; // Using stub implementation
 
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
-  const { theme, isDarkMode } = useTheme();
+  const { theme } = useTheme();
   const styles = createWelcomeStyles(theme);
   
   // Animation for welcome screen opacity
@@ -23,7 +23,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
   const [selectedProvider, setSelectedProvider] = useState<'google' | 'apple' | null>(null);
   
   // Get Google auth hook for monitoring state (using stub implementation)
-  const { user, isNewUser, userData } = useGoogleAuth();
+  // const { user, isNewUser, userData } = useGoogleAuth(); // COMMENTED OUT - unused variables
 
   // Monitor auth state
   useEffect(() => {
@@ -91,9 +91,9 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
     setProviderModalVisible(true);
   };
 
-  const handleProviderLogin = (provider: 'google' | 'apple') => {
-    // This is handled by the ProviderLoginModal component
-    console.log(`Provider auth initiated: ${provider}`);
+  const handleProviderLogin = (_provider: 'google' | 'apple') => {
+    // This is handled by the ProviderLoginModal component internally
+    // This callback is just for interface compliance
   };
 
   const handleCloseModal = () => {

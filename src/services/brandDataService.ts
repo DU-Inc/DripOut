@@ -3,19 +3,60 @@
  * Handles reading and parsing the brands.txt file for the onboarding process
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { memoryCache, CacheKeys } from './memoryCache';
+
+// Cache configuration for brand data - brands are extremely stable
+const BRAND_CACHE_KEY = '@DripOut:brandData';
+const BRAND_CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days (brands rarely change)
+const CACHE_VERSION = '1.0.0';
+
 interface BrandGroup {
   letter: string;
   brands: string[];
 }
 
+interface BrandCache {
+  brands: string[];
+  timestamp: number;
+  version: string;
+}
+
 /**
- * Load brands from the brands.txt file
+ * Load brands from the brands.txt file with caching
  * Since React Native doesn't directly support reading text files from the bundle,
  * we'll use the brands list directly as a JavaScript array for now.
  * This can be updated later to read from a bundled asset if needed.
  * @returns Promise<string[]> - Array of brand names
  */
 export const loadBrands = async (): Promise<string[]> => {
+  try {
+    // Use memory-first cache with fallback logic
+    const brands = await memoryCache.get(
+      CacheKeys.BRAND_DATA,
+      async () => {
+        console.log('🔄 Loading brands from static data');
+        return loadBrandsFromStaticData();
+      },
+      BRAND_CACHE_TTL
+    );
+
+    if (brands && Array.isArray(brands) && brands.length > 0) {
+      return brands;
+    }
+
+    // Fallback to direct loading if cache fails
+    return loadBrandsFromStaticData();
+  } catch (error) {
+    console.error('Error loading brands:', error);
+    return loadBrandsFromStaticData();
+  }
+};
+
+/**
+ * Load brands from static data (extracted from main function)
+ */
+const loadBrandsFromStaticData = async (): Promise<string[]> => {
   try {
     // Brand list from brands.txt file - converted to JavaScript array
     const brands = [
@@ -93,16 +134,23 @@ export const groupBrandsByLetter = (brands: string[]): BrandGroup[] => {
   const groups: { [key: string]: string[] } = {};
   
   brands.forEach(brand => {
-    const firstLetter = brand.charAt(0).toUpperCase();
-    if (!groups[firstLetter]) {
-      groups[firstLetter] = [];
+    const firstChar = brand.charAt(0).toUpperCase();
+    // Check if it's a regular letter A-Z
+    const groupKey = (firstChar >= 'A' && firstChar <= 'Z') ? firstChar : '●';
+    
+    if (!groups[groupKey]) {
+      groups[groupKey] = [];
     }
-    groups[firstLetter].push(brand);
+    groups[groupKey].push(brand);
   });
   
-  // Convert to array and sort by letter
+  // Convert to array and sort by letter (● first, then A-Z)
   return Object.keys(groups)
-    .sort()
+    .sort((a, b) => {
+      if (a === '●') return -1;
+      if (b === '●') return 1;
+      return a.localeCompare(b);
+    })
     .map(letter => ({
       letter,
       brands: groups[letter].sort()
@@ -117,9 +165,22 @@ export const groupBrandsByLetter = (brands: string[]): BrandGroup[] => {
  */
 export const getIndexForLetter = (brands: string[], letter: string): number => {
   const upperLetter = letter.toUpperCase();
-  const index = brands.findIndex(brand => 
-    brand.charAt(0).toUpperCase() === upperLetter
-  );
+  
+  let index = -1;
+  
+  if (upperLetter === '●') {
+    // Find first brand that doesn't start with A-Z
+    index = brands.findIndex(brand => {
+      const firstChar = brand.charAt(0).toUpperCase();
+      return !(firstChar >= 'A' && firstChar <= 'Z');
+    });
+  } else {
+    // Find first brand starting with the specific letter
+    index = brands.findIndex(brand => 
+      brand.charAt(0).toUpperCase() === upperLetter
+    );
+  }
+  
   return index >= 0 ? index : 0;
 };
 
@@ -131,7 +192,19 @@ export const getIndexForLetter = (brands: string[], letter: string): number => {
 export const getAvailableLetters = (brands: string[]): string[] => {
   const letters = new Set<string>();
   brands.forEach(brand => {
-    letters.add(brand.charAt(0).toUpperCase());
+    const firstChar = brand.charAt(0).toUpperCase();
+    // Check if it's a regular letter A-Z
+    if (firstChar >= 'A' && firstChar <= 'Z') {
+      letters.add(firstChar);
+    } else {
+      // For numbers, symbols, etc., use the special symbol
+      letters.add('●');
+    }
   });
-  return Array.from(letters).sort();
+  return Array.from(letters).sort((a, b) => {
+    // Put ● at the beginning
+    if (a === '●') return -1;
+    if (b === '●') return 1;
+    return a.localeCompare(b);
+  });
 };

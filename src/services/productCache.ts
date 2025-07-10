@@ -3,6 +3,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchRandomProducts, Product, SearchProductsResponse, searchProducts } from './productService';
+import { memoryCache, CacheKeys } from './memoryCache';
 
 // Cache configuration - Always user-specific for data isolation
 const TRENDING_CACHE_KEY = '@DripOut:trendingProducts';
@@ -11,11 +12,16 @@ const EDITORS_PICKS_CACHE_KEY = '@DripOut:editorsPicksProducts';
 const SEARCH_CACHE_KEY = '@DripOut:searchResults';
 const CURRENT_CACHE_VERSION = '1.2.0'; // Incremented to force refresh for description fix
 
-// Cache TTL values (different for each section)
-const TRENDING_TTL = 30 * 60 * 1000; // 30 minutes (changes frequently)
-const NEW_DROPS_TTL = 60 * 60 * 1000; // 60 minutes (updated daily)
-const EDITORS_PICKS_TTL = 120 * 60 * 1000; // 120 minutes (curated content)
-const SEARCH_TTL = 10 * 60 * 1000; // 10 minutes (search results can change frequently)
+// Cache TTL values (different for each section) - Optimized for performance
+const TRENDING_TTL = 30 * 60 * 1000; // 30 minutes (changes frequently) - Keep short
+const NEW_DROPS_TTL = 3 * 60 * 60 * 1000; // 3 hours (increased from 1h - "new" items stay relevant longer)
+const EDITORS_PICKS_TTL = 6 * 60 * 60 * 1000; // 6 hours (increased from 2h - curated content changes slowly)
+const SEARCH_TTL = 10 * 60 * 1000; // 10 minutes (search results can change frequently) - Keep short
+
+// Memory cache keys for products
+const getMemoryCacheKey = (section: string, userId: string): string => {
+  return `products_${section}_${userId}`;
+};
 
 // Cache data structure
 interface ProductSectionCache {
@@ -212,19 +218,49 @@ export const updateTrendingProductsCache = async (products: Product[], userId: s
 };
 
 /**
- * Get trending products with cache-first approach - Requires userId for data isolation
+ * Get trending products with memory-first cache approach - Requires userId for data isolation
  */
 export const getTrendingProducts = async (forceRefresh = false, userId: string): Promise<Product[]> => {
-  // Check cache first unless force refresh
+  const memoryCacheKey = getMemoryCacheKey('trending', userId);
+  
+  // Check memory cache first unless force refresh
   if (!forceRefresh) {
-    const cachedProducts = await getCachedTrendingProducts(userId);
-    if (cachedProducts) {
-      return cachedProducts;
+    const memoryProducts = await memoryCache.get(
+      memoryCacheKey,
+      async () => {
+        // Fallback to AsyncStorage cache
+        const cachedProducts = await getCachedTrendingProducts(userId);
+        if (cachedProducts) {
+          return cachedProducts;
+        }
+        
+        // No cache available, fetch fresh data
+        console.log('Fetching fresh trending products from API');
+        const allProducts = await fetchRandomProducts(20);
+        console.log(`API returned ${allProducts.length} products for trending section`);
+        
+        // Use adaptive slicing - take what we get, up to 20
+        const trendingProducts = allProducts.slice(0, Math.min(allProducts.length, 20));
+        
+        if (trendingProducts.length > 0) {
+          // Update AsyncStorage cache (fire and forget)
+          updateTrendingProductsCache(trendingProducts, userId).catch(error => {
+            console.error('Error caching trending products:', error);
+          });
+        }
+        
+        return trendingProducts;
+      },
+      TRENDING_TTL
+    );
+    
+    if (memoryProducts && memoryProducts.length > 0) {
+      return memoryProducts;
     }
   }
   
-  // Cache miss or force refresh - fetch from API
-  console.log('Fetching fresh trending products from API');
+  // Force refresh path
+  console.log('Force refresh: Fetching fresh trending products from API');
   try {
     const allProducts = await fetchRandomProducts(20);
     console.log(`API returned ${allProducts.length} products for trending section`);
@@ -233,7 +269,8 @@ export const getTrendingProducts = async (forceRefresh = false, userId: string):
     const trendingProducts = allProducts.slice(0, Math.min(allProducts.length, 20));
     
     if (trendingProducts.length > 0) {
-      // Update cache (fire and forget)
+      // Update both memory and AsyncStorage cache
+      await memoryCache.set(memoryCacheKey, trendingProducts, TRENDING_TTL);
       updateTrendingProductsCache(trendingProducts, userId).catch(error => {
         console.error('Error caching trending products:', error);
       });

@@ -1,10 +1,10 @@
 /**
  * AlphabeticalListSelector Component
  * A clean, minimalist list component for selecting brands or styles
- * Features alphabetical indexing and serif typography
+ * Features alphabetical indexing and serif typography with enhanced performance
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -26,6 +26,8 @@ interface AlphabeticalListSelectorProps {
 }
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const ITEM_HEIGHT = 60;
+const SCROLL_THROTTLE = 32; // Increased from 16ms for better performance
 
 const AlphabeticalListSelector: React.FC<AlphabeticalListSelectorProps> = ({
   items,
@@ -35,46 +37,37 @@ const AlphabeticalListSelector: React.FC<AlphabeticalListSelectorProps> = ({
 }) => {
   const { theme } = useTheme();
   const flatListRef = useRef<FlatList>(null);
-  const [activeLetter, setActiveLetter] = useState<string>('');
+  const scrollY = useRef(0);
 
-  // Get available letters for the alphabet index
-  const availableLetters = getAvailableLetters(items);
+  // Memoize available letters to prevent recalculation
+  const availableLetters = useMemo(() => getAvailableLetters(items), [items]);
 
-  // Handle alphabet index letter press
-  const handleLetterPress = (letter: string) => {
+  // Memoize letter press handler with instant jumping
+  const handleLetterPress = useCallback((letter: string) => {
     const index = getIndexForLetter(items, letter);
     if (flatListRef.current && index >= 0) {
+      // Use instant scrolling instead of animated for immediate response
       flatListRef.current.scrollToIndex({
         index,
-        animated: true,
-        viewPosition: 0.1 // Show the item near the top
+        animated: false, // Changed to false for instant jumping
+        viewPosition: 0.05 // Show item at very top for better visibility
       });
-      setActiveLetter(letter);
     }
-  };
+  }, [items]);
 
-  // Update active letter based on scroll position
-  const handleScroll = (event: any) => {
-    const scrollY = event.nativeEvent.contentOffset.y;
-    const itemHeight = 60; // Approximate item height
-    const currentIndex = Math.floor(scrollY / itemHeight);
-    
-    if (currentIndex >= 0 && currentIndex < items.length) {
-      const currentItem = items[currentIndex];
-      const currentLetter = currentItem.charAt(0).toUpperCase();
-      if (currentLetter !== activeLetter) {
-        setActiveLetter(currentLetter);
-      }
-    }
-  };
+  // Optimized scroll handler with better throttling
+  const handleScroll = useCallback((event: any) => {
+    const scrollYValue = event.nativeEvent.contentOffset.y;
+    scrollY.current = scrollYValue;
+  }, []);
 
-  // Handle item selection
-  const handleItemPress = (item: string) => {
+  // Memoized item press handler
+  const handleItemPress = useCallback((item: string) => {
     onItemToggle(item);
-  };
+  }, [onItemToggle]);
 
-  // Render individual list item
-  const renderItem = ({ item }: { item: string }) => {
+  // Memoized render item function
+  const renderItem = useCallback(({ item }: { item: string }) => {
     const isSelected = selectedItems.includes(item);
     
     return (
@@ -130,19 +123,39 @@ const AlphabeticalListSelector: React.FC<AlphabeticalListSelectorProps> = ({
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [selectedItems, theme, handleItemPress]);
 
-  // Handle scroll to index errors (for items that might not be visible)
-  const onScrollToIndexFailed = (info: any) => {
-    const wait = new Promise(resolve => setTimeout(resolve, 500));
+  // Enhanced scroll to index error handler with instant scrolling
+  const onScrollToIndexFailed = useCallback((info: any) => {
+    const wait = new Promise(resolve => setTimeout(resolve, 50)); // Reduced wait time further
     wait.then(() => {
-      flatListRef.current?.scrollToIndex({
-        index: info.index,
-        animated: true,
-        viewPosition: 0.1
-      });
+      if (flatListRef.current) {
+        flatListRef.current.scrollToIndex({
+          index: info.index,
+          animated: false, // Use instant scrolling for consistency
+          viewPosition: 0.05
+        });
+      }
     });
-  };
+  }, []);
+
+  // Memoize key extractor
+  const keyExtractor = useCallback((item: string) => item, []);
+
+  // Memoize getItemLayout for better performance
+  const getItemLayout = useCallback((_: any, index: number) => ({
+    length: ITEM_HEIGHT,
+    offset: ITEM_HEIGHT * index,
+    index,
+  }), []);
+
+  // Memoize content container style
+  const contentContainerStyle = useMemo(() => [
+    styles.listContent,
+    {
+      paddingRight: type === 'brands' ? 40 : 0, // Space for alphabet index only on brands
+    }
+  ], [type]);
 
   return (
     <View style={styles.container}>
@@ -150,27 +163,20 @@ const AlphabeticalListSelector: React.FC<AlphabeticalListSelectorProps> = ({
         ref={flatListRef}
         data={items}
         renderItem={renderItem}
-        keyExtractor={(item) => item}
+        keyExtractor={keyExtractor}
         style={[styles.list, { backgroundColor: 'transparent' }]}
-        contentContainerStyle={[
-          styles.listContent,
-          {
-            paddingRight: type === 'brands' ? 40 : 0, // Space for alphabet index only on brands
-          }
-        ]}
+        contentContainerStyle={contentContainerStyle}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
-        scrollEventThrottle={16}
+        scrollEventThrottle={SCROLL_THROTTLE}
         onScrollToIndexFailed={onScrollToIndexFailed}
-        removeClippedSubviews={Platform.OS === 'android'} // Performance optimization
-        maxToRenderPerBatch={20}
-        windowSize={10}
-        initialNumToRender={15}
-        getItemLayout={(data, index) => ({
-          length: 60,
-          offset: 60 * index,
-          index,
-        })}
+        removeClippedSubviews={Platform.OS === 'android'}
+        maxToRenderPerBatch={15} // Reduced for better performance
+        windowSize={8} // Reduced window size
+        initialNumToRender={12} // Reduced initial render
+        getItemLayout={getItemLayout}
+        updateCellsBatchingPeriod={50} // Batch updates for better performance
+        disableVirtualization={false} // Keep virtualization enabled
       />
       
       {/* Alphabet Index - only show for brands since styles list is shorter */}
@@ -178,7 +184,6 @@ const AlphabeticalListSelector: React.FC<AlphabeticalListSelectorProps> = ({
         <AlphabetIndex
           availableLetters={availableLetters}
           onLetterPress={handleLetterPress}
-          activeLetter={activeLetter}
         />
       )}
       
@@ -266,4 +271,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AlphabeticalListSelector;
+export default React.memo(AlphabeticalListSelector);

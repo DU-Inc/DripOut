@@ -22,8 +22,6 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import FeatherIcon from 'react-native-vector-icons/Feather';
-import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../styles/themeprovider';
 import Fuse from 'fuse.js';
@@ -637,7 +635,7 @@ const SearchScreen: React.FC = () => {
         onPress={() => handleTagSelect(tag)}
       >
         <View style={[styles.tagIconContainer, { backgroundColor: mainColor }]}>
-          <FeatherIcon name="hash" size={16} color="#FFFFFF" />
+          <Icon name="pound" size={16} color="#FFFFFF" />
         </View>
         <View style={styles.tagInfo}>
           <Text style={[styles.tagName, { color: textColor }]}>
@@ -980,7 +978,7 @@ const SearchScreen: React.FC = () => {
         {/* No Results Message */}
         {searchQuery.trim() !== '' && !isSearching && !hasResults && (
           <View style={styles.emptyContainer}>
-            <FeatherIcon name="search" size={50} color={subTextColor} style={styles.emptyIcon} />
+            <Icon name="search-outline" size={50} color={subTextColor} style={styles.emptyIcon} />
             <Text style={[styles.emptyTitle, { color: textColor }]}>
               No Results Found
             </Text>

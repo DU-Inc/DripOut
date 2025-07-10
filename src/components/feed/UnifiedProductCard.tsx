@@ -51,6 +51,9 @@ export interface UnifiedProductCardProps {
   // Size display options
   showSizes?: boolean; // Whether to show sizes in the card
   maxSizesToShow?: number; // Maximum number of sizes to display
+  
+  // Guest state
+  isGuest?: boolean; // Whether the user is a guest (disables animations)
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -75,6 +78,7 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
   cardType = 'full',
   showSizes = false,
   maxSizesToShow = 3,
+  isGuest = false,
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isImageLoading, setIsImageLoading] = useState(true);
@@ -114,7 +118,10 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
   };
 
   const handleSavePress = () => {
-    setIsSaved(!isSaved);
+    // Only update visual state if user is not a guest
+    if (!isGuest) {
+      setIsSaved(!isSaved);
+    }
     onSave?.();
   };
 
@@ -124,7 +131,10 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
 
   const handleShelfToggle = async (newIsInShelf: boolean) => {
     try {
-      setIsInShelf(newIsInShelf); // Optimistic update
+      // Only update visual state if user is not a guest
+      if (!isGuest) {
+        setIsInShelf(newIsInShelf); // Optimistic update
+      }
       
       if (newIsInShelf) {
         // Add to shelf
@@ -152,8 +162,10 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
           }
           onAddToShelf?.(); // Call optional callback
         } else {
-          // Revert optimistic update on failure
-          setIsInShelf(false);
+          // Revert optimistic update on failure (only if not guest)
+          if (!isGuest) {
+            setIsInShelf(false);
+          }
           Alert.alert('Error', 'Failed to add to shelf');
         }
       } else {
@@ -168,14 +180,18 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
             Alert.alert('Success', message);
           }
         } else {
-          // Revert optimistic update on failure
-          setIsInShelf(true);
+          // Revert optimistic update on failure (only if not guest)
+          if (!isGuest) {
+            setIsInShelf(true);
+          }
           Alert.alert('Error', 'Failed to remove from shelf');
         }
       }
     } catch (error) {
-      // Revert optimistic update on error
-      setIsInShelf(!newIsInShelf);
+      // Revert optimistic update on error (only if not guest)
+      if (!isGuest) {
+        setIsInShelf(!newIsInShelf);
+      }
       Alert.alert('Error', 'Something went wrong');
     }
   };
@@ -326,11 +342,13 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
                 size={16}
                 activeColor="#FF6347"
                 inactiveColor={textSecondary}
-                backgroundColor={themeColors.primary}
+                activeBackgroundColor="#FF6347"
+                inactiveBackgroundColor={isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'}
                 showBackground={true}
                 variant="hanger"
                 showAnimation={true}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                isGuest={isGuest}
               />
             </View>
           </View>

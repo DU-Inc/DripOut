@@ -41,6 +41,8 @@ import { takePhotoWithCamera, selectImageFromLibrary, ImageAsset } from '../../s
 import { uploadImageAndGetURL } from '../../services/storageService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { appStateManager } from '../../utils/appStateManager';
+import LockOverlay from '../../components/common/LockOverlay';
+import { useGuestLock } from '../../hooks/useGuestLock';
 
 // Set default text styles for SF Pro font family
 const defaultTextStyle = {
@@ -83,6 +85,14 @@ const SettingsScreen: React.FC = () => {
   const dangerColor = isDarkMode ? '#FF453A' : '#FF3B30';
   const modalBgColor = isDarkMode ? 'rgba(10, 10, 15, 0.95)' : 'rgba(0, 0, 0, 0.5)';
 
+  // Guest lock functionality
+  const isGuest = appStateManager.isGuest();
+  const settingsLock = useGuestLock({ 
+    feature: 'editing settings', 
+    title: 'Customize Your Settings!',
+    message: 'Sign in to edit your profile information and preferences.'
+  });
+
   // Profile fields (optional)
   const [height, setHeight] = useState<string>('');
   const [weight, setWeight] = useState<string>('');
@@ -119,6 +129,15 @@ const SettingsScreen: React.FC = () => {
 
   // Load user profile and preferences
   useEffect(() => {
+    // Handle guest users first
+    if (appStateManager.isGuest()) {
+      console.log('SettingsScreen: Guest user detected, showing guest UI');
+      setProfile(null);
+      setEditedProfile(null);
+      setLoading(false);
+      return;
+    }
+    
     const auth = getAuth();
     const userId = auth.currentUser?.uid;
     if (userId) {
@@ -200,6 +219,12 @@ const SettingsScreen: React.FC = () => {
       return () => {
         profileUnsubscribe();
       };
+    } else {
+      // Handle case where user is not authenticated (not guest, just no auth)
+      console.log('SettingsScreen: No authenticated user found');
+      setProfile(null);
+      setEditedProfile(null);
+      setLoading(false);
     }
   }, []);
 
@@ -1154,7 +1179,12 @@ const SettingsScreen: React.FC = () => {
           <Icon name="chevron-back" size={24} color={mainColor} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: textColor }]}>Settings</Text>
-        <TouchableOpacity onPress={handleEditToggle}>
+        <TouchableOpacity onPress={() => {
+          const actionAllowed = settingsLock.lockAction(() => {
+            handleEditToggle();
+          });
+          if (!actionAllowed) return;
+        }}>
           <Text style={[styles.headerAction, { color: mainColor }]}>
             {editMode ? 'Cancel' : 'Edit'}
           </Text>
@@ -1162,332 +1192,395 @@ const SettingsScreen: React.FC = () => {
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Account Information Section */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionHeader, { color: subTextColor }]}>ACCOUNT INFORMATION</Text>
-          <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
-            {editMode ? (
-              // Editable Fields
-              <>
-                {/* Profile Picture Edit */}
-                <TouchableOpacity 
-                  style={[styles.editItem, { borderBottomColor: borderColor }]}
-                  onPress={handleProfilePictureSelection}
-                  disabled={isUploadingImage}
-                >
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Profile Picture</Text>
-                                      <View style={styles.profilePictureEditContainer}>
-                      <View style={styles.profilePictureEditWrapper}>
-                        {editedProfile?.profilePictureURL ? (
-                          <Image
-                            source={{ uri: editedProfile.profilePictureURL }}
-                            style={styles.profilePictureEdit}
-                          />
-                        ) : (
-                          <View style={[styles.profilePictureEditInitials, { backgroundColor: mainColor }]}>
-                            <Text style={styles.profileInitialsText}>{getUserInitials()}</Text>
-                          </View>
-                        )}
-                        {isUploadingImage && (
-                          <View style={styles.profileUploadOverlay}>
-                            <ActivityIndicator size="small" color="#FFFFFF" />
-                            <Text style={styles.profileUploadText}>{Math.round(uploadProgress * 100)}%</Text>
-                          </View>
-                        )}
-                      </View>
-                    <View style={styles.profilePictureEditInfo}>
-                      <Text style={[styles.profilePictureEditText, { color: textColor }]}>
-                        Tap to change
-                      </Text>
-                      <Text style={[styles.profilePictureEditSubtext, { color: subTextColor }]}>
-                        Camera or Library
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-                
-                {/* Bio Edit */}
-                <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Bio</Text>
-                  <TextInput
-                    style={[styles.editBioInput, { color: textColor, backgroundColor: surfaceColor, borderColor }]}
-                    value={editedProfile?.bio || ''}
-                    onChangeText={(text) => handleInputChange('bio', text)}
-                    placeholder="Tell us about yourself..."
-                    placeholderTextColor={subTextColor}
-                    multiline
-                    maxLength={150}
-                    textAlignVertical="top"
-                  />
-                  <Text style={[styles.inputHelp, { color: subTextColor }]}>
-                    {(editedProfile?.bio || '').length}/150 characters
+        {/* Guest Information Section */}
+        {isGuest && (
+          <View style={styles.section}>
+            <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
+              <View style={styles.guestInfoContainer}>
+                <View style={styles.guestInfoIconContainer}>
+                  <Icon name="person-outline" size={32} color={mainColor} />
+                </View>
+                <View style={styles.guestInfoContent}>
+                  <Text style={[styles.guestInfoTitle, { color: textColor }]}>
+                    Sign In for Full Access
+                  </Text>
+                  <Text style={[styles.guestInfoDescription, { color: subTextColor }]}>
+                    Create an account or sign in to access profile settings, preferences, measurements, and personalized recommendations.
                   </Text>
                 </View>
-
-                <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Full Name</Text>
-                  <TextInput
-                    style={[styles.editInput, { color: textColor, backgroundColor: surfaceColor }]}
-                    value={editedProfile?.fullName || ''}
-                    onChangeText={(text) => handleInputChange('fullName', text)}
-                    placeholder="Enter your full name"
-                    placeholderTextColor={subTextColor}
-                  />
-                </View>
-                <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Username</Text>
-                  <TextInput
-                    style={[styles.editInput, { color: textColor, backgroundColor: surfaceColor }]}
-                    value={editedProfile?.username || ''}
-                    onChangeText={(text) => handleInputChange('username', text)}
-                    placeholder="Enter your username"
-                    placeholderTextColor={subTextColor}
-                  />
-                  <Text style={[styles.inputHelp, { color: subTextColor }]}>
-                    Used as your display name (lowercase, no spaces, only letters, numbers, and underscores)
-                  </Text>
-                </View>
-                <TouchableOpacity 
-                  style={[styles.editItem, { borderBottomColor: borderColor }]}
-                  onPress={() => handleOpenModal('gender')}
-                >
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Gender</Text>
-                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
-                    <Text style={{ color: editedProfile?.userGender ? textColor : subTextColor }}>
-                      {editedProfile?.userGender || 'Select your gender'}
-                    </Text>
-                    <Icon name="chevron-forward" size={20} color={subTextColor} />
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.editItem, { borderBottomColor: borderColor }]}
-                  onPress={() => handleOpenModal('birthday')}
-                >
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Birthday</Text>
-                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
-                    <Text style={{ color: birthday ? textColor : subTextColor }}>
-                      {birthday || 'Add your birthday'}
-                    </Text>
-                    <Icon name="chevron-forward" size={20} color={subTextColor} />
-                  </View>
-                </TouchableOpacity>
-              </>
-            ) : (
-              // Display Fields
-              <>
-                {renderSettingItem('camera', 'Profile Picture', 'Your profile photo', undefined, handleEditToggle)}
-                {renderSettingItem('file-text', 'Bio', 'Tell us about yourself', profile?.bio || 'Not set', handleEditToggle)}
-                {renderSettingItem('user', 'Full Name', 'Your legal name', profile?.fullName || 'Not set', handleEditToggle)}
-                {renderSettingItem('hash', 'Username', 'Your unique username', '@' + (profile?.username || 'username'), handleEditToggle)}
-                {renderSettingItem('users', 'Gender', 'For size recommendations', profile?.userGender || 'Not specified', () => {
-                  handleEditToggle();
-                  setTimeout(() => handleOpenModal('gender'), 300);
-                })}
-                {renderSettingItem('calendar', 'Birthday', 'For personalized recommendations', profile?.birthday || 'Not specified', () => {
-                  handleEditToggle();
-                  setTimeout(() => handleOpenModal('birthday'), 300);
-                })}
-              </>
-            )}
-          </View>
-
-          {/* Body Measurements Section */}
-          <Text style={[styles.sectionHeader, { color: subTextColor, marginTop: 24 }]}>BODY MEASUREMENTS</Text>
-          <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
-            {editMode ? (
-              // Editable Fields
-              <>
-                <TouchableOpacity 
-                  style={[styles.editItem, { borderBottomColor: borderColor }]}
-                  onPress={() => handleOpenModal('measurements')}
-                >
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Measurements</Text>
-                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
-                    <Text style={{ color: (height || weight) ? textColor : subTextColor, maxWidth: width - 160 }} numberOfLines={1} ellipsizeMode="tail">
-                      {height && weight ? `${height}, ${weight}` : 
-                       height ? `${height}` : 
-                       weight ? `${weight}` : 'Add your measurements'}
-                    </Text>
-                    <Icon name="chevron-forward" size={20} color={subTextColor} />
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.editItem, { borderBottomColor: borderColor }]}
-                  onPress={() => handleOpenModal('bodyType')}
-                >
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Body Type</Text>
-                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
-                    <Text style={{ color: bodyType ? textColor : subTextColor }}>
-                      {bodyType || 'Select your body type'}
-                    </Text>
-                    <Icon name="chevron-forward" size={20} color={subTextColor} />
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.editItem, { borderBottomColor: 'transparent' }]}
-                  onPress={() => handleOpenModal('sizes')}
-                >
-                  <Text style={[styles.editLabel, { color: subTextColor }]}>Clothing Sizes</Text>
-                  <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
-                    <Text style={{ color: subTextColor }}>
-                      {preferences ? 
-                        `${preferences.topsSize || '-'} / ${preferences.bottomsSize || '-'} / ${preferences.shoeSize || '-'}` : 
-                        'Set your clothing sizes'}
-                    </Text>
-                    <Icon name="chevron-forward" size={20} color={subTextColor} />
-                  </View>
-                </TouchableOpacity>
-              </>
-            ) : (
-              // Display Fields
-              <>
-                {renderSettingItem(
-                  'activity', 
-                  'Measurements', 
-                  'For better size recommendations', 
-                  (profile?.height || profile?.weight) ?
-                    `${profile.height || ''} ${profile.height && profile.weight ? '/' : ''} ${profile.weight || ''}` :
-                    'Not specified',
-                  () => handleOpenModal('measurements')
-                )}
-                {renderSettingItem(
-                  'aperture', 
-                  'Body Type', 
-                  'For style recommendations', 
-                  profile?.bodyType || 'Not specified',
-                  () => {
-                    handleEditToggle();
-                    setTimeout(() => handleOpenModal('bodyType'), 300);
-                  }
-                )}
-                {renderSettingItem(
-                  'shopping-bag', 
-                  'Clothing Sizes', 
-                  'Tops / Bottoms / Shoes', 
-                  preferences ? 
-                    `${preferences.topsSize || '-'} / ${preferences.bottomsSize || '-'} / ${preferences.shoeSize || '-'}` : 
-                    'Not specified',
-                  () => handleOpenModal('sizes')
-                )}
-              </>
-            )}
-          </View>
-
-          {editMode && (
-            <View style={styles.buttonContainer}>
-              <TouchableOpacity 
-                style={[styles.saveButton, { backgroundColor: mainColor }]} 
-                onPress={handleSaveProfile}
-              >
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-              </TouchableOpacity>
+              </View>
             </View>
-          )}
-        </View>
+          </View>
+        )}
+
+        {/* Account Information Section */}
+        {!isGuest && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionHeader, { color: subTextColor }]}>ACCOUNT INFORMATION</Text>
+            <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
+              {editMode ? (
+                // Editable Fields
+                <>
+                  {/* Profile Picture Edit */}
+                  <TouchableOpacity 
+                    style={[styles.editItem, { borderBottomColor: borderColor }]}
+                    onPress={handleProfilePictureSelection}
+                    disabled={isUploadingImage}
+                  >
+                    <Text style={[styles.editLabel, { color: subTextColor }]}>Profile Picture</Text>
+                                        <View style={styles.profilePictureEditContainer}>
+                        <View style={styles.profilePictureEditWrapper}>
+                          {editedProfile?.profilePictureURL ? (
+                            <Image
+                              source={{ uri: editedProfile.profilePictureURL }}
+                              style={styles.profilePictureEdit}
+                            />
+                          ) : (
+                            <View style={[styles.profilePictureEditInitials, { backgroundColor: mainColor }]}>
+                              <Text style={styles.profileInitialsText}>{getUserInitials()}</Text>
+                            </View>
+                          )}
+                          {isUploadingImage && (
+                            <View style={styles.profileUploadOverlay}>
+                              <ActivityIndicator size="small" color="#FFFFFF" />
+                              <Text style={styles.profileUploadText}>{Math.round(uploadProgress * 100)}%</Text>
+                            </View>
+                          )}
+                        </View>
+                      <View style={styles.profilePictureEditInfo}>
+                        <Text style={[styles.profilePictureEditText, { color: textColor }]}>
+                          Tap to change
+                        </Text>
+                        <Text style={[styles.profilePictureEditSubtext, { color: subTextColor }]}>
+                          Camera or Library
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  {/* Bio Edit */}
+                  <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
+                    <Text style={[styles.editLabel, { color: subTextColor }]}>Bio</Text>
+                    <TextInput
+                      style={[styles.editBioInput, { color: textColor, backgroundColor: surfaceColor, borderColor }]}
+                      value={editedProfile?.bio || ''}
+                      onChangeText={(text) => handleInputChange('bio', text)}
+                      placeholder="Tell us about yourself..."
+                      placeholderTextColor={subTextColor}
+                      multiline
+                      maxLength={150}
+                      textAlignVertical="top"
+                    />
+                    <Text style={[styles.inputHelp, { color: subTextColor }]}>
+                      {(editedProfile?.bio || '').length}/150 characters
+                    </Text>
+                  </View>
+
+                  <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
+                    <Text style={[styles.editLabel, { color: subTextColor }]}>Full Name</Text>
+                    <TextInput
+                      style={[styles.editInput, { color: textColor, backgroundColor: surfaceColor }]}
+                      value={editedProfile?.fullName || ''}
+                      onChangeText={(text) => handleInputChange('fullName', text)}
+                      placeholder="Enter your full name"
+                      placeholderTextColor={subTextColor}
+                    />
+                  </View>
+                  <View style={[styles.editItem, { borderBottomColor: borderColor }]}>
+                    <Text style={[styles.editLabel, { color: subTextColor }]}>Username</Text>
+                    <TextInput
+                      style={[styles.editInput, { color: textColor, backgroundColor: surfaceColor }]}
+                      value={editedProfile?.username || ''}
+                      onChangeText={(text) => handleInputChange('username', text)}
+                      placeholder="Enter your username"
+                      placeholderTextColor={subTextColor}
+                    />
+                    <Text style={[styles.inputHelp, { color: subTextColor }]}>
+                      Used as your display name (lowercase, no spaces, only letters, numbers, and underscores)
+                    </Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={[styles.editItem, { borderBottomColor: borderColor }]}
+                    onPress={() => handleOpenModal('gender')}
+                  >
+                    <Text style={[styles.editLabel, { color: subTextColor }]}>Gender</Text>
+                    <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                      <Text style={{ color: editedProfile?.userGender ? textColor : subTextColor }}>
+                        {editedProfile?.userGender || 'Select your gender'}
+                      </Text>
+                      <Icon name="chevron-forward" size={20} color={subTextColor} />
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.editItem, { borderBottomColor: borderColor }]}
+                    onPress={() => handleOpenModal('birthday')}
+                  >
+                    <Text style={[styles.editLabel, { color: subTextColor }]}>Birthday</Text>
+                    <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                      <Text style={{ color: birthday ? textColor : subTextColor }}>
+                        {birthday || 'Add your birthday'}
+                      </Text>
+                      <Icon name="chevron-forward" size={20} color={subTextColor} />
+                    </View>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                // Display Fields
+                <>
+                  {renderSettingItem('camera', 'Profile Picture', 'Your profile photo', undefined, handleEditToggle)}
+                  {renderSettingItem('file-text', 'Bio', 'Tell us about yourself', profile?.bio || 'Not set', handleEditToggle)}
+                  {renderSettingItem('user', 'Full Name', 'Your legal name', profile?.fullName || 'Not set', handleEditToggle)}
+                  {renderSettingItem('hash', 'Username', 'Your unique username', '@' + (profile?.username || 'username'), handleEditToggle)}
+                  {renderSettingItem('users', 'Gender', 'For size recommendations', profile?.userGender || 'Not specified', () => {
+                    handleEditToggle();
+                    setTimeout(() => handleOpenModal('gender'), 300);
+                  })}
+                  {renderSettingItem('calendar', 'Birthday', 'For personalized recommendations', profile?.birthday || 'Not specified', () => {
+                    handleEditToggle();
+                    setTimeout(() => handleOpenModal('birthday'), 300);
+                  })}
+                </>
+              )}
+            </View>
+
+            {/* Body Measurements Section */}
+            <Text style={[styles.sectionHeader, { color: subTextColor, marginTop: 24 }]}>BODY MEASUREMENTS</Text>
+            <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
+              {editMode ? (
+                // Editable Fields
+                <>
+                  <TouchableOpacity 
+                    style={[styles.editItem, { borderBottomColor: borderColor }]}
+                    onPress={() => handleOpenModal('measurements')}
+                  >
+                    <Text style={[styles.editLabel, { color: subTextColor }]}>Measurements</Text>
+                    <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                      <Text style={{ color: (height || weight) ? textColor : subTextColor, maxWidth: width - 160 }} numberOfLines={1} ellipsizeMode="tail">
+                        {height && weight ? `${height}, ${weight}` : 
+                         height ? `${height}` : 
+                         weight ? `${weight}` : 'Add your measurements'}
+                      </Text>
+                      <Icon name="chevron-forward" size={20} color={subTextColor} />
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.editItem, { borderBottomColor: borderColor }]}
+                    onPress={() => handleOpenModal('bodyType')}
+                  >
+                    <Text style={[styles.editLabel, { color: subTextColor }]}>Body Type</Text>
+                    <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                      <Text style={{ color: bodyType ? textColor : subTextColor }}>
+                        {bodyType || 'Select your body type'}
+                      </Text>
+                      <Icon name="chevron-forward" size={20} color={subTextColor} />
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.editItem, { borderBottomColor: 'transparent' }]}
+                    onPress={() => handleOpenModal('sizes')}
+                  >
+                    <Text style={[styles.editLabel, { color: subTextColor }]}>Clothing Sizes</Text>
+                    <View style={[styles.selectInput, { backgroundColor: surfaceColor }]}>
+                      <Text style={{ color: subTextColor }}>
+                        {preferences ? 
+                          `${preferences.topsSize || '-'} / ${preferences.bottomsSize || '-'} / ${preferences.shoeSize || '-'}` : 
+                          'Set your clothing sizes'}
+                      </Text>
+                      <Icon name="chevron-forward" size={20} color={subTextColor} />
+                    </View>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                // Display Fields
+                <>
+                  {renderSettingItem(
+                    'activity', 
+                    'Measurements', 
+                    'For better size recommendations', 
+                    (profile?.height || profile?.weight) ?
+                      `${profile.height || ''} ${profile.height && profile.weight ? '/' : ''} ${profile.weight || ''}` :
+                      'Not specified',
+                    () => handleOpenModal('measurements')
+                  )}
+                  {renderSettingItem(
+                    'aperture', 
+                    'Body Type', 
+                    'For style recommendations', 
+                    profile?.bodyType || 'Not specified',
+                    () => {
+                      handleEditToggle();
+                      setTimeout(() => handleOpenModal('bodyType'), 300);
+                    }
+                  )}
+                  {renderSettingItem(
+                    'shopping-bag', 
+                    'Clothing Sizes', 
+                    'Tops / Bottoms / Shoes', 
+                    preferences ? 
+                      `${preferences.topsSize || '-'} / ${preferences.bottomsSize || '-'} / ${preferences.shoeSize || '-'}` : 
+                      'Not specified',
+                    () => handleOpenModal('sizes')
+                  )}
+                </>
+              )}
+            </View>
+
+            {/* Preferences Section */}
+            <Text style={[styles.sectionHeader, { color: subTextColor, marginTop: 24 }]}>PREFERENCES</Text>
+            <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
+              {renderSettingItem(
+                'star', 
+                'Preferred Styles', 
+                'Edit your style preferences', 
+                preferences?.preferredStyles?.length ? `${preferences.preferredStyles.length} styles selected` : 'No styles selected',
+                () => {
+                  // Navigate to the styles onboarding screen in edit mode
+                  navigation.navigate('OnboardingFlow' as any, {
+                    screen: 'Onboarding',
+                    params: { fromReview: true }
+                  });
+                },
+                mainColor
+              )}
+              {renderSettingItem(
+                'tag', 
+                'Preferred Brands', 
+                'Edit your brand preferences', 
+                preferences?.preferredBrands?.length ? `${preferences.preferredBrands.length} brands selected` : 'No brands selected',
+                () => {
+                  // Navigate to the brands onboarding screen in edit mode
+                  navigation.navigate('OnboardingFlow' as any, {
+                    screen: 'OnboardingBrands',
+                    params: { fromReview: true }
+                  });
+                },
+                mainColor
+              )}
+            </View>
+
+            {editMode && (
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity 
+                  style={[styles.saveButton, { backgroundColor: mainColor }]} 
+                  onPress={handleSaveProfile}
+                >
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Email & Security Section */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionHeader, { color: subTextColor }]}>EMAIL & SECURITY</Text>
-          <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
-            {renderSettingItem(
-              'mail', 
-              'Email Address', 
-              profile?.email ? 'Your account email' : 'Tap to add your email', 
-              profile?.email || 'Not set',
-              !profile?.email ? () => {
-                setEditingEmail('');
-                setEmailModalVisible(true);
-              } : undefined
-            )}
-            {renderSettingItem(
-              'shield', 
-              'Change Password', 
-              'Update your password', 
-              undefined, 
-              () => Alert.alert('Change Password', 'This feature will be implemented in a future update.')
-            )}
-            {renderSettingItem(
-              'lock', 
-              'Two-Factor Authentication', 
-              'Add an extra layer of security', 
-              false, 
-              () => Alert.alert('Two-Factor Authentication', 'This feature will be implemented in a future update.')
-            )}
+        {!isGuest && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionHeader, { color: subTextColor }]}>EMAIL & SECURITY</Text>
+            <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
+              {renderSettingItem(
+                'mail', 
+                'Email Address', 
+                profile?.email ? 'Your account email' : 'Tap to add your email', 
+                profile?.email || 'Not set',
+                !profile?.email ? () => {
+                  const actionAllowed = settingsLock.lockAction(() => {
+                    setEditingEmail('');
+                    setEmailModalVisible(true);
+                  });
+                  if (!actionAllowed) return;
+                } : undefined
+              )}
+              {/* {renderSettingItem(
+                'shield', 
+                'Change Password', 
+                'Update your password', 
+                undefined, 
+                () => Alert.alert('Change Password', 'This feature will be implemented in a future update.')
+              )} */}
+              {/* {renderSettingItem(
+                'lock', 
+                'Two-Factor Authentication', 
+                'Add an extra layer of security', 
+                false, 
+                () => Alert.alert('Two-Factor Authentication', 'This feature will be implemented in a future update.')
+              )} */}
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Notification Settings */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionHeader, { color: subTextColor }]}>NOTIFICATIONS</Text>
-          <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
-            {renderSettingItem(
-              'bell', 
-              'Push Notifications', 
-              'Get mobile alerts', 
-              preferences?.pushNotifications ?? true, 
-              () => {
-                if (preferences) {
-                  const auth = getAuth();
-                  setUserPreferences(auth.currentUser!.uid, {
-                    ...preferences,
-                    pushNotifications: !preferences.pushNotifications
-                  }).then(() => {
-                    setPreferences({
+        {/* {!isGuest && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionHeader, { color: subTextColor }]}>NOTIFICATIONS</Text>
+            <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
+              {renderSettingItem(
+                'bell', 
+                'Push Notifications', 
+                'Get mobile alerts', 
+                preferences?.pushNotifications ?? true, 
+                () => {
+                  if (preferences) {
+                    const auth = getAuth();
+                    setUserPreferences(auth.currentUser!.uid, {
                       ...preferences,
                       pushNotifications: !preferences.pushNotifications
+                    }).then(() => {
+                      setPreferences({
+                        ...preferences,
+                        pushNotifications: !preferences.pushNotifications
+                      });
                     });
-                  });
+                  }
                 }
-              }
-            )}
-            {renderSettingItem(
-              'mail', 
-              'Email Notifications', 
-              'Get updates in your inbox', 
-              preferences?.emailNotifications ?? true, 
-              () => {
-                if (preferences) {
-                  const auth = getAuth();
-                  setUserPreferences(auth.currentUser!.uid, {
-                    ...preferences,
-                    emailNotifications: !preferences.emailNotifications
-                  }).then(() => {
-                    setPreferences({
+              )}
+              {renderSettingItem(
+                'mail', 
+                'Email Notifications', 
+                'Get updates in your inbox', 
+                preferences?.emailNotifications ?? true, 
+                () => {
+                  if (preferences) {
+                    const auth = getAuth();
+                    setUserPreferences(auth.currentUser!.uid, {
                       ...preferences,
                       emailNotifications: !preferences.emailNotifications
+                    }).then(() => {
+                      setPreferences({
+                        ...preferences,
+                        emailNotifications: !preferences.emailNotifications
+                      });
                     });
-                  });
+                  }
                 }
-              }
-            )}
-            {renderSettingItem(
-              'heart', 
-              'Likes and Comments', 
-              'When someone likes your outfit', 
-              true, 
-              () => Alert.alert('Likes Notifications', 'This feature will be implemented in a future update.')
-            )}
-            {renderSettingItem(
-              'tag', 
-              'New Products', 
-              'When items matching your style arrive', 
-              true, 
-              () => Alert.alert('Product Notifications', 'This feature will be implemented in a future update.')
-            )}
+              )}
+              {renderSettingItem(
+                'heart', 
+                'Likes and Comments', 
+                'When someone likes your outfit', 
+                true, 
+                () => Alert.alert('Likes Notifications', 'This feature will be implemented in a future update.')
+              )}
+              {renderSettingItem(
+                'tag', 
+                'New Products', 
+                'When items matching your style arrive', 
+                true, 
+                () => Alert.alert('Product Notifications', 'This feature will be implemented in a future update.')
+              )}
+            </View>
           </View>
-        </View>
+        )} */}
 
         {/* App Settings */}
         <View style={styles.section}>
           <Text style={[styles.sectionHeader, { color: subTextColor }]}>APP SETTINGS</Text>
           <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
-            {renderSettingItem(
+            {/* {renderSettingItem(
               'moon', 
               'Dark Mode', 
               'Switch app appearance', 
               isDarkMode, 
               toggleTheme
-            )}
+            )} */}
             {renderSettingItem(
               'globe', 
               'Language', 
@@ -1495,20 +1588,20 @@ const SettingsScreen: React.FC = () => {
               'English', 
               () => Alert.alert('Language Settings', 'This feature will be implemented in a future update.')
             )}
-            {renderSettingItem(
+            {/* {renderSettingItem(
               'download', 
               'Download Quality', 
               'Image quality settings', 
               'High', 
               () => Alert.alert('Download Settings', 'This feature will be implemented in a future update.')
-            )}
-            {renderSettingItem(
+            )} */}
+            {/* {renderSettingItem(
               'hard-drive', 
               'Clear Cache', 
               'Free up storage space', 
               undefined, 
               () => Alert.alert('Clear Cache', 'This feature will be implemented in a future update.')
-            )}
+            )} */}
           </View>
         </View>
 
@@ -1516,27 +1609,27 @@ const SettingsScreen: React.FC = () => {
         <View style={styles.section}>
           <Text style={[styles.sectionHeader, { color: subTextColor }]}>ABOUT & HELP</Text>
           <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
-            {renderSettingItem(
+            {/* {renderSettingItem(
               'help-circle', 
               'Help Center', 
               'Get support and answers', 
               undefined, 
               () => Alert.alert('Help Center', 'This feature will be implemented in a future update.')
-            )}
-            {renderSettingItem(
+            )} */}
+            {/* {renderSettingItem(
               'file-text', 
               'Terms of Service', 
               'App usage terms', 
               undefined, 
               () => Alert.alert('Terms of Service', 'This feature will be implemented in a future update.')
-            )}
-            {renderSettingItem(
+            )} */}
+            {/* {renderSettingItem(
               'shield', 
               'Privacy Policy', 
               'How we handle your data', 
               undefined, 
               () => Alert.alert('Privacy Policy', 'This feature will be implemented in a future update.')
-            )}
+            )} */}
             {renderSettingItem(
               'info', 
               'About DripOut', 
@@ -1606,33 +1699,53 @@ const SettingsScreen: React.FC = () => {
             )}
           </View>
         </View>
+
+
         
         {/* Account Actions */}
         <View style={styles.section}>
           <Text style={[styles.sectionHeader, { color: subTextColor }]}>ACCOUNT ACTIONS</Text>
           <View style={[styles.settingsGroup, { backgroundColor: cardBgColor }]}>
-            {renderSettingItem(
-              'log-out', 
-              'Sign Out', 
-              'Log out of your account', 
-              undefined, 
-              async () => {
-                try {
-                  await signOutUser();
-                } catch (error) {
-                  console.error('Sign out error:', error);
-                  Alert.alert('Sign Out Error', 'An error occurred while signing out. Please try again.');
-                }
-              },
-              accentColor
-            )}
-            {renderSettingItem(
-              'trash-2', 
-              'Delete Account', 
-              'Permanently delete your data', 
-              undefined, 
-              handleDeleteAccount,
-              dangerColor
+            {isGuest ? (
+              renderSettingItem(
+                'log-in', 
+                'Sign In', 
+                'Sign in to your account', 
+                undefined, 
+                () => {
+                  settingsLock.lockAction(() => {
+                    // The lockAction will handle the sign-in flow automatically
+                    console.log('Sign in requested from settings');
+                  });
+                },
+                mainColor
+              )
+            ) : (
+              <>
+                {renderSettingItem(
+                  'log-out', 
+                  'Sign Out', 
+                  'Log out of your account', 
+                  undefined, 
+                  async () => {
+                    try {
+                      await signOutUser();
+                    } catch (error) {
+                      console.error('Sign out error:', error);
+                      Alert.alert('Sign Out Error', 'An error occurred while signing out. Please try again.');
+                    }
+                  },
+                  accentColor
+                )}
+                {renderSettingItem(
+                  'trash-2', 
+                  'Delete Account', 
+                  'Permanently delete your data', 
+                  undefined, 
+                  handleDeleteAccount,
+                  dangerColor
+                )}
+              </>
             )}
           </View>
         </View>
@@ -1679,6 +1792,11 @@ const SettingsScreen: React.FC = () => {
           </KeyboardAvoidingView>
         </Modal>
       )}
+
+      {/* Lock Overlay for guest users */}
+      <LockOverlay
+        {...settingsLock.lockProps}
+      />
     </SafeAreaView>
   );
 };
@@ -2020,6 +2138,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlignVertical: 'top',
     marginTop: 8,
+  },
+  // Guest info styles
+  guestInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+  },
+  guestInfoIconContainer: {
+    marginRight: 16,
+  },
+  guestInfoContent: {
+    flex: 1,
+  },
+  guestInfoTitle: {
+    ...defaultTextStyle,
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  guestInfoDescription: {
+    ...defaultTextStyle,
+    fontSize: 15,
+    lineHeight: 20,
   },
 });
 

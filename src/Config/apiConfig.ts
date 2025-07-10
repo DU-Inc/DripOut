@@ -25,19 +25,16 @@ const getApiBaseUrl = (): string => {
   
   // For development, detect platform and environment
   if (Platform.OS === 'ios') {
-    // iOS Simulator uses localhost, real device uses IP
-    return __DEV__ ? API_URLS.IOS_DEVICE : API_URLS.IOS_SIMULATOR;
+    // iOS Simulator uses localhost, real device uses localhost (will be auto-detected)
+    return API_URLS.IOS_DEVICE;
   } else {
-    // Android Emulator uses 10.0.2.2, real device uses IP
+    // Android Emulator uses 10.0.2.2, real device uses localhost (will be auto-detected)
     return __DEV__ ? API_URLS.ANDROID_DEVICE : API_URLS.ANDROID_EMULATOR;
   }
 };
 
 // Export the centralized API base URL
 export const API_BASE_URL = getApiBaseUrl();
-
-// Export individual URLs for reference/documentation
-export { API_URLS };
 
 // Helper function to build full API endpoints
 export const buildApiUrl = (endpoint: string): string => {
@@ -46,12 +43,15 @@ export const buildApiUrl = (endpoint: string): string => {
   return `${API_BASE_URL}/${cleanEndpoint}`;
 };
 
-// Export common API endpoints (add more as needed)
-export const API_ENDPOINTS = {
-  PRODUCTS: '/products',
-  RECOMMENDATIONS: '/recommendations',
-  SEARCH: '/search',
-  USER_PREFERENCES: '/user-preferences',
+// Development helper: Get your computer's IP address for device testing
+export const getDevelopmentIP = (): string => {
+  // This will be automatically detected by React Native's development server
+  // For manual override, you can set this environment variable
+  return 'localhost'; // Default to localhost, can be overridden via environment
 };
 
-console.log(`🌐 API Configuration: Using base URL: ${API_BASE_URL}`); 
+// Log the current configuration for debugging
+console.log(`🌐 API Configuration: Using base URL: ${API_BASE_URL}`);
+console.log(`🌐 Development IP: ${getDevelopmentIP()}`);
+console.log(`🌐 Platform: ${Platform.OS}`);
+console.log(`🌐 Environment: ${__DEV__ ? 'Development' : 'Production'}`); 

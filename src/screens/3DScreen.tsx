@@ -19,9 +19,10 @@ import {
   KeyboardAvoidingView,
   ToastAndroid,
   Linking,
+  InteractionManager,
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from "@react-navigation/native";
 import { 
   hasUserModel, 
   getUserModelUrl, 
@@ -46,6 +47,8 @@ import FontAwesome from "react-native-vector-icons/FontAwesome";
 import { RootStackParamList, MainTabParamList } from "../types/NavigationTypes";
 import { useShelf } from '../contexts/ShelfContext';
 import ShelfIcon from '../components/common/ShelfIcon';
+import LockOverlay from '../components/common/LockOverlay';
+import { useGuestLock } from '../hooks/useGuestLock';
 
 // Get screen dimensions for responsive design
 const { width: screenWidth } = Dimensions.get('window');
@@ -112,6 +115,23 @@ const ThreeDScreen: React.FC = () => {
   const modalBgColor = isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.5)';
   const surfaceColor = isDarkMode ? '#2C2C2E' : '#F2F2F7'; // iOS system background
   
+  // Guest lock functionality
+  const modelLock = useGuestLock({ 
+    feature: 'creating your 3D avatar', 
+    title: 'Create Your Virtual Wardrobe!',
+    message: 'Sign in to create your personalized 3D avatar and try on clothes virtually.'
+  });
+  const tryOnLock = useGuestLock({ 
+    feature: 'virtual try-on', 
+    title: 'Try Before You Buy!',
+    message: 'Sign in to virtually try on clothes with AR technology.'
+  });
+  const saveLook = useGuestLock({ 
+    feature: 'saving your outfits', 
+    title: 'Save Your Favorite Looks!',
+    message: 'Sign in to save and share your virtual try-on looks.'
+  });
+  
   // Flag to track if we're currently trying to load products
   const [productsLoading, setProductsLoading] = useState<boolean>(false);
   
@@ -140,6 +160,7 @@ const ThreeDScreen: React.FC = () => {
         setProducts(randomProducts);
       } else {
         console.log('⚠️ No products found or empty response');
+        setProducts([]); // Set empty array to clear loading state
         
         // If we didn't get products and forceRefresh is true, 
         // display an error message to the user
@@ -153,6 +174,7 @@ const ThreeDScreen: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ Error loading products:', error);
+      setProducts([]); // Set empty array on error to clear loading state
       
       // Only show the error alert on user-initiated refreshes
       // to avoid repeated alert dialogs
@@ -168,7 +190,7 @@ const ThreeDScreen: React.FC = () => {
       setRefreshing(false);
       setProductsLoading(false);
     }
-  }, []);
+  }, []); // Remove productsLoading from dependencies to prevent infinite loops
   
   // Handle preloaded outfit from route parameters
   useEffect(() => {
@@ -230,122 +252,155 @@ const ThreeDScreen: React.FC = () => {
   
   // Cache keys will be generated per user to prevent cross-account contamination
   
-  // Check if user has an avatar image saved in Firebase/local cache
-  useEffect(() => {
-    let isMounted = true; // Used to prevent state updates if component unmounts
-    
-    const initializeScreen = async () => {
-      if (!isMounted) return;
-      setLoadingModel(true);
+  // Check if user has an avatar image saved in Firebase/local cache - only when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true; // Used to prevent state updates if component unmounts
+      let loadingTimeout: ReturnType<typeof setTimeout> | null = null;
+      let hasInitialized = false; // Prevent multiple initializations
       
-      try {
-        const currentUser = auth().currentUser;
-        if (!currentUser) {
-          console.log('No authenticated user found');
-          if (isMounted) setLoadingModel(false);
-          return;
+      console.log('🟢 3DScreen focused - initializing');
+      
+      const initializeScreen = async () => {
+        if (!isMounted || hasInitialized) return;
+        hasInitialized = true;
+        
+        setLoadingModel(true);
+        
+        // Start loading products immediately, don't wait for avatar
+        // Only load if we don't already have products
+        if (products.length === 0) {
+          console.log('🚀 Starting immediate product load');
+          loadProducts(false);
+        } else {
+          console.log('📦 Products already loaded, skipping load');
         }
         
-        // Generate user-specific cache keys to prevent cross-account issues
-        const USER_AVATAR_CACHE_KEY = `user_avatar_image_url_${currentUser.uid}`;
-        const USER_AVATAR_TIMESTAMP_KEY = `user_avatar_image_timestamp_${currentUser.uid}`;
-        
-        console.log(`🔑 Using user-specific cache keys for user: ${currentUser.uid}`);
-        
-        let avatarFound = false;
-        
-        // Check for cached avatar image URL first (fastest retrieval)
-        const cachedAvatarUrl = await AsyncStorage.getItem(USER_AVATAR_CACHE_KEY);
-        const cachedTimestamp = await AsyncStorage.getItem(USER_AVATAR_TIMESTAMP_KEY);
-        
-        if (cachedAvatarUrl && cachedTimestamp) {
-          console.log('Found cached avatar image');
-          
-          // Verify the cached image is still accessible
-          try {
-            // Set avatar data from cache immediately
-            if (isMounted) {
-              setHasModel(true);
-              setModelUrl(cachedAvatarUrl);
-              avatarFound = true;
-            }
-            console.log('✅ Successfully set cached avatar URL');
-          } catch (imageError) {
-            console.warn('⚠️ Cached avatar URL is invalid, will look for avatar in Firebase');
-            // Continue to check Firebase directly
-            if (isMounted) {
-              setHasModel(false);
-              setModelUrl(null);
+        // Add a timeout fallback to prevent infinite loading
+        loadingTimeout = setTimeout(() => {
+          if (isMounted && loadingProducts) {
+            console.log('⏰ Product loading timeout - forcing state reset');
+            setLoadingProducts(false);
+            setProductsLoading(false);
+            if (products.length === 0) {
+              setProducts([]); // Ensure empty state is set
             }
           }
-        } else {
-          console.log('No cached avatar URL found');
-        }
+        }, 15000); // 15 second timeout
         
-        // If we haven't set a valid avatar yet, query Firebase Storage directly
-        if (!avatarFound && isMounted) {
-          console.log('Checking Firebase Storage for user avatar');
+        try {
+          const currentUser = auth().currentUser;
+          if (!currentUser) {
+            console.log('No authenticated user found');
+            if (isMounted) setLoadingModel(false);
+            return;
+          }
           
-          try {
-            // Check if user has avatar in Firebase (format matches our saving pattern)
-            const storageRef = storage().ref(`avatars/${currentUser.uid}`);
-            const result = await storageRef.list({ maxResults: 1 });
+          // Generate user-specific cache keys to prevent cross-account issues
+          const USER_AVATAR_CACHE_KEY = `user_avatar_image_url_${currentUser.uid}`;
+          const USER_AVATAR_TIMESTAMP_KEY = `user_avatar_image_timestamp_${currentUser.uid}`;
+          
+          console.log(`🔑 Using user-specific cache keys for user: ${currentUser.uid}`);
+          
+          let avatarFound = false;
+          
+          // Check for cached avatar image URL first (fastest retrieval) - CRITICAL PATH
+          const cachedAvatarUrl = await AsyncStorage.getItem(USER_AVATAR_CACHE_KEY);
+          const cachedTimestamp = await AsyncStorage.getItem(USER_AVATAR_TIMESTAMP_KEY);
+          
+          if (cachedAvatarUrl && cachedTimestamp) {
+            console.log('Found cached avatar image');
             
-            if (result.items.length > 0) {
-              console.log('Found avatar in Firebase Storage');
-              
-              // Get download URL for the most recent avatar
-              const avatarUrl = await result.items[0].getDownloadURL();
-              
-              // Save to cache for future use
-              await AsyncStorage.setItem(USER_AVATAR_CACHE_KEY, avatarUrl);
-              await AsyncStorage.setItem(USER_AVATAR_TIMESTAMP_KEY, Date.now().toString());
-              
+            try {
+              // Set avatar data from cache immediately
               if (isMounted) {
                 setHasModel(true);
-                setModelUrl(avatarUrl);
+                setModelUrl(cachedAvatarUrl);
+                avatarFound = true;
               }
-              console.log('✅ Successfully retrieved avatar from Firebase Storage');
-            } else {
-              console.log('No avatar found in Firebase Storage');
+              console.log('✅ Successfully set cached avatar URL');
+            } catch (imageError) {
+              console.warn('⚠️ Cached avatar URL is invalid, will look for avatar in Firebase');
               if (isMounted) {
                 setHasModel(false);
                 setModelUrl(null);
               }
             }
-          } catch (storageError) {
-            console.error('Error checking Firebase Storage:', storageError);
-            if (isMounted) {
-              setHasModel(false);
-              setModelUrl(null);
+          } else {
+            console.log('No cached avatar URL found');
+          }
+          
+          // Products are already being loaded at the start of initializeScreen
+          
+          // Defer heavy operations until after interactions complete
+          const interactionPromise = InteractionManager.runAfterInteractions(async () => {
+            if (!isMounted) return;
+            
+            // If we haven't set a valid avatar yet, query Firebase Storage directly
+            if (!avatarFound) {
+              console.log('Checking Firebase Storage for user avatar');
+              
+              try {
+                // Check if user has avatar in Firebase
+                const storageRef = storage().ref(`avatars/${currentUser.uid}`);
+                const result = await storageRef.list({ maxResults: 1 });
+                
+                if (result.items.length > 0) {
+                  console.log('Found avatar in Firebase Storage');
+                  
+                  const avatarUrl = await result.items[0].getDownloadURL();
+                  
+                  // Save to cache for future use
+                  await AsyncStorage.setItem(USER_AVATAR_CACHE_KEY, avatarUrl);
+                  await AsyncStorage.setItem(USER_AVATAR_TIMESTAMP_KEY, Date.now().toString());
+                  
+                  if (isMounted) {
+                    setHasModel(true);
+                    setModelUrl(avatarUrl);
+                  }
+                  console.log('✅ Successfully retrieved avatar from Firebase Storage');
+                } else {
+                  console.log('No avatar found in Firebase Storage');
+                  if (isMounted) {
+                    setHasModel(false);
+                    setModelUrl(null);
+                  }
+                }
+              } catch (storageError) {
+                console.error('Error checking Firebase Storage:', storageError);
+                if (isMounted) {
+                  setHasModel(false);
+                  setModelUrl(null);
+                }
+              }
             }
+          });
+          
+        } catch (error) {
+          console.error('Error initializing screen:', error);
+          if (isMounted) {
+            setHasModel(false);
+            setModelUrl(null);
+          }
+        } finally {
+          if (isMounted) {
+            setLoadingModel(false);
           }
         }
-        
-        // Load products regardless of avatar status
-        if (isMounted) {
-          loadProducts(false);
+      };
+      
+      initializeScreen();
+      
+      // Cleanup function
+      return () => {
+        isMounted = false;
+        // Clear the timeout if component unmounts
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout);
         }
-      } catch (error) {
-        console.error('Error initializing screen:', error);
-        if (isMounted) {
-          setHasModel(false);
-          setModelUrl(null);
-        }
-      } finally {
-        if (isMounted) {
-          setLoadingModel(false);
-        }
-      }
-    };
-    
-    initializeScreen();
-    
-    // Cleanup function
-    return () => {
-      isMounted = false;
-    };
-  }, [loadProducts]); // Remove hasModel from dependencies to prevent infinite loop
+      };
+    }, []) // Remove loadProducts from dependencies to prevent re-initialization
+  );
   
   // Handle taking a photo
   const handleTakePhoto = async () => {
@@ -413,6 +468,15 @@ const ThreeDScreen: React.FC = () => {
   
   // Create and save avatar image to Firebase and local cache
   const handleCreateModel = async (isUpdate = false) => {
+    // Check guest lock first
+    const actionAllowed = modelLock.lockAction(() => {
+      performCreateModel(isUpdate);
+    });
+    
+    if (!actionAllowed) return; // Action was blocked by guest lock
+  };
+
+  const performCreateModel = async (isUpdate = false) => {
     if (selectedImages.length === 0) {
       Alert.alert('Error', 'Please select at least one image first.');
       return;
@@ -505,6 +569,15 @@ const ThreeDScreen: React.FC = () => {
 
   // Add a product to the try-on bucket
   const handleAddToTryOnBucket = (product: Product) => {
+    // Check guest lock first
+    const actionAllowed = tryOnLock.lockAction(() => {
+      performAddToTryOnBucket(product);
+    });
+    
+    if (!actionAllowed) return; // Action was blocked by guest lock
+  };
+
+  const performAddToTryOnBucket = (product: Product) => {
     if (!hasModel || !modelUrl) {
       Alert.alert('Error', 'Please create your avatar first.');
       return;
@@ -582,6 +655,15 @@ const ThreeDScreen: React.FC = () => {
   
   // Try on products using the new API endpoint
   const handleTryOn = async () => {
+    // Check guest lock first
+    const actionAllowed = tryOnLock.lockAction(() => {
+      performTryOn();
+    });
+    
+    if (!actionAllowed) return; // Action was blocked by guest lock
+  };
+
+  const performTryOn = async () => {
     if (!hasModel || !modelUrl) {
       Alert.alert('Error', 'Please create your avatar first.');
       return;
@@ -699,6 +781,15 @@ const ThreeDScreen: React.FC = () => {
 
   // Save try-on outfit to user's collection
   const handleSaveLook = async () => {
+    // Check guest lock first
+    const actionAllowed = saveLook.lockAction(() => {
+      performSaveLook();
+    });
+    
+    if (!actionAllowed) return; // Action was blocked by guest lock
+  };
+
+  const performSaveLook = async () => {
     // Get the current user
     const currentUser = auth().currentUser;
     
@@ -2124,6 +2215,11 @@ const ThreeDScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+      
+      {/* Guest Lock Overlays */}
+      <LockOverlay {...modelLock.lockProps} />
+      <LockOverlay {...tryOnLock.lockProps} />
+      <LockOverlay {...saveLook.lockProps} />
     </SafeAreaView>
   );
 };

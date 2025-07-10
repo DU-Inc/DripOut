@@ -67,7 +67,7 @@ const UserDetailScreen: React.FC = () => {
   const route = useRoute<RouteProp<Record<string, UserDetailParams>, string>>();
   const { userId, username, userDisplayName } = route.params || {};
   
-  // Colors based on theme (matching OptimizedUserProfileScreen)
+  // Colors based on theme (matching UserProfileScreen)
   const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
   const textColor = isDarkMode ? '#FFFFFF' : '#202020';
   const subTextColor = isDarkMode ? '#B8B8CC' : '#757575';

@@ -70,6 +70,7 @@ interface RouteParams {
   };
   product?: any;
   initialImageIndex?: number;
+  sourceScreen?: string; // Source screen for analytics/context (not used for navigation)
 }
 
 // Note: SizeOption interface is now imported from sizeUtils
@@ -206,11 +207,11 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
   
   // Get product from route with useMemo to prevent re-renders
   const routeParams = useMemo(() => {
-    const { productId, sourcePosition, product: initialProduct, initialImageIndex = 0 } = route.params;
-    return { productId, sourcePosition, initialProduct, initialImageIndex };
+    const { productId, sourcePosition, product: initialProduct, initialImageIndex = 0, sourceScreen } = route.params;
+    return { productId, sourcePosition, initialProduct, initialImageIndex, sourceScreen };
   }, [route.params]);
   
-  const { productId, sourcePosition, initialProduct, initialImageIndex } = routeParams;
+  const { productId, sourcePosition, initialProduct, initialImageIndex, sourceScreen } = routeParams;
   
   // Component initialization (removed logging for performance)
   
@@ -582,7 +583,8 @@ const ExpandedProductScreen2: SharedElementsFC = () => {
         useNativeDriver: true,
       }),
     ]).start(() => {
-      // Then go back
+      // Always use goBack() to return to the previous screen instance
+      // This preserves the existing chat state and context
       navigation.goBack();
     });
   };

@@ -21,8 +21,6 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { auth } from '../Config/firebaseconfig';
 import { useTheme } from '../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
-import FeatherIcon from 'react-native-vector-icons/Feather';
-import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { getPostsByUser, Post } from '../services/postService';
 import { toggleLikePost, hasUserLikedPost } from '../services/likeService';
 import { toggleSavePost, hasUserSavedPost } from '../services/saveService';
@@ -268,7 +266,7 @@ const PostDetailScreen: React.FC = () => {
     if (userId === auth().currentUser?.uid) {
       navigation.goBack();
     } else {
-      // Navigate to other user's profile (would need UserProfileScreen for other users)
+      // Navigate to other user's profile (would need ProfileTab for other users)
       console.log('Navigate to user profile:', userId);
     }
   }, [userId, navigation]);
@@ -441,7 +439,7 @@ const PostDetailScreen: React.FC = () => {
                     ]}
                     activeOpacity={hasLink ? 0.6 : 1}
                   >
-                    <MaterialIcon 
+                    <Icon 
                       name={iconName}
                       size={18} 
                       color={mainColor} 
@@ -455,8 +453,8 @@ const PostDetailScreen: React.FC = () => {
                           {piece.brand}
                         </Text>
                         {hasLink && (
-                          <FeatherIcon 
-                            name="external-link" 
+                          <Icon 
+                            name="open-outline" 
                             size={12} 
                             color={mainColor} 
                             style={styles.pieceLink}
@@ -482,7 +480,7 @@ const PostDetailScreen: React.FC = () => {
               ]}
               onPress={() => handleUpvoteToggle(post.id)}
             >
-              <FeatherIcon 
+              <Icon 
                 name="arrow-up" 
                 size={20} 
                 color={post.isLiked ? mainColor : subTextColor} 
@@ -505,8 +503,8 @@ const PostDetailScreen: React.FC = () => {
               ]}
               onPress={() => toggleComments(post.id)}
             >
-              <FeatherIcon 
-                name="message-circle" 
+              <Icon 
+                name="chatbubbles-outline" 
                 size={20} 
                 color={expandedComments === post.id ? mainColor : subTextColor} 
               />
@@ -539,7 +537,7 @@ const PostDetailScreen: React.FC = () => {
                 style={styles.collapseButton}
                 onPress={() => toggleComments(post.id)}
               >
-                <FeatherIcon name="chevron-up" size={18} color={mainColor} />
+                <Icon name="chevron-up" size={18} color={mainColor} />
               </TouchableOpacity>
             </View>
             
@@ -572,7 +570,7 @@ const PostDetailScreen: React.FC = () => {
                 ))
               ) : (
                 <View style={styles.emptyCommentsContainer}>
-                  <FeatherIcon name="message-circle" size={24} color={subTextColor} style={{ opacity: 0.5 }} />
+                  <Icon name="chatbubbles-outline" size={24} color={subTextColor} style={{ opacity: 0.5 }} />
                   <Text style={[styles.emptyCommentsText, { color: subTextColor }]}>
                     No comments yet. Be the first to comment!
                   </Text>
@@ -615,7 +613,7 @@ const PostDetailScreen: React.FC = () => {
                 {isAddingComment === post.id ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <FeatherIcon name="send" size={16} color="#FFFFFF" />
+                  <Icon name="send" size={16} color="#FFFFFF" />
                 )}
               </TouchableOpacity>
             </View>

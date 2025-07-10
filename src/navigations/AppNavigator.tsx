@@ -18,7 +18,7 @@ import OnboardingScreen from "../screens/OnboardingScreen";
 import OnboardingBrandsScreen from "../screens/OnboardingBrandsScreen";
 import OnboardingSizingScreen from "../screens/OnboardingSizingScreen";
 import OnboardingReview from "../screens/OnboardingReview";
-import HomeScreen from "../screens/HomeScreen";
+// import HomeScreen from "../screens/HomeScreen"; // REMOVED - unused screen
 import CreatePostScreen from "../screens/CreatePostScreen";
 import UserDetailScreen from "../screens/UserDetailScreen";
 import SearchScreen from "../screens/SearchScreen";
@@ -37,13 +37,14 @@ import { auth } from "../Config/firebaseconfig";
 import { db } from "../Config/firebaseconfig";
 import FeedNavigator from "./feedNavigator/FeedNavigator";
 import { authGuard } from "../services/authGuard";
-import OptimizedUserProfileScreen from '../screens/profiles/OptimizedUserProfileScreen';
 import FollowersFollowingScreen from '../screens/profiles/FollowersFollowingScreen';
 import PostDetailScreen from '../screens/PostDetailScreen';
 import OutfitDetailScreen from '../screens/OutfitDetailScreen';
 import FashionAdvisorChatScreen from '../screens/FashionAdvisorChatScreen';
 import FashionAdvisorHistoryScreen from '../screens/FashionAdvisorHistoryScreen';
 import FashionAdvisorSessionScreen from '../screens/FashionAdvisorSessionScreen';
+import ExpandedProductScreen2 from '../screens/ExpandedFeeds/ExpandedProductScreen2';
+import { onTabFocus } from '../services/tabPrefetchService';
 
 // Add global setTimeout type
 declare const setTimeout: (callback: () => void, ms: number) => number;
@@ -59,7 +60,7 @@ enum AppState {
   SPLASH = 'splash',            // Initial splash screen
   AUTH_CHECK = 'auth_check',    // Checking authentication
   WELCOME = 'welcome',          // Welcome screen for non-authenticated users
-  MAIN_APP = 'main_app',        // Main app for authenticated users
+  MAIN_APP = 'main_app',        // Main app for authenticated and guest users
   ONBOARDING = 'onboarding'     // Onboarding flow 
 }
 
@@ -77,10 +78,32 @@ const MainTabNavigator = () => {
   const activeColor = isDarkMode ? '#0A84FF' : '#007AFF'; // iOS blue
   const inactiveColor = isDarkMode ? '#8E8E93' : '#6E6E73'; // iOS gray
   
+  // Map tab route names to prefetch service tab names
+  const getTabNameForPrefetch = (routeName: string): string => {
+    const tabMap: { [key: string]: string } = {
+      'HomeTab': 'Home',
+      'SocialTab': 'Social', 
+      'DiscoverTab': 'Discover',
+      '3DTab': '3D',
+      'ClosetTab': 'Closet',
+      'ProfileTab': 'Profile'
+    };
+    return tabMap[routeName] || routeName;
+  };
+  
   return (
     <Tab.Navigator
+      screenListeners={({ route }) => ({
+        // Trigger prefetch when tab comes into focus
+        focus: () => {
+          const tabName = getTabNameForPrefetch(route.name);
+          console.log(`🎯 Tab focused: ${route.name} -> ${tabName}`);
+          onTabFocus(tabName);
+        }
+      })}
       screenOptions={{
         headerShown: false,
+        lazy: true, // Enable lazy loading for all tabs
         tabBarStyle: {
           backgroundColor: isDarkMode ? '#1C1C1E' : '#FFFFFF',
           borderTopColor: isDarkMode ? '#38383A' : '#F2F2F7',
@@ -197,8 +220,7 @@ const MainTabNavigator = () => {
       />
       <Tab.Screen 
         name="ProfileTab" 
-        component={OptimizedUserProfileScreen} 
-        // component={UserProfileScreen} 
+        component={UserProfileScreen} 
         options={{
           tabBarLabel: 'Profile',
           tabBarIcon: ({ color, size, focused }) => {
@@ -854,8 +876,14 @@ const AppNavigator: React.FC = () => {
           checkOnboardingStatus();
         }
       } else {
-        // User is not authenticated, go to welcome screen
-        setAppState(AppState.WELCOME);
+        // Check if user is in guest mode (allow guest users to access main app)
+        if (appStateManager.isGuest()) {
+          console.log('AppNavigator: Guest user detected, allowing access to main app');
+          setAppState(AppState.MAIN_APP);
+        } else {
+          // User is not authenticated and not in guest mode, go to welcome screen
+          setAppState(AppState.WELCOME);
+        }
       }
     }
   }, [splashCompleted, initializationCompleted, isAuthenticated, isOnboarding]);
@@ -939,7 +967,7 @@ const AppNavigator: React.FC = () => {
     );
   }
   
-  // Render main app for authenticated users
+  // Render main app for authenticated and guest users
   if (appState === AppState.MAIN_APP) {
     return (
       <NavigationContainer ref={navigationRef}>
@@ -1021,6 +1049,17 @@ const AppNavigator: React.FC = () => {
               animation: 'slide_from_right' 
             }} 
           />
+          
+          <Stack.Screen 
+            name="ExpandedProductScreen2" 
+            component={ExpandedProductScreen2} 
+            options={{ 
+              headerShown: false,
+              presentation: 'card',
+              animation: 'slide_from_right' 
+            }} 
+          />
+
           <Stack.Screen
             name="Auth"
             component={AuthNavigator}

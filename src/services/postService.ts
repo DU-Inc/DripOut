@@ -658,3 +658,15 @@ export const getPostsByProduct = async (
     return [];
   }
 };
+
+/**
+ * Fetch posts for the feed - wrapper function for prefetch service compatibility
+ * This function provides a consistent API for the tab prefetch service
+ * 
+ * @param forceRefresh Whether to force a refresh from Firestore (default: false)
+ * @returns Array of posts for the feed
+ */
+export const fetchPosts = async (forceRefresh: boolean = false): Promise<Post[]> => {
+  console.log('🔄 fetchPosts called with forceRefresh =', forceRefresh);
+  return await getCachedFeedPosts(forceRefresh);
+};

@@ -1,6 +1,7 @@
 // src/services/productService.ts
 
 import axios from 'axios';
+import { memoryCache, CacheKeys } from './memoryCache';
 
 // Define interfaces for product data
 export interface ProductImage {
@@ -137,10 +138,38 @@ const testImageUrl = async (url: string): Promise<boolean> => {
 // Function to fetch random products from the API
 export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]> => {
   try {
+    // Use memory cache with 30-minute TTL for random products
+    const cacheKey = `random_products_${limit}`;
+    const cached = await memoryCache.get(
+      cacheKey,
+      async () => {
+        console.log(`[API FLOW] Starting API request to ${API_BASE_URL}/random_products with limit=${limit}`);
+        
+        // Add timeout and headers for better debugging
+        // The API URL is already configured, so we're directly appending the endpoint
+        const response = await axios.get<RandomProductsResponse>(`${API_BASE_URL}/random_products`, {
+          params: {
+            limit
+          },
+          timeout: 15000, // 15 seconds timeout
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        return await processProductResponse(response.data, limit);
+      },
+      30 * 60 * 1000 // 30 minutes TTL for random products
+    );
+    
+    if (cached) {
+      return cached;
+    }
+    
+    // Fallback to direct API call if cache fails
     console.log(`[API FLOW] Starting API request to ${API_BASE_URL}/random_products with limit=${limit}`);
     
-    // Add timeout and headers for better debugging
-    // The API URL is already configured, so we're directly appending the endpoint
     const response = await axios.get<RandomProductsResponse>(`${API_BASE_URL}/random_products`, {
       params: {
         limit
@@ -152,174 +181,7 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
       }
     });
 
-    console.log(`[API FLOW] API Response successful! Received ${response.data.products.length} products`);
-    console.log(`[API FLOW] Search terms used:`, response.data.search_terms);
-    console.log(`[API FLOW] Total products available:`, response.data.total_products);
-
-    // 🆕 LOG RAW API RESPONSE
-    console.log(`[API FLOW] === RAW API RESPONSE START ===`);
-    console.log(`[API FLOW] Full response structure:`, {
-      total_products: response.data.total_products,
-      products_count: response.data.products.length,
-      search_terms: response.data.search_terms,
-      timestamp: response.data.timestamp
-    });
-    
-    // Show first 3 products from raw API response (truncated for readability)
-    const sampleProducts = response.data.products.slice(0, 3);
-    console.log(`[API FLOW] Sample products from raw API response (first 3):`);
-    sampleProducts.forEach((product, index) => {
-      console.log(`[API FLOW] Product ${index + 1}:`, {
-        id: product.id,
-        name: product.name,
-        brand: product.brand,
-        price: product.price,
-        currency: product.currency,
-        has_images: !!product.images,
-        images_count: product.images?.length || 0,
-        has_url: !!product.url,
-        has_productUrl: !!product.productUrl,
-        description: product.description?.substring(0, 100) + (product.description && product.description.length > 100 ? '...' : ''),
-        all_keys: Object.keys(product)
-      });
-    });
-    
-    if (response.data.products.length > 3) {
-      console.log(`[API FLOW] ... and ${response.data.products.length - 3} more products`);
-    }
-    console.log(`[API FLOW] === RAW API RESPONSE END ===`);
-
-    // Sample product for detailed debugging
-    const sampleProduct = response.data.products[0];
-    
-    // Filter and validate products - no fallbacks, only valid products
-    console.log(`[API FLOW] Starting to filter and validate ${response.data.products.length} products`);
-    
-    // First pass: filter products with basic validation
-    const basicFilteredProducts = response.data.products.filter((product, productIndex) => {
-      // Ensure product has an identifier
-      const pid = product.id ?? `product-${productIndex}`;
-      product.id = pid;
-      
-      // Map server's 'url' field to 'productUrl' field that the client expects
-      const rawProduct = product as any;
-      if (rawProduct.url && !rawProduct.productUrl) {
-        rawProduct.productUrl = rawProduct.url;
-        // console.log(`[API FLOW] Mapped url to productUrl for product ${pid}: ${rawProduct.url}`);
-      }
-      
-      // Must have images array
-      if (!Array.isArray(product.images) || product.images.length === 0) {
-        console.log(`[API FLOW] Filtering out product ${pid} - no images array`);
-        return false;
-      }
-      
-      // Normalize images
-      product.images = product.images.map((img, idx) => {
-        if (typeof img === 'string') {
-          return { id: `${pid}-${idx}`, url: img };
-        }
-        return img;
-      });
-      
-      // Must have valid first image URL
-      const firstImage = product.images[0];
-      if (!firstImage.url || typeof firstImage.url !== 'string') {
-        console.log(`[API FLOW] Filtering out product ${pid} - invalid first image URL`);
-        return false;
-      }
-      
-      // Skip known problematic domains and URLs
-      const problematicDomains = [
-        'lackofcolor.com',
-        'dummyimage.com',
-        'via.placeholder.com',
-        'placeholder.com',
-      ];
-      
-      if (problematicDomains.some(domain => firstImage.url.includes(domain))) {
-        console.log(`[API FLOW] Filtering out product ${pid} - problematic domain in URL`);
-        return false;
-      }
-      
-      // Fix URL format if needed
-      if (!firstImage.url.match(/^https?:\/\//)) {
-        firstImage.url = firstImage.url.startsWith('/')
-          ? `${API_BASE_URL}${firstImage.url}`
-          : `${API_BASE_URL}/${firstImage.url}`;
-      }
-      
-      // Convert HTTP to HTTPS for better reliability
-      if (firstImage.url.startsWith('http://')) {
-        firstImage.url = firstImage.url.replace('http://', 'https://');
-      }
-      
-      return true;
-    });
-    
-    console.log(`[API FLOW] After basic filtering: ${basicFilteredProducts.length}/${response.data.products.length} products remain`);
-    
-    // If we need more products due to filtering, fetch additional ones
-    let finalProducts = basicFilteredProducts;
-    if (basicFilteredProducts.length < limit && basicFilteredProducts.length > 0) {
-      try {
-        console.log(`[API FLOW] Need more products (${basicFilteredProducts.length}/${limit}), fetching additional batch`);
-        const additionalResponse = await axios.get<RandomProductsResponse>(`${API_BASE_URL}/random_products`, {
-          params: { limit: limit * 2 }, // Fetch more to account for filtering
-          timeout: 10000,
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          }
-        });
-        
-        // Apply same filtering to additional products
-        const additionalFiltered = additionalResponse.data.products.filter(product => {
-          // Skip if we already have this product
-          if (finalProducts.find(p => p.id === product.id)) {
-            return false;
-          }
-          
-          // Map server's 'url' field to 'productUrl' field that the client expects
-          const rawProduct = product as any;
-          if (rawProduct.url && !rawProduct.productUrl) {
-            rawProduct.productUrl = rawProduct.url;
-          }
-          
-          // Apply same validation as above
-          if (!Array.isArray(product.images) || product.images.length === 0) {
-            return false;
-          }
-          
-          const firstImage = product.images[0];
-          if (!firstImage.url || typeof firstImage.url !== 'string') {
-            return false;
-          }
-          
-          const problematicDomains = [
-            'lackofcolor.com', 
-            'dummyimage.com', 
-            'via.placeholder.com', 
-            'placeholder.com',
-            'cdn-images.farfetch-contents.com'
-          ];
-          if (problematicDomains.some(domain => firstImage.url.includes(domain))) {
-            return false;
-          }
-          
-          return true;
-        });
-        
-        finalProducts = [...finalProducts, ...additionalFiltered].slice(0, limit);
-        console.log(`[API FLOW] After additional fetch: ${finalProducts.length} total products`);
-      } catch (error) {
-        console.log(`[API FLOW] Failed to fetch additional products, continuing with ${finalProducts.length} products`);
-      }
-    }
-    
-    console.log(`[API FLOW] Returning ${finalProducts.length} validated products (no fallbacks)`);
-    
-    return finalProducts;
+    return await processProductResponse(response.data, limit);
   } catch (error: any) {
     // More detailed error logging
     if (axios.isAxiosError(error)) {
@@ -358,6 +220,173 @@ export const fetchRandomProducts = async (limit: number = 40): Promise<Product[]
     // Return an empty array if the API call fails
     return [];
   }
+};
+
+// Helper function to process product response and apply filtering
+const processProductResponse = async (data: RandomProductsResponse, limit: number): Promise<Product[]> => {
+  console.log(`[API FLOW] API Response successful! Received ${data.products.length} products`);
+  console.log(`[API FLOW] Search terms used:`, data.search_terms);
+  console.log(`[API FLOW] Total products available:`, data.total_products);
+
+  // 🆕 LOG RAW API RESPONSE
+  console.log(`[API FLOW] === RAW API RESPONSE START ===`);
+  console.log(`[API FLOW] Full response structure:`, {
+    total_products: data.total_products,
+    products_count: data.products.length,
+    search_terms: data.search_terms,
+    timestamp: data.timestamp
+  });
+  
+  // Show first 3 products from raw API response (truncated for readability)
+  const sampleProducts = data.products.slice(0, 3);
+  console.log(`[API FLOW] Sample products from raw API response (first 3):`);
+  sampleProducts.forEach((product, index) => {
+    console.log(`[API FLOW] Product ${index + 1}:`, {
+      id: product.id,
+      name: product.name,
+      brand: product.brand,
+      price: product.price,
+      currency: product.currency,
+      has_images: !!product.images,
+      images_count: product.images?.length || 0,
+      has_url: !!product.url,
+      has_productUrl: !!product.productUrl,
+      description: product.description?.substring(0, 100) + (product.description && product.description.length > 100 ? '...' : ''),
+      all_keys: Object.keys(product)
+    });
+  });
+  
+  if (data.products.length > 3) {
+    console.log(`[API FLOW] ... and ${data.products.length - 3} more products`);
+  }
+  console.log(`[API FLOW] === RAW API RESPONSE END ===`);
+
+  // Filter and validate products - no fallbacks, only valid products
+  console.log(`[API FLOW] Starting to filter and validate ${data.products.length} products`);
+  
+  // First pass: filter products with basic validation
+  const basicFilteredProducts = data.products.filter((product, productIndex) => {
+    // Ensure product has an identifier
+    const pid = product.id ?? `product-${productIndex}`;
+    product.id = pid;
+    
+    // Map server's 'url' field to 'productUrl' field that the client expects
+    const rawProduct = product as any;
+    if (rawProduct.url && !rawProduct.productUrl) {
+      rawProduct.productUrl = rawProduct.url;
+    }
+    
+    // Must have images array
+    if (!Array.isArray(product.images) || product.images.length === 0) {
+      console.log(`[API FLOW] Filtering out product ${pid} - no images array`);
+      return false;
+    }
+    
+    // Normalize images
+    product.images = product.images.map((img, idx) => {
+      if (typeof img === 'string') {
+        return { id: `${pid}-${idx}`, url: img };
+      }
+      return img;
+    });
+    
+    // Must have valid first image URL
+    const firstImage = product.images[0];
+    if (!firstImage.url || typeof firstImage.url !== 'string') {
+      console.log(`[API FLOW] Filtering out product ${pid} - invalid first image URL`);
+      return false;
+    }
+    
+    // Skip known problematic domains and URLs
+    const problematicDomains = [
+      'lackofcolor.com',
+      'dummyimage.com',
+      'via.placeholder.com',
+      'placeholder.com',
+    ];
+    
+    if (problematicDomains.some(domain => firstImage.url.includes(domain))) {
+      console.log(`[API FLOW] Filtering out product ${pid} - problematic domain in URL`);
+      return false;
+    }
+    
+    // Fix URL format if needed
+    if (!firstImage.url.match(/^https?:\/\//)) {
+      firstImage.url = firstImage.url.startsWith('/')
+        ? `${API_BASE_URL}${firstImage.url}`
+        : `${API_BASE_URL}/${firstImage.url}`;
+    }
+    
+    // Convert HTTP to HTTPS for better reliability
+    if (firstImage.url.startsWith('http://')) {
+      firstImage.url = firstImage.url.replace('http://', 'https://');
+    }
+    
+    return true;
+  });
+  
+  console.log(`[API FLOW] After basic filtering: ${basicFilteredProducts.length}/${data.products.length} products remain`);
+  
+  // If we need more products due to filtering, fetch additional ones
+  let finalProducts = basicFilteredProducts;
+  if (basicFilteredProducts.length < limit && basicFilteredProducts.length > 0) {
+    try {
+      console.log(`[API FLOW] Need more products (${basicFilteredProducts.length}/${limit}), fetching additional batch`);
+      const additionalResponse = await axios.get<RandomProductsResponse>(`${API_BASE_URL}/random_products`, {
+        params: { limit: limit * 2 }, // Fetch more to account for filtering
+        timeout: 10000,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      // Apply same filtering to additional products
+      const additionalFiltered = additionalResponse.data.products.filter(product => {
+        // Skip if we already have this product
+        if (finalProducts.find(p => p.id === product.id)) {
+          return false;
+        }
+        
+        // Map server's 'url' field to 'productUrl' field that the client expects
+        const rawProduct = product as any;
+        if (rawProduct.url && !rawProduct.productUrl) {
+          rawProduct.productUrl = rawProduct.url;
+        }
+        
+        // Apply same validation as above
+        if (!Array.isArray(product.images) || product.images.length === 0) {
+          return false;
+        }
+        
+        const firstImage = product.images[0];
+        if (!firstImage.url || typeof firstImage.url !== 'string') {
+          return false;
+        }
+        
+        const problematicDomains = [
+          'lackofcolor.com', 
+          'dummyimage.com', 
+          'via.placeholder.com', 
+          'placeholder.com',
+          'cdn-images.farfetch-contents.com'
+        ];
+        if (problematicDomains.some(domain => firstImage.url.includes(domain))) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      finalProducts = [...finalProducts, ...additionalFiltered].slice(0, limit);
+      console.log(`[API FLOW] After additional fetch: ${finalProducts.length} total products`);
+    } catch (error) {
+      console.log(`[API FLOW] Failed to fetch additional products, continuing with ${finalProducts.length} products`);
+    }
+  }
+  
+  console.log(`[API FLOW] Returning ${finalProducts.length} validated products (no fallbacks)`);
+  return finalProducts;
 };
 
 // Function to search products using the API

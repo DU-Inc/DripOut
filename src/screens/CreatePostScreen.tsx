@@ -16,9 +16,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import MaterialIcon from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcon from 'react-native-vector-icons/MaterialCommunityIcons';
-import FontAwesome5 from 'react-native-vector-icons/FontAwesome5';
 import { useTheme } from '../styles/themeprovider';
 import { createPost } from '../services/postService';
 import { selectImageFromLibrary, takePhotoWithCamera, ImageAsset } from '../services/imagePickerService';
@@ -697,7 +695,7 @@ const CreatePostScreen: React.FC = () => {
               onPress={selectImage}
             >
               <View style={[styles.optionIconContainer, { backgroundColor: isDarkMode ? 'rgba(255, 107, 107, 0.15)' : 'rgba(239, 61, 71, 0.08)' }]}>
-                <MaterialIcon name="photo-library" size={24} color={mainColor} />
+                <Icon name="images-outline" size={24} color={mainColor} />
               </View>
               <View style={styles.optionTextContainer}>
                 <Text style={[styles.modalOptionText, { color: textColor }]}>

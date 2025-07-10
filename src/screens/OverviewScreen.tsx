@@ -34,6 +34,8 @@ import { colors } from '../styles/theme/colors';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { FeedStackParamList } from '../navigations/feedNavigator/FeedNavigator';
 import { logger } from '../utils/logger';
+import { useGuestLock } from '../hooks/useGuestLock';
+import LockOverlay from '../components/common/LockOverlay';
 
 // Add import for NewsCard component and news service
 import NewsCard, { Article } from '../components/feed/NewsCard';
@@ -183,11 +185,11 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
   const [displayedOutfitCount, setDisplayedOutfitCount] = useState(5); // Start with 5 outfit groups
   const [isLoadingOutfits, setIsLoadingOutfits] = useState(true);
   
-  // Display counters for lazy loading
+  // Display counters for lazy loading - start with small numbers for smoother performance
   const [displayedTrendingCount, setDisplayedTrendingCount] = useState(INITIAL_LOAD_COUNT);
   const [displayedNewDropsCount, setDisplayedNewDropsCount] = useState(0);
   const [displayedEditorsPicksCount, setDisplayedEditorsPicksCount] = useState(0);
-  const [displayedNewsCount, setDisplayedNewsCount] = useState(10); 
+  const [displayedNewsCount, setDisplayedNewsCount] = useState(5); // Start with fewer news items 
   
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   // const [currentFilter, setCurrentFilter] = useState('all'); // REMOVED FOR MVP
@@ -210,6 +212,19 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
   } | null>(null);
   const searchInputRef = useRef<TextInput>(null);
   const searchTimeoutRef = useRef<number | null>(null);
+  
+  // Guest lock hooks for protected actions
+  const likeGuestLock = useGuestLock({
+    feature: 'saving products',
+    title: 'Save Products',
+    message: 'Sign in to save your favorite products and access them anytime.'
+  });
+  
+  const shelfGuestLock = useGuestLock({
+    feature: 'adding to shelf',
+    title: 'Add to Shelf',
+    message: 'Sign in to add products to your personal shelf and organize your favorites.'
+  });
   
   // Determine current theme
   const currentIsDarkMode = isDarkMode ?? systemColorScheme === 'dark';
@@ -766,14 +781,42 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
     });
   }, [fetchNews, isBackgroundMode]);
   
-  // Simplified action handlers for the new unified card design
-  const handleSave = useCallback((id: string) => {
-    handleAction('save', id);
+  // Consolidated action handlers to reduce callbacks
+  const handleAction = useCallback((action: string, id: string) => {
+    switch (action) {
+      case 'shelf':
+        logger.log('Add to shelf:', id);
+        break;
+      case 'save':
+        logger.log('Save/Bookmark:', id);
+        break;
+      case 'like':
+        logger.log('Like:', id);
+        break;
+      case 'dislike':
+        logger.log('Dislike:', id);
+        break;
+      case 'share':
+        logger.log('Share:', id);
+        break;
+      case 'bookmark':
+        logger.log('Bookmark:', id);
+        break;
+    }
   }, []);
 
+  // Simplified action handlers for the new unified card design
+  const handleSave = useCallback((id: string) => {
+    likeGuestLock.lockAction(() => {
+      handleAction('save', id);
+    });
+  }, [likeGuestLock, handleAction]);
+
   const handleAddToShelf = useCallback((id: string) => {
-    handleAction('shelf', id);
-  }, []);
+    shelfGuestLock.lockAction(() => {
+      handleAction('shelf', id);
+    });
+  }, [shelfGuestLock, handleAction]);
 
 
   // Handle product card press - search across all product sections
@@ -924,7 +967,8 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
             height
           },
           product: productToPass,
-          initialImageIndex: currentImageIndex
+          initialImageIndex: currentImageIndex,
+          sourceScreen: 'Overview' // Add source screen information
         });
         
         console.log('🚀 [OverviewScreen] === PRODUCT NAVIGATION END ===');
@@ -944,7 +988,8 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
       navigation.navigate('ExpandedProductScreen2', { 
         productId: productToPass.id, // Use the actual found product ID
         product: productToPass,
-        initialImageIndex: currentImageIndex
+        initialImageIndex: currentImageIndex,
+        sourceScreen: 'Overview' // Add source screen information
       });
       
       console.log('🚀 [OverviewScreen] === PRODUCT NAVIGATION END (FALLBACK) ===');
@@ -971,30 +1016,6 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
     navigation.navigate('ExpandedNewsScreen', { articleId });
   }, [navigation]);
   
-  // Consolidated action handlers to reduce callbacks
-  const handleAction = useCallback((action: string, id: string) => {
-    switch (action) {
-      case 'shelf':
-        logger.log('Add to shelf:', id);
-        break;
-      case 'save':
-        logger.log('Save/Bookmark:', id);
-        break;
-      case 'like':
-        logger.log('Like:', id);
-        break;
-      case 'dislike':
-        logger.log('Dislike:', id);
-        break;
-      case 'share':
-        logger.log('Share:', id);
-        break;
-      case 'bookmark':
-        logger.log('Bookmark:', id);
-        break;
-    }
-  }, []);
-
   // Handle content action expand/collapse for different card types
   const handleContentActionExpandChange = useCallback((cardType: string, cardId: string, isExpanded: boolean) => {
     switch (cardType) {
@@ -1088,6 +1109,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
           imageAspectRatio={aspectRatio}
           cardType={product.cardType}
           cardStyle={{ margin: 0 }}
+          isGuest={likeGuestLock.isGuest}
         />
       </View>
     );
@@ -1222,34 +1244,34 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
     setActiveCardId(null);
     setActiveNewsCardId(null);
     
-    // Process regular scroll event
-    Animated.event(
-      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-      { useNativeDriver: false }
-    )(event);
+    // Update scroll position for header animations
+    const offsetY = event.nativeEvent.contentOffset.y;
+    scrollY.setValue(offsetY);
   }, [scrollY]);
   
-  // Handle loading more items - progressive reveal only (no API calls)
+  // Handle loading more items - gradual progressive reveal for smoother performance
   const handleLoadMore = useCallback(() => {
     if (isLoadingMore || !isMountedRef.current) return;
     
     setIsLoadingMore(true);
     
-    // Progressive reveal: Trending -> News -> New Drops -> Editor's Picks
+    // Gradual progressive reveal: Add 2-3 items at a time for smoother rendering
+    const GRADUAL_LOAD_COUNT = 3; // Smaller chunks for smoother performance
+    
     if (displayedTrendingCount < trendingProducts.length) {
-      setDisplayedTrendingCount(prev => Math.min(prev + LOAD_MORE_COUNT, trendingProducts.length));
+      setDisplayedTrendingCount(prev => Math.min(prev + GRADUAL_LOAD_COUNT, trendingProducts.length));
     }
     else if (displayedNewsCount < newsArticles.length) {
-      setDisplayedNewsCount(prev => Math.min(prev + 5, newsArticles.length));
+      setDisplayedNewsCount(prev => Math.min(prev + 2, newsArticles.length)); // Even smaller for news
     }
     else if (displayedNewDropsCount < newDropsProducts.length) {
-      setDisplayedNewDropsCount(prev => Math.min(prev + LOAD_MORE_COUNT, newDropsProducts.length));
+      setDisplayedNewDropsCount(prev => Math.min(prev + GRADUAL_LOAD_COUNT, newDropsProducts.length));
     }
     else if (displayedEditorsPicksCount < editorsPicksProducts.length) {
-      setDisplayedEditorsPicksCount(prev => Math.min(prev + LOAD_MORE_COUNT, editorsPicksProducts.length));
+      setDisplayedEditorsPicksCount(prev => Math.min(prev + GRADUAL_LOAD_COUNT, editorsPicksProducts.length));
     }
     
-    // Clear loading state immediately since no API calls
+    // Clear loading state with slightly longer delay to allow rendering to complete
     if (loadMoreTimerRef.current) {
       clearTimeout(loadMoreTimerRef.current);
     }
@@ -1259,7 +1281,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
         setIsLoadingMore(false);
       }
       loadMoreTimerRef.current = null;
-    }, 200); // Reduced delay since no API calls
+    }, 300); // Slightly longer delay to ensure smooth rendering
   }, [isLoadingMore, displayedTrendingCount, trendingProducts.length, displayedNewsCount, newsArticles.length, displayedNewDropsCount, newDropsProducts.length, displayedEditorsPicksCount, editorsPicksProducts.length]);
   
   
@@ -1456,25 +1478,6 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
             <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>
               DripOut
             </Text>
-            <TouchableOpacity 
-              style={styles.headerButton}
-              onPress={() => {
-                navigation.dispatch(
-                  CommonActions.reset({
-                    index: 0,
-                    routes: [
-                      { name: 'Auth', params: { screen: 'ResetAuth' } }
-                    ],
-                  })
-                );
-              }}
-            >
-              <Icon 
-                name="refresh-circle-outline" 
-                size={24} 
-                color={themeColors.text.primary} 
-              />
-            </TouchableOpacity>
           </View>
           
           <View style={styles.rightSection}>
@@ -1697,7 +1700,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
             )}
 
             {/* New Drops Section */}
-            {newDropsProducts.length > 0 && displayedTrendingCount >= trendingProducts.length && (
+            {newDropsProducts.length > 0 && (
               <>
                 {renderSectionHeader('New Drops')}
                 {renderProductSection(newDropsProducts, displayedNewDropsCount)}
@@ -1705,7 +1708,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
             )}
 
             {/* Editor's Picks Section */}
-            {editorsPicksProducts.length > 0 && displayedNewDropsCount >= newDropsProducts.length && (
+            {editorsPicksProducts.length > 0 && (
               <>
                 {renderSectionHeader("Founder's Picks")}
                 {renderProductSection(editorsPicksProducts, displayedEditorsPicksCount)}
@@ -1722,6 +1725,10 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
         {/* Bottom padding to ensure all content is visible */}
         <View style={styles.bottomPadding} />
       </ScrollView>
+      
+      {/* Guest Lock Overlays */}
+      <LockOverlay {...likeGuestLock.lockProps} />
+      <LockOverlay {...shelfGuestLock.lockProps} />
     </SafeAreaView>
   );
 };

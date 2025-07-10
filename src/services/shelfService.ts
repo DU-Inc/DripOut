@@ -6,9 +6,9 @@ import firestore from '@react-native-firebase/firestore';
 import { auth } from '../Config/firebaseconfig';
 import { logger } from '../utils/logger';
 
-// Cache configuration
+// Cache configuration - Optimized for performance
 const SHELF_CACHE_KEY = '@DripOut:shelf';
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days (increased from 24h - user saved items are stable)
 const CURRENT_CACHE_VERSION = '1.0.0';
 
 // Shelf product interface

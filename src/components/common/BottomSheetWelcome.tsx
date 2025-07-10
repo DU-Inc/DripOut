@@ -136,21 +136,18 @@ const BottomSheetWelcome: React.FC<BottomSheetWelcomeProps> = ({
           />
         </View>
 
-        {/* Divider Section */}
-        <View style={authStyles.divider}>
-          <View style={authStyles.dividerLine} />
-          <Text style={authStyles.dividerText}>
+        {/* Guest option - simplified without divider */}
+        <View style={{ marginTop: 24, alignItems: 'center' }}>
+          <Text style={[authStyles.dividerText, { textAlign: 'center' }]}>
             {text.welcome.divider.guest}{' '}
             <Text style={authStyles.footerLink} onPress={handleGuestContinue}>
               {text.welcome.divider.guestLink}
             </Text>
-            {' '}{text.welcome.divider.or}
           </Text>
-          <View style={authStyles.dividerLine} />
         </View>
 
-        {/* Social Buttons in their own container */}
-        <View style={[authStyles.socialButtons, styles.socialContainer]}>
+        {/* Social Buttons in their own container - TEMPORARILY DISABLED */}
+        {/* <View style={[authStyles.socialButtons, styles.socialContainer]}>
           <TouchableOpacity
             style={{
               ...authStyles.socialButton,
@@ -171,7 +168,7 @@ const BottomSheetWelcome: React.FC<BottomSheetWelcomeProps> = ({
           >
             <Icon name="apple" size={24} color={theme.text.primary} />
           </TouchableOpacity>
-        </View>
+        </View> */}
       </View>
     </Animated.View>
   );

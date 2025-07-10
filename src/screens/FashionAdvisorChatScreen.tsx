@@ -32,6 +32,8 @@ import {
   generateSessionTitle,
   FashionAdvisorMessage as StoredMessage
 } from '../services/fashionAdvisorChatService';
+import UnifiedProductCard from '../components/feed/UnifiedProductCard';
+import { logger } from '../utils/logger';
 
 const { width, height } = Dimensions.get('window');
 
@@ -44,23 +46,7 @@ interface ChatMessage {
   isLoading?: boolean;
 }
 
-// Mock Products for fallback
-const MOCK_PRODUCTS: Product[] = [
-  {
-    id: '1',
-    name: 'Striped Cotton T-Shirt',
-    price: 39.99,
-    images: ['https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=600&auto=format'],
-    url: 'https://example.com/product1',
-  },
-  {
-    id: '2',
-    name: 'Slim-Fit Jeans',
-    price: 59.99,
-    images: ['https://images.unsplash.com/photo-1541099649105-f69ad21f3246?q=80&w=600&auto=format'],
-    url: 'https://example.com/product2',
-  },
-];
+
 
 const FashionAdvisorChatScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
@@ -111,7 +97,7 @@ const FashionAdvisorChatScreen: React.FC = () => {
   const borderColor = isDarkMode ? '#2A2A38' : '#EEEEEE';
 
   // Prepare conversation context for API calls
-  const prepareConversationContext = (currentMessages: ChatMessage[], newUserMessage: ChatMessage) => {
+  const prepareConversationContext = (currentMessages: ChatMessage[], newUserMessage: ChatMessage, sessionId?: string) => {
     // Get recent conversation history (last 6 messages to keep payload reasonable)
     const recentMessages = currentMessages.slice(-6);
     
@@ -121,13 +107,25 @@ const FashionAdvisorChatScreen: React.FC = () => {
       text: msg.text || '',
       timestamp: msg.timestamp,
       // Include lightweight product data for context
-      products: msg.products?.map(product => ({
-        name: product.name,
-        url: product.url,
-        description: product.description,
-        price: product.price,
-        brand: product.brand
-      })) || []
+      products: msg.products?.map(product => {
+        // Convert price to number if it's a string
+        let numericPrice = 0;
+        if (typeof product.price === 'number') {
+          numericPrice = product.price;
+        } else if (typeof product.price === 'string') {
+          // Extract number from string like "$18.00" or "18.00"
+          const priceMatch = product.price.replace(/[$,]/g, '').match(/[\d.]+/);
+          numericPrice = priceMatch ? parseFloat(priceMatch[0]) : 0;
+        }
+        
+        return {
+          name: product.name,
+          url: product.url,
+          description: product.description,
+          price: numericPrice, // Always send as number
+          brand: product.brand
+        };
+      }) || []
     }));
 
     // Add the new user message to the history
@@ -140,7 +138,7 @@ const FashionAdvisorChatScreen: React.FC = () => {
 
     return {
       conversation_history: conversationHistory,
-      session_id: currentSessionId,
+      session_id: sessionId || `temp_${auth().currentUser?.uid}_${Date.now()}`,
       message_count: currentMessages.length + 1,
       is_follow_up: currentMessages.length > 1 // True if this isn't the first message
     };
@@ -271,14 +269,15 @@ const FashionAdvisorChatScreen: React.FC = () => {
       let advisorResponse: ChatMessage;
       
       if (isConnected) {
+        // Prepare conversation context for API
+        const conversationContext = prepareConversationContext(messages, userMessage, sessionId || undefined);
+        
         try {
-          // Prepare conversation context for API
-          const conversationContext = prepareConversationContext(messages, userMessage);
-          
           // Try API call with user profile and conversation context
           console.log('🔍 FashionAdvisorChat: Sending user profile to searchProducts:', combinedUserProfile);
           console.log('💬 FashionAdvisorChat: Sending conversation context:', conversationContext);
-          const results = await searchProducts(userMessage.text!, [0, 1000], 6, combinedUserProfile, conversationContext);
+          console.log('🆔 FashionAdvisorChat: Sending session ID:', sessionId);
+          const results = await searchProducts(userMessage.text!, [0, 1000], 6, combinedUserProfile, conversationContext, sessionId || undefined);
           
           if (results.products && results.products.length > 0) {
             // Products found - create response with products and advisor message
@@ -299,12 +298,19 @@ const FashionAdvisorChatScreen: React.FC = () => {
             };
           }
         } catch (apiError) {
-          // API error - fallback to mock data
+          // API error - log details and show error message
+          console.error('❌ FashionAdvisorChat: API error during product search:', {
+            error: apiError,
+            message: apiError instanceof Error ? apiError.message : 'Unknown API error',
+            userQuery: userMessage.text,
+            userProfile: combinedUserProfile,
+            conversationContext: conversationContext
+          });
+          
           advisorResponse = {
             id: `advisor-${Date.now()}`,
             type: 'advisor',
-            text: `Here are some popular items that might interest you:`,
-            products: MOCK_PRODUCTS,
+            text: `Sorry - there was an issue connecting to our server😔.`,
             timestamp: Date.now(),
           };
         }
@@ -324,24 +330,39 @@ const FashionAdvisorChatScreen: React.FC = () => {
       // Save advisor message to database
       if (sessionId) {
         try {
-          await saveFashionAdvisorMessage(sessionId, {
+          const messageData: any = {
             userId: auth().currentUser?.uid || '',
             type: 'advisor',
             text: advisorResponse.text,
-            products: advisorResponse.products,
             productsFound: advisorResponse.products?.length || 0
-          });
+          };
+          
+          // Only add products if they exist and are not undefined
+          if (advisorResponse.products && advisorResponse.products.length > 0) {
+            messageData.products = advisorResponse.products;
+          }
+          
+          await saveFashionAdvisorMessage(sessionId, messageData);
         } catch (error) {
           console.error('Error saving advisor message:', error);
         }
       }
       
     } catch (error) {
-      // Error handling with natural language encouragement
+      // Error handling with detailed logging
+      console.error('❌ FashionAdvisorChat: General error in handleSendMessage:', {
+        error: error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        userQuery: userMessage.text,
+        sessionId: currentSessionId,
+        isConnected: await checkApiHealth().catch(() => false)
+      });
+      
       const errorResponse: ChatMessage = {
         id: `advisor-${Date.now()}`,
         type: 'advisor',
-        text: "Oops! Something went wrong on my end, but I'm still here to help! 😊\n\nLet's try again - feel free to describe what you're looking for in your own words. For example:\n• \"I need something trendy for brunch with friends\"\n• \"Help me find the perfect wedding guest outfit\"\n• \"What should I wear for a casual Friday at work?\"\n\nWhat's on your style wishlist?",
+        text: "Sorry - there was an issue connecting to our server. 😔\n\nI'm still here to help with styling advice though! Try asking me about:\n• What colors work well together\n• How to style specific pieces\n• Fashion trends and tips\n• Outfit ideas for different occasions\n\nWhat would you like to know about fashion?",
         timestamp: Date.now(),
       };
       
@@ -350,12 +371,14 @@ const FashionAdvisorChatScreen: React.FC = () => {
       // Save error message to database
       if (sessionId) {
         try {
-          await saveFashionAdvisorMessage(sessionId, {
+          const messageData: any = {
             userId: auth().currentUser?.uid || '',
             type: 'advisor',
             text: errorResponse.text,
             productsFound: 0
-          });
+          };
+          
+          await saveFashionAdvisorMessage(sessionId, messageData);
         } catch (error) {
           console.error('Error saving error message:', error);
         }
@@ -371,6 +394,106 @@ const FashionAdvisorChatScreen: React.FC = () => {
   const openProductUrl = (url: string) => {
     Linking.openURL(url).catch(() => {
       Alert.alert('Cannot open product page');
+    });
+  };
+
+  // Handle product card press - navigate to expanded product screen
+  const handleProductPress = (productId: string, currentImageIndex = 0) => {
+    console.log(`🔍 [ProductPress] Looking for product with ID: ${productId}`);
+    
+    // Find the product data from all messages
+    let rawProduct: any = null;
+    let foundInMessageIndex = -1;
+    
+    // Search through all messages to find the product
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+      const message = messages[messageIndex];
+      if (message.products && message.products.length > 0) {
+        console.log(`🔍 [ProductPress] Checking message ${messageIndex} with ${message.products.length} products`);
+        
+        // Try to find by exact ID match first (most reliable)
+        rawProduct = message.products.find(p => p.id === productId);
+        if (rawProduct) {
+          foundInMessageIndex = messageIndex;
+          console.log(`✅ [ProductPress] Found product by exact ID match in message ${messageIndex}`);
+          break;
+        }
+        
+        // Try to find by exact URL match (fallback)
+        rawProduct = message.products.find(p => p.url === productId);
+        if (rawProduct) {
+          foundInMessageIndex = messageIndex;
+          console.log(`✅ [ProductPress] Found product by exact URL match in message ${messageIndex}`);
+          break;
+        }
+      }
+    }
+    
+    if (!rawProduct) {
+      logger.error(`Product with ID ${productId} not found in chat messages`);
+      console.log('🐛 [ProductPress] Available products in messages:');
+      messages.forEach((message, index) => {
+        if (message.products && message.products.length > 0) {
+          console.log(`  Message ${index}:`, message.products.map(p => ({ 
+            id: p.id, 
+            url: p.url, 
+            name: p.name 
+          })));
+        }
+      });
+      return;
+    }
+    
+    console.log(`✅ [ProductPress] Found product in message ${foundInMessageIndex}:`, {
+      id: rawProduct.id,
+      name: rawProduct.name,
+      brand: rawProduct.brand
+    });
+    
+    console.log('🐛 Found product for navigation:', JSON.stringify(rawProduct, null, 2));
+    
+    // Handle price formatting
+    let formattedPrice = 0;
+    if (typeof rawProduct.price === 'number') {
+      formattedPrice = rawProduct.price;
+    } else if (typeof rawProduct.price === 'string') {
+      const priceMatch = rawProduct.price.match(/[\d.]+/);
+      formattedPrice = priceMatch ? parseFloat(priceMatch[0]) : 0;
+    }
+    
+    // Debug image data
+    console.log('🐛 Raw product images:', rawProduct.images);
+    console.log('🐛 First image URL:', rawProduct.images?.[0]);
+    
+    // Format the product data for the ExpandedProductScreen
+    const productToPass = {
+      id: rawProduct.id || rawProduct.url || 'unknown-product',
+      productName: rawProduct.name || 'Unnamed Product',
+      productImage: rawProduct.images && rawProduct.images.length > 0 ? rawProduct.images[0] : '',
+      additionalImages: rawProduct.images && rawProduct.images.length > 1 
+        ? rawProduct.images.slice(1) 
+        : [],
+      price: formattedPrice,
+      brand: rawProduct.brand || '',
+      description: rawProduct.description || '',
+      images: rawProduct.images?.map((imgUrl: string, index: number) => ({
+        id: `img-${index}`,
+        url: imgUrl
+      })) || [],
+      productUrl: rawProduct.url || '',
+    };
+    
+    console.log('🐛 Formatted product for navigation:', JSON.stringify(productToPass, null, 2));
+
+    logger.log(`Navigating to ExpandedProductScreen2 with product ID: ${productToPass.id}`);
+    console.log('🐛 Product data being passed to navigation:', JSON.stringify(productToPass, null, 2));
+    
+    // Navigate to the expanded product screen with source information
+    (navigation as any).navigate('ExpandedProductScreen2', { 
+      productId: productToPass.id,
+      product: productToPass,
+      initialImageIndex: currentImageIndex,
+      sourceScreen: 'FashionAdvisorChat' // Add source screen information
     });
   };
   
@@ -427,36 +550,92 @@ const FashionAdvisorChatScreen: React.FC = () => {
                 data={item.products}
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                renderItem={({ item: product }) => (
-                  <TouchableOpacity
-                    style={[styles.productCard, { backgroundColor: cardBgColor, borderColor }]}
-                    onPress={() => openProductUrl(product.url)}
-                    activeOpacity={0.8}
-                  >
-                    {product.images && product.images.length > 0 ? (
-                      <Image
-                        source={{ uri: product.images[0] }}
-                        style={styles.productImage}
-                        resizeMode="cover"
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled={true}
+                scrollEventThrottle={16}
+                onScrollBeginDrag={() => {
+                  // Blur the input when user starts scrolling products
+                  inputRef.current?.blur();
+                }}
+                renderItem={({ item: product, index }) => {
+                  // Debug logging for first product
+                  if (index === 0) {
+                    console.log('🐛 First product data:', JSON.stringify(product, null, 2));
+                  }
+                  
+                  // Extract and format product data
+                  // Use a more stable ID generation that includes message timestamp for uniqueness
+                  const messageTimestamp = item.timestamp || Date.now();
+                  const productId = product.id || product.url || `chat-product-${product.name?.replace(/\s+/g, '-') || 'unknown'}-${messageTimestamp}-${index}`;
+                  const productName = product.name || 'Unnamed Product';
+                  const productBrand = product.brand || 'Unknown Brand';
+                  
+                  // Debug logging for product ID generation
+                  console.log(`🎯 [ProductRender] Product ${index}:`, {
+                    originalId: product.id,
+                    originalUrl: product.url,
+                    generatedId: productId,
+                    name: productName,
+                    messageIndex: messages.findIndex(m => m.products?.includes(product))
+                  });
+                  
+                  // Handle price - could be string or number
+                  let productPrice = 0;
+                  if (typeof product.price === 'number') {
+                    productPrice = product.price;
+                  } else if (typeof product.price === 'string') {
+                    // Extract number from string like "25.99" or "$25.99"
+                    const priceMatch = product.price.match(/[\d.]+/);
+                    productPrice = priceMatch ? parseFloat(priceMatch[0]) : 0;
+                  }
+                  
+                  // Handle currency
+                  const productCurrency = product.currency || '$';
+                  
+                  // Handle images - convert string array to ProductImage array
+                  const productImages = product.images?.map((imageUrl: string, imgIndex: number) => ({
+                    id: `${productId}-img-${imgIndex}`,
+                    url: imageUrl
+                  })) || [];
+                  
+                  // Handle product URL
+                  const productUrl = product.url || '';
+                  
+                  return (
+                    <View style={styles.productCard}>
+                      <UnifiedProductCard
+                        id={productId}
+                        name={productName}
+                        brand={productBrand}
+                        price={productPrice}
+                        currency={productCurrency}
+                        images={productImages}
+                        productUrl={productUrl}
+                        onCardPress={() => {
+                          console.log(`🎯 [CardPress] Product clicked:`, {
+                            productId,
+                            productName,
+                            productBrand,
+                            messageTimestamp: item.timestamp
+                          });
+                          handleProductPress(productId);
+                        }}
+                        onAddToShelf={() => {
+                          logger.log('Add to shelf:', productId);
+                        }}
+                        onSave={() => {
+                          logger.log('Save product:', productId);
+                        }}
+                        isDarkMode={isDarkMode}
+                        cardWidth={180}
+                        imageAspectRatio={1.2}
+                        cardType="full"
+                        cardStyle={{ margin: 0 }}
                       />
-                    ) : (
-                      <View style={[styles.productImage, styles.placeholderImage]}>
-                        <Icon name="image-outline" size={24} color={subTextColor} />
-                      </View>
-                    )}
-                    <View style={styles.productInfo}>
-                      <Text style={[styles.productName, { color: textColor }]} numberOfLines={2}>
-                        {product.name}
-                      </Text>
-                      {product.price && (
-                        <Text style={[styles.productPrice, { color: mainColor }]}>
-                          ${typeof product.price === 'number' ? product.price.toFixed(0) : (typeof product.price === 'string' ? product.price : '0')}
-                        </Text>
-                      )}
                     </View>
-                  </TouchableOpacity>
-                )}
-                keyExtractor={(product) => product.id || Math.random().toString()}
+                  );
+                }}
+                keyExtractor={(product, index) => product.id || product.url || `chat-product-${index}`}
                 contentContainerStyle={styles.productsCarousel}
               />
             </View>
@@ -535,6 +714,11 @@ const FashionAdvisorChatScreen: React.FC = () => {
           contentContainerStyle={styles.messagesContent}
           showsVerticalScrollIndicator={false}
           ListFooterComponent={renderLoadingIndicator}
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={() => {
+            // Blur the input when user starts scrolling messages
+            inputRef.current?.blur();
+          }}
         />
         
         {/* Input */}
@@ -687,38 +871,7 @@ const styles = StyleSheet.create({
     paddingRight: 16,
   },
   productCard: {
-    width: 160,
     marginRight: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  productImage: {
-    width: '100%',
-    height: 120,
-  },
-  placeholderImage: {
-    backgroundColor: '#F0F0F0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  productInfo: {
-    padding: 12,
-  },
-  productName: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
-    lineHeight: 18,
-  },
-  productPrice: {
-    fontSize: 16,
-    fontWeight: '700',
   },
   typingIndicator: {
     flexDirection: 'row',

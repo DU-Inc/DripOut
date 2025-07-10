@@ -5,10 +5,10 @@ import { ThemeColors } from '../theme/colors';
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // Calculate sheet height based on screen width to maintain consistent aspect ratio
-// Use a min/max constraint to ensure it's not too small or too large
+// Reduced height since social buttons are removed
 export const SHEET_HEIGHT = Math.min(
-  Math.max(screenWidth * 0.9, 500), // Minimum height of 500 or 90% of width
-  screenHeight * 0.6 // But never more than 60% of screen height
+  Math.max(screenWidth * 0.7, 400), // Reduced minimum height from 500 to 400, and from 90% to 70% of width
+  screenHeight * 0.45 // Reduced from 60% to 45% of screen height
 );
 
 export const createBottomSheetWelcomeStyles = (theme: ThemeColors) => {
@@ -37,7 +37,7 @@ export const createBottomSheetWelcomeStyles = (theme: ThemeColors) => {
     contentContainer: {
       flex: 1,
       paddingTop: Math.min(16, screenWidth * 0.04), // Responsive padding
-      justifyContent: 'space-between', // Ensure content is distributed evenly
+      justifyContent: 'flex-start', // Changed from space-between to flex-start for better spacing
     },
     buttonsContainer: {
       marginBottom: 16, // Space between button section and divider

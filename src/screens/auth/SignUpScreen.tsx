@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, Alert, TouchableWithoutFeedback, Keyboard, Animated, Easing, Platform, LayoutAnimation, Dimensions, KeyboardAvoidingView } from 'react-native';
+import { View, /* Text, */ TouchableOpacity, ScrollView, SafeAreaView, Alert, TouchableWithoutFeedback, Keyboard, Animated, Easing, Platform, LayoutAnimation, Dimensions, KeyboardAvoidingView } from 'react-native';
 import { useTheme } from "../../styles/themeprovider";
 import { createAuthStyles } from '../../styles/components/auth.styles';
 import { createSignUpStyles as createSignUpStylesOriginal } from '../../styles/components/signup.styles';
@@ -16,11 +16,12 @@ import VerificationPanel from '../../components/auth/VerificationPanel';
 import BirthdayPicker from '../../components/auth/BirthdayPicker';
 import PersonalDetailsForm from '../../components/auth/PersonalDetailsForm';
 import Button from '../../components/common/Button';
-import TermsCheckbox from '../../components/common/TermsCheckbox';
+// import TermsCheckbox from '../../components/common/TermsCheckbox'; // MOVED TO SignUpFooter
 import CodeInput, { CodeInputHandle } from '../../components/auth/CodeInput';
 import SuccessOptionsSheet from '../../components/common/SuccessOptionsSheet';
 import SignUpLoading from '../../components/auth/SignUpLoading';
 import SignUpSuccess from '../../components/auth/SignUpSuccess';
+import SignUpFooter from '../../components/auth/SignUpFooter';
 
 // Get device dimensions
 const { width, height } = Dimensions.get('window');
@@ -3483,29 +3484,16 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
           </View>
         </TouchableWithoutFeedback>
             
-        {/* Render Footer elements outside KAV's direct influence */}
-        {(currentStep !== 'basic' || verificationStatus !== 'verified') && !showSuccess && !isSubmitting && (
-          <>
-            <View style={[styles.checkboxContainer, { bottom: normalize(75) }]}>
-              <TermsCheckbox
-                isChecked={isTermsChecked}
-                onToggle={() => !isTransitioning && setIsTermsChecked(!isTermsChecked)}
-              />
-            </View>
-            <View style={[styles.footerContainer, { 
-              paddingBottom: Platform.OS === 'ios' ? normalize(30) : normalize(20),
-              paddingTop: normalize(1)
-            }]}>
-              <View style={styles.divider} />
-              <View style={styles.signInLink}>
-                <Text style={[styles.signInText, { fontSize: normalize(14) }]}>{text.auth.signUp.footer.haveAccount}</Text>
-                <TouchableOpacity onPress={handleSignIn} disabled={isTransitioning}>
-                  <Text style={[styles.signInButton, { fontSize: normalize(14) }]}>{text.auth.signUp.footer.signIn}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </>
-        )}
+        {/* Footer section - extracted to component */}
+        <SignUpFooter
+          shouldShow={(currentStep !== 'basic' || verificationStatus !== 'verified') && !showSuccess && !isSubmitting}
+          isTermsChecked={isTermsChecked}
+          isTransitioning={isTransitioning}
+          onTermsToggle={() => setIsTermsChecked(!isTermsChecked)}
+          onSignInPress={handleSignIn}
+          styles={styles}
+          text={text}
+        />
       </KeyboardAvoidingView>
       
       {/* Render the success options sheet outside the KeyboardAvoidingView */}

@@ -4,7 +4,7 @@ import styled from 'styled-components/native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../types/NavigationTypes';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -19,7 +19,7 @@ export const Header: React.FC<HeaderProps> = ({ title }) => {
     <HeaderContainer>
       <HeaderTitle>{title}</HeaderTitle>
       <RecommendButton onPress={() => navigation.navigate('RecommendationScreen')}>
-        <Icon name="search" size={20} color="#fff" />
+        <Icon name="search-outline" size={20} color="#fff" />
         <RecommendText>Find Fashion</RecommendText>
       </RecommendButton>
     </HeaderContainer>

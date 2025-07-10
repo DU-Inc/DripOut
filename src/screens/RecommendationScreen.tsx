@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   SafeAreaView,
   View,
@@ -18,21 +18,24 @@ import {
   Easing,
   Platform,
   KeyboardAvoidingView,
-  RefreshControl
+  RefreshControl,
+  InteractionManager
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import FeatherIcon from 'react-native-vector-icons/Feather';
+
 import { useTheme } from '../styles/themeprovider';
 import { searchProducts, Product, checkApiHealth } from '../services/recommendationService';
 import firestore from '@react-native-firebase/firestore';
 import { db, auth } from '../Config/firebaseconfig';
 import { useOptimizedProfile } from '../hooks/useOptimizedProfile';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { 
   getFashionAdvisorSessions, 
   FashionAdvisorSessionWithDetails 
 } from '../services/fashionAdvisorChatService';
+import LockOverlay from '../components/common/LockOverlay';
+import { useGuestLock } from '../hooks/useGuestLock';
 
 // Get screen dimensions
 const { width, height } = Dimensions.get('window');
@@ -762,6 +765,13 @@ const RecommendationScreen: React.FC = () => {
   // Chat history state
   const [recentSessions, setRecentSessions] = useState<FashionAdvisorSessionWithDetails[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
+
+  // Guest lock functionality
+  const recommendationLock = useGuestLock({ 
+    feature: 'personalized recommendations', 
+    title: 'Get Personal Recommendations!',
+    message: 'Sign in to get AI-powered style recommendations tailored just for you.'
+  });
   
   // Product modal state
   const [modalVisible, setModalVisible] = useState(false);
@@ -823,21 +833,36 @@ const RecommendationScreen: React.FC = () => {
   };
 
   // Check API connection on component mount and fetch user profile
-  useEffect(() => {
-    const checkConnection = async () => {
-      try {
-        const isConnected = await checkApiHealth();
-        setApiConnected(isConnected);
-      } catch (err) {
-        setApiConnected(false);
-      }
-    };
-    
-    checkConnection();
-    loadRecentSessions(); // Load recent chat sessions
-    console.log('🔄 DEBUG: RecommendationScreen mounted, profile loading handled by useOptimizedProfile hook');
-    startPremiumAnimations();
-  }, []);
+  // Load data only when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🟢 RecommendationScreen focused - loading critical data');
+      
+      // Load critical data immediately
+      const checkConnection = async () => {
+        try {
+          const isConnected = await checkApiHealth();
+          setApiConnected(isConnected);
+        } catch (err) {
+          setApiConnected(false);
+        }
+      };
+      
+      checkConnection();
+      
+      // Load non-critical data after interactions complete
+      const interactionPromise = InteractionManager.runAfterInteractions(() => {
+        console.log('🔄 Loading non-critical data after interactions complete');
+        loadRecentSessions(); // Load recent chat sessions - non-critical
+        startPremiumAnimations(); // Start animations - non-critical
+      });
+
+      return () => {
+        // Cleanup if user navigates away before interactions complete
+        interactionPromise.cancel();
+      };
+    }, [])
+  );
 
   // Premium animations on mount
   const startPremiumAnimations = () => {
@@ -1188,9 +1213,11 @@ const RecommendationScreen: React.FC = () => {
   
   // Handle session click to continue conversation
   const handleSessionPress = (session: FashionAdvisorSessionWithDetails) => {
-    navigation.navigate('FashionAdvisorChat' as never, {
-      sessionId: session.id
-    } as never);
+    recommendationLock.lockAction(() => {
+      navigation.navigate('FashionAdvisorChat' as never, {
+        sessionId: session.id
+      } as never);
+    });
   };
 
   // Handle favoriting a product
@@ -1530,7 +1557,11 @@ const RecommendationScreen: React.FC = () => {
                 ...theme.elevation.medium,
               }
             ]}
-            onPress={() => navigation.navigate('FashionAdvisorChat' as never, { initialQuery: query })}
+            onPress={() => {
+              recommendationLock.lockAction(() => {
+                navigation.navigate('FashionAdvisorChat' as never, { initialQuery: query });
+              });
+            }}
             activeOpacity={0.8}
           >
             <Icon name="search" size={20} color={subTextColor} style={styles.searchIcon} />
@@ -1558,6 +1589,9 @@ const RecommendationScreen: React.FC = () => {
         subTextColor={subTextColor}
         borderColor={borderColor}
       />
+      
+      {/* Guest Lock Overlay */}
+      <LockOverlay {...recommendationLock.lockProps} />
     </SafeAreaView>
   );
 };

@@ -49,7 +49,7 @@ export interface Article {
 
 // ---- Constants ----
 const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
-const CACHE_TTL_MS = 60 * 60 * 1000; // 60 minutes (increased from 30)
+const CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours (increased from 1h - fashion news doesn't become stale quickly)
 
 // Priority regions with their adjectives and famous fashion entities
 const PRIORITY_REGIONS: Record<string, string[]> = {

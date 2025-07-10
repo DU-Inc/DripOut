@@ -7,7 +7,7 @@ export const useNavigateTo = () => {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
 
   const navigateToUserProfile = () => {
-    navigation.navigate('UserProfileScreen');
+    navigation.navigate('MainTabs', { screen: 'ProfileTab' });
   };
 
   const navigateToUserPreferences = () => {

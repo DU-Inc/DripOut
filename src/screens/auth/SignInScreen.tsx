@@ -12,8 +12,8 @@ import {
   Platform,
   LayoutAnimation,
   BackHandler,
-  Dimensions,
-  StyleSheet
+  Dimensions
+  // StyleSheet // UNUSED
 } from 'react-native';
 import { useTheme } from "../../styles/themeprovider";
 import { createAuthStyles } from '../../styles/components/auth.styles';
@@ -22,17 +22,20 @@ import FormInput from '../../components/common/FormInput';
 import Button from '../../components/common/Button';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { AuthStackNavigationProp, RootStackNavigationProp } from '../../navigations/types';
-import TermsCheckbox from '../../components/common/TermsCheckbox';
+// import TermsCheckbox from '../../components/common/TermsCheckbox'; // MOVED TO SignInFooter
 import { text } from '../../styles/theme/text';
-import { signIn, resetPassword, setBiometricAuth, isBiometricAuthEnabled, AuthErrorResponse, determineIdentifierType, IdentifierType, getOnboardingProgress } from '../../services/auth';
+import { signIn, resetPassword, /* setBiometricAuth, */ isBiometricAuthEnabled, AuthErrorResponse, determineIdentifierType, IdentifierType, getOnboardingProgress } from '../../services/auth';
 import { appStateManager } from '../../utils/appStateManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CommonActions, useFocusEffect } from '@react-navigation/native';
+import { /* CommonActions, */ useFocusEffect } from '@react-navigation/native';
 import { useBiometricAuth } from '../../hooks/useBiometricAuth';
-import CodeInput from '../../components/auth/CodeInput';
+// import CodeInput from '../../components/auth/CodeInput'; // MOVED TO PhoneVerificationPanel
+import BiometricAuthSection from '../../components/auth/BiometricAuthSection';
+import SignInFooter from '../../components/auth/SignInFooter';
+import PhoneVerificationPanel from '../../components/auth/PhoneVerificationPanel';
 import { auth } from '../../Config/firebaseconfig';
 import { FirebaseAuthTypes } from '@react-native-firebase/auth';
-import firebase from '@react-native-firebase/app';
+// import firebase from '@react-native-firebase/app'; // UNUSED
 import SuccessOptionsSheet from '../../components/common/SuccessOptionsSheet';
 // Using React Native Firebase - import db from config
 import { db } from '../../Config/firebaseconfig';
@@ -51,7 +54,7 @@ type SignInScreenProps = {
 };
 
 // Get device dimensions
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window'); // height unused
 // Scale factor based on screen width
 const scale = width / 375; // Using iPhone 8 as baseline
 
@@ -3010,39 +3013,23 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
               </Animated.View>
             )}
 
-            {/* Verification Code Input - For Phone Auth Only */}
-            {authMethod === 'phone' && showVerificationPanel && (
-              <View style={[styles.verificationContainer, { marginTop: normalize(5) }]}>
-                {/* Verification Expiry Timer - moved above the text */}
-                <View style={styles.expiryContainer}>
-                  <Icon name="timer-outline" size={normalize(14)} color={theme.text.secondary} />
-                  <Text style={styles.expiryText}>
-                    Code expires in {formatRemainingTime(verificationRemainingTime)}
-                  </Text>
-                </View>
-                
-                <Text style={styles.verificationText}>
-                  Enter the verification code sent to your phone
-                </Text>
-                
-                {/* Display error message if there is one */}
-                {phoneAuthError ? (
-                  <View style={styles.errorPromptNoBg}>
-                    <Icon name="alert-circle-outline" size={normalize(16)} color={theme.error} />
-                    <Text style={styles.phoneErrorText}>{phoneAuthError}</Text>
-                  </View>
-                ) : null}
-                
-                <CodeInput
-                  codeLength={6}
-                  value={verificationCode}
-                  onChange={handleVerificationCodeChange}
-                  onFullCode={handleVerifyCode}
-                  ref={codeInputRef}
-                  isError={!!phoneAuthError}
-                />
-              </View>
-            )}
+            {/* Phone Verification Panel - extracted to component */}
+            <PhoneVerificationPanel
+              authMethod={authMethod}
+              showVerificationPanel={showVerificationPanel}
+              verificationCode={verificationCode}
+              verificationRemainingTime={verificationRemainingTime}
+              phoneAuthError={phoneAuthError}
+              remainingTime={remainingTime}
+              resendLimitReached={resendLimitReached}
+              codeInputRef={codeInputRef}
+              theme={theme}
+              styles={styles}
+              onVerificationCodeChange={handleVerificationCodeChange}
+              onVerifyCode={handleVerifyCode}
+              onResendCode={handleResendCode}
+              formatRemainingTime={formatRemainingTime}
+            />
 
             {/* Button - Different based on auth method */}
             {(
@@ -3092,107 +3079,30 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
               />
             )}
             
-            {/* Resend Code Button with Timer - only show when verification panel is visible */}
-            {authMethod === 'phone' && showVerificationPanel && (
-              <View style={[styles.resendContainer, { marginTop: normalize(16) }]}>
-                <View style={styles.resendTimerContainer}>
-                  <Icon name="clock-outline" size={normalize(16)} color={theme.text.secondary} />
-                  <Text style={styles.resendTimerText}>
-                    {remainingTime > 0 
-                      ? `Resend code in ${formatRemainingTime(remainingTime)}` 
-                      : 'Resend code'}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={handleResendCode}
-                  disabled={remainingTime > 0 || resendLimitReached}
-                  style={[
-                    styles.resendButton,
-                    (remainingTime > 0 || resendLimitReached) && styles.resendButtonDisabled
-                  ]}
-                >
-                  <Text style={[
-                    styles.resendButtonText,
-                    (remainingTime > 0 || resendLimitReached) && styles.resendButtonTextDisabled 
-                  ]}>
-                    {resendLimitReached ? 'Limit Reached' : 'Resend'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
+            {/* Resend functionality now handled in PhoneVerificationPanel */}
             
-            {/* Face ID button and toggle - updated with separated components */}
-            {(authMethod === 'email' || authMethod === 'phone') && (
-              <View style={[styles.faceIdContainer, { marginTop: normalize(12), marginBottom: 0 }]}>
-                <TouchableOpacity 
-                  onPress={handleFaceIdIconPress}
-                  hitSlop={{ top: 10, bottom: 10, left: 5, right: 5 }}
-                  style={styles.faceIdButton}
-                  disabled={isBiometricLocked || !isBiometricAvailable || !useFaceId}
-                >
-                  <Icon 
-                    name="face-recognition" 
-                    size={normalize(26)} 
-                    color={
-                      !isBiometricAvailable ? "#999999" :
-                      isBiometricLocked ? "#999999" :
-                      !useFaceId ? "#999999" :
-                      useFaceId ? theme.primary : theme.text.tertiary
-                    }
-                    style={{ opacity: (!isBiometricAvailable || isBiometricLocked || !useFaceId) ? 0.5 : 0.85 }}
-                  />
-                </TouchableOpacity>
-                
-                <Text style={{
-                  flex: 1,
-                  color: theme.text.secondary,
-                  fontSize: normalize(14),
-                  marginLeft: 8,
-                }}>
-                  {!isBiometricAvailable ? "Biometrics Not Available" :
-                   isBiometricLocked ? `${biometricType} Locked` : 
-                   biometricType}
-                </Text>
-                
-                <TouchableOpacity 
-                  onPress={handleToggleBiometric}
-                  style={styles.faceIdToggle}
-                  disabled={!isBiometricAvailable}
-                >
-                  <Icon 
-                    name={useFaceId ? "toggle-switch" : "toggle-switch-off"}
-                    size={normalize(32)} 
-                    color={
-                      !isBiometricAvailable ? "#999999" :
-                      useFaceId ? theme.primary : theme.text.tertiary
-                    }
-                    style={{ opacity: !isBiometricAvailable ? 0.5 : 0.85 }}
-                  />
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-
-          {/* Terms checkbox positioned above footer - adjusted to match SignUpScreen */}
-          <View style={[styles.checkboxContainer, { bottom: normalize(75) }]}>
-            <TermsCheckbox 
-              isChecked={isTermsChecked} 
-              onToggle={() => setIsTermsChecked(!isTermsChecked)} 
+            {/* Face ID button and toggle - extracted to component */}
+            <BiometricAuthSection
+              authMethod={authMethod}
+              useFaceId={useFaceId}
+              isBiometricAvailable={isBiometricAvailable}
+              isBiometricLocked={isBiometricLocked}
+              biometricType={biometricType}
+              theme={theme}
+              styles={styles}
+              onFaceIdIconPress={handleFaceIdIconPress}
+              onToggleBiometric={handleToggleBiometric}
             />
           </View>
 
-          {/* Footer with divider fixed at bottom - adjusted to match SignUpScreen */}
-          <View style={[styles.footerContainer, { paddingBottom: Platform.OS === 'ios' ? normalize(30) : normalize(20) }]}>
-            <View style={styles.divider} />
-            
-            {/* Sign Up Link */}
-            <View style={[styles.signUpLink, { marginTop: normalize(12), marginBottom: normalize(10) }]}>
-              <Text style={[styles.signUpText, { fontSize: normalize(14) }]}>{text.auth.signIn.noAccount}</Text>
-              <TouchableOpacity onPress={handleSignUp}>
-                <Text style={[styles.signUpButton, { fontSize: normalize(14) }]}> {text.auth.signIn.signUp}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          {/* Footer section - extracted to component */}
+          <SignInFooter
+            isTermsChecked={isTermsChecked}
+            onTermsToggle={() => setIsTermsChecked(!isTermsChecked)}
+            onSignUpPress={handleSignUp}
+            styles={styles}
+            text={text}
+          />
         </View>
       </TouchableWithoutFeedback>
       
