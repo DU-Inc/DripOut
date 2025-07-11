@@ -5,6 +5,11 @@
 - Implement Cap on Recommendations and Try on feature? maybe 4-5 per day
 - Implement Stripe API billing to unlock cap
 - Actually implement Founders' Picks and Featured
+- Implement feedback loop ( if there is a product from user side that they realize isnt a product, click report as not product and maybe server can delete it)
+- Flesh out closet and include ai to match up complete outfit either with what they have or some of what they have and what they dont have
+- Maybe for user to add to closet, they can use link but they can also take a picture of tag or qr or whatever its called and we can handle flow from there?
+- Think about implementation for fashion styles and user feed/algorithm
+- Implement remove from shelf
 
 <!-- ## Unauth issues
 - Things like add to shelf and like buttons are disabled for unauthorized - which is great, but the messages are like " Error failed to add to shelf " instead of descriptive messsages like other ones and lacks the indication to sign in. -->

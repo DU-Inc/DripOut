@@ -19,7 +19,15 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../styles/themeprovider';
 import { createPost } from '../services/postService';
-import { selectImageFromLibrary, takePhotoWithCamera, ImageAsset } from '../services/imagePickerService';
+import { 
+  selectImageFromLibrary, 
+  takePhotoWithCamera, 
+  selectImageFromLibraryAndCrop, 
+  takePhotoWithCameraAndCrop, 
+  cropImage,
+  ImageAsset,
+  CroppingOptions 
+} from '../services/imagePickerService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '../Config/firebaseconfig';
 import { scrapeProductFromUrl, Product } from '../services/recommendationService';
@@ -86,15 +94,28 @@ const CreatePostScreen: React.FC = () => {
     // Wait a moment for modal animation to complete 
     setTimeout(async () => {
       try {
-        // Use our image picker service
-        const result = await takePhotoWithCamera({
+        // Use our image picker service with cropping
+        const cameraOptions = {
           maxHeight: 2400,
           maxWidth: 2400,
           quality: 1,
           includeBase64: false,
           saveToPhotos: false,
-          mediaType: 'photo'
-        });
+          mediaType: 'photo' as const
+        };
+
+        const croppingOptions: CroppingOptions = {
+          cropperActiveWidgetColor: mainColor,
+          cropperToolbarColor: mainColor,
+          cropperToolbarWidgetColor: '#FFFFFF',
+          freeStyleCropEnabled: true,
+          enableRotationGesture: true,
+          compressImageQuality: 0.95,
+          compressImageMaxWidth: 2400,
+          compressImageMaxHeight: 2400,
+        };
+        
+        const result = await takePhotoWithCameraAndCrop(cameraOptions, croppingOptions);
         
         if (result) {
           setSelectedImage(result);
@@ -117,15 +138,28 @@ const CreatePostScreen: React.FC = () => {
     // Wait a moment for modal animation to complete
     setTimeout(async () => {
       try {
-        // Use our image picker service
-        const result = await selectImageFromLibrary({
+        // Use our image picker service with cropping
+        const libraryOptions = {
           maxHeight: 2400,
           maxWidth: 2400,
           quality: 1,
           selectionLimit: 1,
           includeBase64: false,
-          mediaType: 'photo'
-        });
+          mediaType: 'photo' as const
+        };
+
+        const croppingOptions: CroppingOptions = {
+          cropperActiveWidgetColor: mainColor,
+          cropperToolbarColor: mainColor,
+          cropperToolbarWidgetColor: '#FFFFFF',
+          freeStyleCropEnabled: true,
+          enableRotationGesture: true,
+          compressImageQuality: 0.95,
+          compressImageMaxWidth: 2400,
+          compressImageMaxHeight: 2400,
+        };
+        
+        const result = await selectImageFromLibraryAndCrop(libraryOptions, croppingOptions);
         
         if (result) {
           setSelectedImage(result);
@@ -138,6 +172,39 @@ const CreatePostScreen: React.FC = () => {
         );
       }
     }, 300);
+  };
+
+  // Re-crop the currently selected image
+  const reCropImage = async () => {
+    if (!selectedImage) {
+      Alert.alert('No Image', 'Please select an image first');
+      return;
+    }
+
+    try {
+      const croppingOptions: CroppingOptions = {
+        cropperActiveWidgetColor: mainColor,
+        cropperToolbarColor: mainColor,
+        cropperToolbarWidgetColor: '#FFFFFF',
+        freeStyleCropEnabled: true,
+        enableRotationGesture: true,
+        compressImageQuality: 0.95,
+        compressImageMaxWidth: 2400,
+        compressImageMaxHeight: 2400,
+      };
+
+      const croppedImage = await cropImage(selectedImage.uri, croppingOptions);
+      
+      if (croppedImage) {
+        setSelectedImage(croppedImage);
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      Alert.alert(
+        'Crop Error', 
+        `Failed to crop image: ${errorMessage}. Please try again.`
+      );
+    }
   };
   
   // Add a new featured piece
@@ -484,11 +551,18 @@ const CreatePostScreen: React.FC = () => {
                 <Image 
                   source={{ uri: selectedImage.uri }} 
                   style={styles.previewImage} 
-                  resizeMode="cover"
+                  resizeMode="contain"
                 />
                 <View style={styles.imageOverlay}>
                   <TouchableOpacity 
                     style={[styles.changeImageButton, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+                    onPress={reCropImage}
+                  >
+                    <Icon name="crop" size={18} color="#FFFFFF" />
+                    <Text style={styles.changeImageText}>Crop</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.changeImageButton, { backgroundColor: 'rgba(0,0,0,0.5)', marginLeft: 8 }]}
                     onPress={openImageOptions}
                   >
                     <Icon name="refresh" size={18} color="#FFFFFF" />
@@ -613,13 +687,13 @@ const CreatePostScreen: React.FC = () => {
                     >
                       <View style={styles.iconContainer}>
                         {piece.type === 'shirt' ? (
-                          <FontAwesome5 name="tshirt" size={20} color={mainColor} solid />
+                          <Icon name="shirt-outline" size={20} color={mainColor} />
                         ) : piece.type === 'pants' ? (
-                          <FontAwesome5 name="tag" size={20} color={mainColor} solid />
+                          <Icon name="pricetag-outline" size={20} color={mainColor} />
                         ) : piece.type === 'shoes' ? (
-                          <FontAwesome5 name="shoe-prints" size={20} color={mainColor} solid />
+                          <Icon name="footsteps-outline" size={20} color={mainColor} />
                         ) : (
-                          <FontAwesome5 name="glasses" size={20} color={mainColor} solid />
+                          <Icon name="glasses-outline" size={20} color={mainColor} />
                         )}
                       </View>
                       <View style={styles.pieceDetails}>
@@ -800,12 +874,12 @@ const CreatePostScreen: React.FC = () => {
                     contentContainerStyle={styles.typeScrollContent}
                   >
                     {[
-                      { id: 'shirt', label: 'Top', icon: 'tshirt' },
-                      { id: 'pants', label: 'Bottom', icon: 'tag' },
-                      { id: 'shoes', label: 'Shoes', icon: 'shoe-prints' },
-                      { id: 'watch', label: 'Watch', icon: 'clock' },
-                      { id: 'jewelry', label: 'Jewelry', icon: 'gem' },
-                      { id: 'accessory', label: 'Other', icon: 'glasses' },
+                      { id: 'shirt', label: 'Top', icon: 'shirt-outline' },
+                      { id: 'pants', label: 'Bottom', icon: 'pricetag-outline' },
+                      { id: 'shoes', label: 'Shoes', icon: 'footsteps-outline' },
+                      { id: 'watch', label: 'Watch', icon: 'time-outline' },
+                      { id: 'jewelry', label: 'Jewelry', icon: 'diamond-outline' },
+                      { id: 'accessory', label: 'Other', icon: 'glasses-outline' },
                     ].map((type) => (
                       <TouchableOpacity
                         key={type.id}
@@ -819,11 +893,10 @@ const CreatePostScreen: React.FC = () => {
                         onPress={() => setNewPieceType(type.id as any)}
                       >
                         <View style={styles.typeIconContainer}>
-                          <FontAwesome5 
+                          <Icon 
                             name={type.icon} 
                             size={24} 
                             color={newPieceType === type.id ? mainColor : subTextColor}
-                            solid 
                           />
                         </View>
                         <Text 

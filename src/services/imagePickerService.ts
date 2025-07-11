@@ -2,6 +2,13 @@
 import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import type { CameraOptions, ImageLibraryOptions, Asset } from 'react-native-image-picker';
+// Import with fallback handling
+let ImageCropPicker: any = null;
+try {
+  ImageCropPicker = require('react-native-image-crop-picker').default;
+} catch (error) {
+  console.warn('📸 react-native-image-crop-picker not available:', error);
+}
 
 // Debug log
 console.log('📸 react-native-image-picker imported directly');
@@ -16,6 +23,29 @@ export interface ImageAsset {
   width?: number;
   height?: number;
   fileSize?: number;
+}
+
+/**
+ * Cropping options for the image cropper
+ */
+export interface CroppingOptions {
+  cropperActiveWidgetColor?: string;
+  cropperStatusBarColor?: string;
+  cropperToolbarColor?: string;
+  cropperToolbarWidgetColor?: string;
+  freeStyleCropEnabled?: boolean;
+  hideBottomControls?: boolean;
+  enableRotationGesture?: boolean;
+  disableCropperColorSetters?: boolean;
+  cropperChooseText?: string;
+  cropperCancelText?: string;
+  includeExif?: boolean;
+  avoidEmptySpaceAroundImage?: boolean;
+  includeBase64?: boolean;
+  compressImageQuality?: number;
+  compressImageMaxWidth?: number;
+  compressImageMaxHeight?: number;
+  cropping?: boolean;
 }
 
 /**
@@ -117,26 +147,125 @@ export const requestPhotoLibraryPermission = async (): Promise<boolean> => {
 /**
  * Converts a react-native-image-picker Asset to our ImageAsset format
  */
-export const formatImageResponse = (response: Asset): ImageAsset => {
+export const formatImageResponse = (response: Asset | any): ImageAsset => {
   if (!response || !response.uri) {
     console.error('📸 Invalid asset received in formatImageResponse:', response);
     throw new Error('Invalid image asset: missing URI');
   }
   
-  // Ensure we have all necessary properties for the image asset
-  const name = response.fileName || `image-${Date.now()}.jpg`;
-  const type = response.type || (response.uri.endsWith('.png') ? 'image/png' : 'image/jpeg');
+  // Handle both react-native-image-picker Asset and react-native-image-crop-picker response
+  const name = response.fileName || response.filename || `image-${Date.now()}.jpg`;
+  const type = response.type || response.mime || (response.uri.endsWith('.png') ? 'image/png' : 'image/jpeg');
   
   console.log(`📸 Formatting image response: ${name} (${type})`);
   
   return {
-    uri: response.uri,
+    uri: response.uri || response.path,
     type: type,
     name: name,
     width: response.width,
     height: response.height,
-    fileSize: response.fileSize,
+    fileSize: response.fileSize || response.size,
   };
+};
+
+/**
+ * Open image cropper with the given image URI
+ * @param imageUri - URI of the image to crop
+ * @param options - Optional cropping options
+ * @returns Promise with the cropped image or null if canceled
+ */
+export const cropImage = async (imageUri: string, options?: CroppingOptions): Promise<ImageAsset | null> => {
+  console.log('✂️ Starting image cropping for:', imageUri);
+  
+  // Check if the crop picker module is available
+  if (!ImageCropPicker) {
+    console.warn('✂️ Image crop picker module not available, skipping crop step');
+    Alert.alert(
+      'Cropping Not Available', 
+      'Image cropping is temporarily unavailable. The image will be used as selected.',
+      [{ text: 'OK' }]
+    );
+    // Return the original image without cropping
+    return {
+      uri: imageUri,
+      type: imageUri.endsWith('.png') ? 'image/png' : 'image/jpeg',
+      name: `image-${Date.now()}.${imageUri.endsWith('.png') ? 'png' : 'jpg'}`,
+    };
+  }
+  
+  try {
+    const defaultOptions: CroppingOptions = {
+      cropping: true,
+      freeStyleCropEnabled: true,
+      enableRotationGesture: true,
+      avoidEmptySpaceAroundImage: false,
+      includeBase64: false,
+      compressImageQuality: 0.95,
+      compressImageMaxWidth: 2400,
+      compressImageMaxHeight: 2400,
+      cropperActiveWidgetColor: '#EF3D47',
+      cropperToolbarColor: '#EF3D47',
+      cropperToolbarWidgetColor: '#FFFFFF',
+      cropperChooseText: 'Choose',
+      cropperCancelText: 'Cancel',
+      hideBottomControls: false,
+      disableCropperColorSetters: false,
+      includeExif: true,
+    };
+
+    const croppingOptions = {
+      ...defaultOptions,
+      ...(options || {}),
+    };
+
+    console.log('✂️ Opening cropper with options:', JSON.stringify(croppingOptions));
+    
+    try {
+      const croppedImage = await ImageCropPicker.openCropper({
+        path: imageUri,
+        mediaType: 'photo' as const,
+        ...croppingOptions,
+      });
+
+      console.log('✂️ Image cropped successfully:', croppedImage.path);
+      
+      try {
+        return formatImageResponse(croppedImage);
+      } catch (formatError) {
+        console.error('✂️ Error formatting cropped image response:', formatError);
+        Alert.alert('Error', 'Failed to process the cropped image. Please try again.');
+        return null;
+      }
+    } catch (cropError: any) {
+      // If the native module is not available, show a helpful message
+      if (cropError.message && (cropError.message.includes('RNCImageCropPicker') || cropError.message.includes('TurboModuleRegistry'))) {
+        console.warn('✂️ Native image crop picker not available, skipping crop step');
+        Alert.alert(
+          'Cropping Not Available', 
+          'Image cropping is temporarily unavailable. The image will be used as selected.',
+          [{ text: 'OK' }]
+        );
+        // Return the original image without cropping
+        return {
+          uri: imageUri,
+          type: imageUri.endsWith('.png') ? 'image/png' : 'image/jpeg',
+          name: `image-${Date.now()}.${imageUri.endsWith('.png') ? 'png' : 'jpg'}`,
+        };
+      }
+      throw cropError; // Re-throw other errors
+    }
+  } catch (error: any) {
+    // Check if user cancelled
+    if (error.code === 'E_PICKER_CANCELLED') {
+      console.log('✂️ User cancelled image cropping');
+      return null;
+    }
+    
+    console.error('✂️ Error cropping image:', error);
+    Alert.alert('Error', 'Failed to crop image. Please try again.');
+    return null;
+  }
 };
 
 /**
@@ -179,10 +308,10 @@ export const takePhotoWithCamera = async (options?: CameraOptions): Promise<Imag
     console.log('📸 Attempting to launch camera');
     const result = await launchCamera(currentOptions);
     
-    console.log('📸 Camera result received:', result.canceled ? 'Cancelled' : 'Success');
+    console.log('📸 Camera result received:', result.didCancel ? 'Cancelled' : 'Success');
     
     // Check if user cancelled
-    if (result.canceled) {
+    if (result.didCancel) {
       console.log('📸 User cancelled taking a photo');
       return null;
     }
@@ -261,10 +390,10 @@ export const selectImageFromLibrary = async (options?: ImageLibraryOptions): Pro
     console.log('🖼️ Attempting to launch image library');
     const result = await launchImageLibrary(currentOptions);
     
-    console.log('🖼️ Image library result received:', result.canceled ? 'Cancelled' : 'Success');
+    console.log('🖼️ Image library result received:', result.didCancel ? 'Cancelled' : 'Success');
     
     // Check if user cancelled
-    if (result.canceled) {
+    if (result.didCancel) {
       console.log('🖼️ User cancelled image selection');
       return null;
     }
@@ -299,6 +428,64 @@ export const selectImageFromLibrary = async (options?: ImageLibraryOptions): Pro
   } catch (error) {
     console.error('🖼️ Error selecting from gallery:', error);
     Alert.alert('Error', 'Failed to select image. Please try again.');
+    return null;
+  }
+};
+
+/**
+ * Take a photo with camera and then crop it
+ * @param cameraOptions - Optional camera options
+ * @param croppingOptions - Optional cropping options
+ * @returns Promise with the cropped image or null if canceled
+ */
+export const takePhotoWithCameraAndCrop = async (
+  cameraOptions?: CameraOptions, 
+  croppingOptions?: CroppingOptions
+): Promise<ImageAsset | null> => {
+  console.log('📸✂️ Starting takePhotoWithCameraAndCrop');
+  
+  try {
+    // First, take the photo
+    const photo = await takePhotoWithCamera(cameraOptions);
+    if (!photo) {
+      return null; // User cancelled or error occurred
+    }
+    
+    // Then crop the photo
+    const croppedPhoto = await cropImage(photo.uri, croppingOptions);
+    return croppedPhoto;
+  } catch (error) {
+    console.error('📸✂️ Error in takePhotoWithCameraAndCrop:', error);
+    Alert.alert('Error', 'Failed to take and crop photo. Please try again.');
+    return null;
+  }
+};
+
+/**
+ * Select an image from library and then crop it
+ * @param libraryOptions - Optional image library options
+ * @param croppingOptions - Optional cropping options
+ * @returns Promise with the cropped image or null if canceled
+ */
+export const selectImageFromLibraryAndCrop = async (
+  libraryOptions?: ImageLibraryOptions, 
+  croppingOptions?: CroppingOptions
+): Promise<ImageAsset | null> => {
+  console.log('🖼️✂️ Starting selectImageFromLibraryAndCrop');
+  
+  try {
+    // First, select the image
+    const image = await selectImageFromLibrary(libraryOptions);
+    if (!image) {
+      return null; // User cancelled or error occurred
+    }
+    
+    // Then crop the image
+    const croppedImage = await cropImage(image.uri, croppingOptions);
+    return croppedImage;
+  } catch (error) {
+    console.error('🖼️✂️ Error in selectImageFromLibraryAndCrop:', error);
+    Alert.alert('Error', 'Failed to select and crop image. Please try again.');
     return null;
   }
 };

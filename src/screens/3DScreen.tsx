@@ -563,7 +563,7 @@ const ThreeDScreen: React.FC = () => {
   // Panel heights for different states
   const PANEL_HEIGHTS = {
     hidden: 0,
-    peek: 120,
+    peek: 60, // Reduced from 120 to 80 for less screen blocking
     expanded: Math.min(420, Dimensions.get('window').height * 0.65)
   };
 

@@ -54,7 +54,8 @@ import {
   getNewDropsProducts, 
   getEditorsPicksProducts,
   needsBackgroundRefresh,
-  searchProductsWithCache 
+  searchProductsWithCache,
+  clearAllProductCaches 
 } from '../services/productCache';
 // Import auth for user-specific caching
 import { auth } from '../Config/firebaseconfig';
@@ -117,7 +118,7 @@ const defaultTextStyle = {
 
 const NUM_COLUMNS = 2; // Number of columns in the grid
 const ITEM_SPACING = 6; // Consistent spacing between items
-const INITIAL_LOAD_COUNT = 10; // Number of items to load initially
+const INITIAL_LOAD_COUNT = 14; // Number of items to load initially (increased by 40%)
 const LOAD_MORE_COUNT = 10; // Number of items to load when scrolling
 
 // Add props interface for OverviewScreen
@@ -185,10 +186,10 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
   const [displayedOutfitCount, setDisplayedOutfitCount] = useState(5); // Start with 5 outfit groups
   const [isLoadingOutfits, setIsLoadingOutfits] = useState(true);
   
-  // Display counters for lazy loading - start with small numbers for smoother performance
+  // Display counters for lazy loading - start with initial content for all sections
   const [displayedTrendingCount, setDisplayedTrendingCount] = useState(INITIAL_LOAD_COUNT);
-  const [displayedNewDropsCount, setDisplayedNewDropsCount] = useState(0);
-  const [displayedEditorsPicksCount, setDisplayedEditorsPicksCount] = useState(0);
+  const [displayedNewDropsCount, setDisplayedNewDropsCount] = useState(INITIAL_LOAD_COUNT);
+  const [displayedEditorsPicksCount, setDisplayedEditorsPicksCount] = useState(INITIAL_LOAD_COUNT);
   const [displayedNewsCount, setDisplayedNewsCount] = useState(5); // Start with fewer news items 
   
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -1249,7 +1250,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
     scrollY.setValue(offsetY);
   }, [scrollY]);
   
-  // Handle loading more items - gradual progressive reveal for smoother performance
+  // Handle loading more items - parallel loading for all sections to prevent scroll issues
   const handleLoadMore = useCallback(() => {
     if (isLoadingMore || !isMountedRef.current) return;
     
@@ -1258,17 +1259,33 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
     // Gradual progressive reveal: Add 2-3 items at a time for smoother rendering
     const GRADUAL_LOAD_COUNT = 3; // Smaller chunks for smoother performance
     
+    // Load multiple sections in parallel instead of sequentially to prevent delays
+    let hasUpdates = false;
+    
     if (displayedTrendingCount < trendingProducts.length) {
       setDisplayedTrendingCount(prev => Math.min(prev + GRADUAL_LOAD_COUNT, trendingProducts.length));
+      hasUpdates = true;
     }
-    else if (displayedNewsCount < newsArticles.length) {
+    
+    if (displayedNewsCount < newsArticles.length) {
       setDisplayedNewsCount(prev => Math.min(prev + 2, newsArticles.length)); // Even smaller for news
+      hasUpdates = true;
     }
-    else if (displayedNewDropsCount < newDropsProducts.length) {
+    
+    if (displayedNewDropsCount < newDropsProducts.length) {
       setDisplayedNewDropsCount(prev => Math.min(prev + GRADUAL_LOAD_COUNT, newDropsProducts.length));
+      hasUpdates = true;
     }
-    else if (displayedEditorsPicksCount < editorsPicksProducts.length) {
+    
+    if (displayedEditorsPicksCount < editorsPicksProducts.length) {
       setDisplayedEditorsPicksCount(prev => Math.min(prev + GRADUAL_LOAD_COUNT, editorsPicksProducts.length));
+      hasUpdates = true;
+    }
+    
+    // Only set loading state if we actually have updates to prevent unnecessary state changes
+    if (!hasUpdates) {
+      setIsLoadingMore(false);
+      return;
     }
     
     // Clear loading state with slightly longer delay to allow rendering to complete
@@ -1281,7 +1298,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
         setIsLoadingMore(false);
       }
       loadMoreTimerRef.current = null;
-    }, 300); // Slightly longer delay to ensure smooth rendering
+    }, 200); // Reduced delay for better responsiveness
   }, [isLoadingMore, displayedTrendingCount, trendingProducts.length, displayedNewsCount, newsArticles.length, displayedNewDropsCount, newDropsProducts.length, displayedEditorsPicksCount, editorsPicksProducts.length]);
   
   
@@ -1574,6 +1591,10 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        maintainVisibleContentPosition={{
+          minIndexForVisible: 0,
+          autoscrollToTopThreshold: 10
+        }}
         refreshControl={
           <RefreshControl
             refreshing={isLoadingOutfits}
@@ -1581,7 +1602,14 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
           // Set loading state
           setIsLoadingOutfits(true);
           try {
-            // Fetch fresh products from API with same large batch size
+            // Clear all product caches to ensure fresh data
+            const currentUser = auth().currentUser;
+            const userId = currentUser?.uid;
+            if (userId) {
+              await clearAllProductCaches(userId);
+            }
+            
+            // Fetch fresh products from API with large batch to ensure variety
             const apiProducts = await fetchRandomProducts(80);
             if (apiProducts.length > 0) {
               // Helper function to format products for unified card (same as in initial load)
@@ -1634,8 +1662,8 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
               
               // Reset display counts to initial values for fresh browsing experience
               setDisplayedTrendingCount(INITIAL_LOAD_COUNT);
-              setDisplayedNewDropsCount(0);
-              setDisplayedEditorsPicksCount(0);
+              setDisplayedNewDropsCount(INITIAL_LOAD_COUNT);
+              setDisplayedEditorsPicksCount(INITIAL_LOAD_COUNT);
             }
           } catch (error) {
             console.error('Error refreshing products:', error);

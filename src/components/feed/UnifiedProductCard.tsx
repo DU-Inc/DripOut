@@ -92,11 +92,17 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
   // Check shelf status on mount and when shelf context changes
   useEffect(() => {
     const checkShelfStatus = () => {
+      // Guest users should never show products as being in shelf
+      if (isGuest) {
+        setIsInShelf(false);
+        return;
+      }
+      
       const inShelf = checkIsInShelf(id);
       setIsInShelf(inShelf);
     };
     checkShelfStatus();
-  }, [id, checkIsInShelf]);
+  }, [id, checkIsInShelf, isGuest]);
 
   // Theme colors
   const themeColors = isDarkMode ? colors.dark : colors.light;
@@ -340,7 +346,7 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
                 isInShelf={isInShelf}
                 onToggle={handleShelfToggle}
                 size={16}
-                activeColor="#FF6347"
+                activeColor="#FFFFFF"
                 inactiveColor={textSecondary}
                 activeBackgroundColor="#FF6347"
                 inactiveBackgroundColor={isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'}
