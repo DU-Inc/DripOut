@@ -576,8 +576,42 @@ export const isBiometricAuthEnabled = async (): Promise<boolean> => {
 export const signOutUser = async () => {
   try {
     // Get user ID before signing out to clear user-specific data
-    const userId = auth().currentUser?.uid;
+    const currentUser = auth().currentUser;
+    const userId = currentUser?.uid;
     
+    // Check if user is already signed out
+    if (!currentUser) {
+      console.log('User is already signed out, proceeding with cleanup only');
+      
+      // Still perform cleanup even if user is already signed out
+      const itemsToRemove = [
+        'firebaseUserToken',
+        'lastActivityTimestamp',
+        'authCreateTimestamp',
+        'useBiometricAuth',
+        'onboardingCompleted'
+      ];
+      
+      // Clear all auth-related storage and user-specific caches
+      await Promise.all([
+        ...itemsToRemove.map(key => AsyncStorage.removeItem(key)),
+        authCache.invalidateCache(),
+        sessionManager.clearSession()
+      ]);
+      
+      // Update app state
+      appStateManager.setAuthenticated(false);
+      appStateManager.setOnboarding(false);
+      appStateManager.setSignupInProgress(false);
+      
+      // Clear guest mode flag
+      appStateManager.setExplicitGuestMode(false);
+      
+      console.log('Cleanup completed for already signed out user');
+      return;
+    }
+    
+    // User is still signed in, proceed with normal sign out
     await auth().signOut();
     
     // Items to remove from AsyncStorage
@@ -614,10 +648,34 @@ export const signOutUser = async () => {
     appStateManager.setOnboarding(false);
     appStateManager.setSignupInProgress(false);
     
+    // Clear guest mode flag
+    appStateManager.setExplicitGuestMode(false);
+    
     console.log('User signed out successfully and all user caches cleared');
     
   } catch (error) {
     console.error('Sign Out Error:', error);
+    
+    // Even if there's an error, try to clean up as much as possible
+    try {
+      // Update app state to ensure user is marked as signed out
+      appStateManager.setAuthenticated(false);
+      appStateManager.setOnboarding(false);
+      appStateManager.setSignupInProgress(false);
+      
+      // Clear basic auth data
+      await Promise.all([
+        AsyncStorage.removeItem('firebaseUserToken'),
+        AsyncStorage.removeItem('lastActivityTimestamp'),
+        authCache.invalidateCache(),
+        sessionManager.clearSession()
+      ]);
+      
+      console.log('Emergency cleanup completed after sign out error');
+    } catch (cleanupError) {
+      console.error('Error during emergency cleanup:', cleanupError);
+    }
+    
     throw error;
   }
 };

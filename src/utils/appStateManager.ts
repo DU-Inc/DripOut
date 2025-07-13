@@ -24,6 +24,7 @@ class AppStateManager {
   private _isOnboarding: boolean = false;
   private _isSignupSuccess: boolean = false;
   private _showOnboardingOptions: boolean = false; // New state for options sheet
+  private _isGuestMode: boolean = false; // NEW: Explicit guest mode tracking
   private _authListeners: Array<(isAuthenticated: boolean) => void> = [];
   private _onboardingListeners: Array<(isOnboarding: boolean) => void> = [];
   private _signupSuccessListeners: Array<(isSignupSuccess: boolean) => void> = [];
@@ -175,6 +176,9 @@ class AppStateManager {
       // Clear session data
       await sessionManager.clearSession();
       
+      // Clear guest mode flag
+      this._isGuestMode = false;
+      
       console.log('AppStateManager: Successfully cleared all user data');
     } catch (error) {
       console.error('AppStateManager: Error clearing user data:', error);
@@ -199,6 +203,10 @@ class AppStateManager {
       // This ensures the sheet is shown exactly once on each app launch for users who need onboarding
       await AsyncStorage.removeItem('optionsSheetLastShown');
       console.log('AppStateManager: Cleared options sheet shown flag for new app session');
+      
+      // CRITICAL: Clear guest mode on every app launch - guest mode should not persist
+      this._isGuestMode = false;
+      console.log('AppStateManager: Cleared guest mode flag for new app session');
       
       // CRITICAL INITIALIZATION STEP: ALWAYS validate with server first
       const firebaseUser = auth().currentUser;
@@ -612,7 +620,7 @@ class AppStateManager {
   }
 
   public isGuest(): boolean {
-    return !this._isAuthenticated;
+    return this._isGuestMode;
   }
 
   public isSignupInProgress(): boolean {
@@ -635,6 +643,9 @@ class AppStateManager {
       
       // Update lastActivityTimestamp when setting authenticated state to true
       if (isAuthenticated) {
+        // Clear guest mode when user becomes authenticated
+        this._isGuestMode = false;
+        
         AsyncStorage.setItem('lastActivityTimestamp', Date.now().toString())
           .then(() => console.log('AppStateManager: Updated activity timestamp'))
           .catch(err => console.error('AppStateManager: Failed to update timestamp:', err));
@@ -654,6 +665,27 @@ class AppStateManager {
       }
       
       // Notify listeners
+      this._authListeners.forEach(listener => listener(this._isAuthenticated));
+    }
+  }
+
+  // NEW: Method to explicitly set guest mode (only called when user chooses "Continue as Guest")
+  public setExplicitGuestMode(isGuest: boolean): void {
+    console.log(`AppStateManager: Setting explicit guest mode to ${isGuest}`);
+    
+    if (this._isGuestMode !== isGuest) {
+      this._isGuestMode = isGuest;
+      
+      if (isGuest) {
+        // When entering guest mode, ensure user is not authenticated
+        this._isAuthenticated = false;
+        console.log('AppStateManager: User entered explicit guest mode');
+      } else {
+        // When exiting guest mode, clear the flag
+        console.log('AppStateManager: User exited guest mode');
+      }
+      
+      // Notify auth listeners (guest mode changes affect auth state)
       this._authListeners.forEach(listener => listener(this._isAuthenticated));
     }
   }
@@ -756,8 +788,8 @@ class AppStateManager {
   }
 
   public setGuestMode(isGuest: boolean): void {
-    // Invert the logic - setting guest mode to true means setting authenticated to false
-    this.setAuthenticated(!isGuest);
+    // Use the new explicit guest mode method
+    this.setExplicitGuestMode(isGuest);
   }
 
   public setSignupInProgress(isInProgress: boolean): void {
@@ -1063,6 +1095,7 @@ class AppStateManager {
       this._isAuthenticated = false;
       this._isOnboarding = false;
       this._showOnboardingOptions = false;
+      this._isGuestMode = false; // Ensure guest mode is off
       
       // Clear all caches
       try {
@@ -1098,6 +1131,7 @@ class AppStateManager {
       
       // Set auth state again to be absolutely sure
       this._isAuthenticated = false;
+      this._isGuestMode = false; // Ensure guest mode is off
       
       console.log('AppStateManager: Forced logout completed successfully');
     } catch (error) {

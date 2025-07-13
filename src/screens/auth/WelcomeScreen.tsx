@@ -81,8 +81,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
       delay: 300,
       useNativeDriver: true,
     }).start(() => {
-      // After animation completes, set guest mode to true
-      appStateManager.setGuestMode(true);
+      // After animation completes, set explicit guest mode to true
+      appStateManager.setExplicitGuestMode(true);
     });
   };
 

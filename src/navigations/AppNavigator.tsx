@@ -629,22 +629,23 @@ const AppNavigator: React.FC = () => {
     // Update local state
     setIsAuthenticated(isAuthenticated);
     
-    // CRITICAL: Immediately navigate to Welcome screen when user is logged out
-    if (!isAuthenticated && navigationRef.current) {
-      console.log('AppNavigator: Auth state is false, FORCING navigation to Welcome screen');
-      
-      // Use setTimeout to ensure this happens after current execution context
-      setTimeout(() => {
-        try {
-          navigationRef.current?.reset({
-            index: 0,
-            routes: [{ name: 'Welcome' }],
-          });
-          console.log('AppNavigator: Successfully navigated to Welcome screen');
-        } catch (error) {
-          console.error('AppNavigator: Error navigating to Welcome:', error);
-        }
-      }, 100);
+    // Check if user is in guest mode
+    const isGuest = appStateManager.isGuest();
+    
+    if (!isAuthenticated) {
+      if (isGuest) {
+        // User is in explicit guest mode, allow access to main app
+        console.log('AppNavigator: User is in explicit guest mode, allowing access to main app');
+        setAppState(AppState.MAIN_APP);
+      } else {
+        // User is not authenticated and not in guest mode, go to welcome screen
+        console.log('AppNavigator: User is not authenticated, changing app state to WELCOME');
+        setAppState(AppState.WELCOME);
+      }
+    } else {
+      // User is authenticated, ensure we're in main app
+      console.log('AppNavigator: User is authenticated, ensuring main app state');
+      setAppState(AppState.MAIN_APP);
     }
   };
   
@@ -876,14 +877,9 @@ const AppNavigator: React.FC = () => {
           checkOnboardingStatus();
         }
       } else {
-        // Check if user is in guest mode (allow guest users to access main app)
-        if (appStateManager.isGuest()) {
-          console.log('AppNavigator: Guest user detected, allowing access to main app');
-          setAppState(AppState.MAIN_APP);
-        } else {
-          // User is not authenticated and not in guest mode, go to welcome screen
-          setAppState(AppState.WELCOME);
-        }
+        // User is not authenticated, go to welcome screen
+        // Guest mode should only be activated when user explicitly chooses it from Welcome screen
+        setAppState(AppState.WELCOME);
       }
     }
   }, [splashCompleted, initializationCompleted, isAuthenticated, isOnboarding]);
