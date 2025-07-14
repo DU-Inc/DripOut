@@ -26,8 +26,10 @@ import {
   Message,
   ConversationWithDetails
 } from '../services/messageService';
+import { searchUsers, UserProfile } from '../services/firestoreService';
 import { useTheme } from '../styles/themeprovider';
 import { auth } from '../Config/firebaseconfig';
+import { db } from '../Config/firebaseconfig';
 
 type MessagingScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -70,9 +72,15 @@ const MessagingScreen: React.FC = () => {
   const [selectedConversation, setSelectedConversation] = useState<ConversationWithDetails | null>(null);
   
   // View state
-  const [currentView, setCurrentView] = useState<'inbox' | 'conversation'>(
+  const [currentView, setCurrentView] = useState<'inbox' | 'conversation' | 'userSearch'>(
     otherUserId ? 'conversation' : 'inbox'
   );
+  
+  // User search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchTimeout, setSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
   
   // Ref for FlatList to auto-scroll to bottom
   const flatListRef = useRef<FlatList>(null);
@@ -104,13 +112,15 @@ const MessagingScreen: React.FC = () => {
       console.log(`Loading conversation with user ID: ${targetUserId}`);
       setIsLoadingMessages(true);
       
-      // Mark conversation as read
-      markConversationAsRead(targetUserId)
-        .then(() => console.log(`Marked conversation with ${targetUserId} as read`))
-        .catch(error => {
-          // Just log the error but continue with loading messages
-          console.error('Error marking conversation as read:', error);
-        });
+      // Mark conversation as read (only if it's an existing conversation)
+      if (selectedConversation?.id) {
+        markConversationAsRead(targetUserId)
+          .then(() => console.log(`Marked conversation with ${targetUserId} as read`))
+          .catch(error => {
+            // Just log the error but continue with loading messages
+            console.error('Error marking conversation as read:', error);
+          });
+      }
       
       // First get initial messages
       getMessages(targetUserId)
@@ -145,6 +155,50 @@ const MessagingScreen: React.FC = () => {
       };
     }
   }, [currentView, otherUserId, selectedConversation]);
+
+  // Effect to handle user search with debouncing
+  useEffect(() => {
+    if (currentView === 'userSearch') {
+      // Clear existing timeout
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+      }
+
+      if (!searchQuery.trim()) {
+        setSearchResults([]);
+        setIsSearching(false);
+        return;
+      }
+
+      setIsSearching(true);
+      
+      // Debounce search for 300ms
+      const timeout = setTimeout(async () => {
+        try {
+          const results = await searchUsers(searchQuery.trim(), 20);
+          // Filter out current user from results
+          const currentUser = auth().currentUser;
+          const filteredResults = currentUser 
+            ? results.filter(user => user.userID !== currentUser.uid)
+            : results;
+          setSearchResults(filteredResults);
+        } catch (error) {
+          console.error('Error searching users:', error);
+          setSearchResults([]);
+        } finally {
+          setIsSearching(false);
+        }
+      }, 300);
+
+      setSearchTimeout(timeout);
+    }
+
+    return () => {
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+      }
+    };
+  }, [searchQuery, currentView]);
 
   // Function to handle sending a message
   const handleSendMessage = async () => {
@@ -182,6 +236,23 @@ const MessagingScreen: React.FC = () => {
     setCurrentView('conversation');
   };
 
+  // Function to select a user from search results
+  const handleSelectUser = (user: UserProfile) => {
+    setCurrentView('conversation');
+    setSelectedConversation({
+      id: undefined,
+      participants: [auth().currentUser?.uid || '', user.userID],
+      otherUserId: user.userID,
+      otherUserName: user.userDisplayName || user.username || user.fullName || 'User',
+      otherUserAvatar: user.profilePictureURL || null,
+      lastMessageTime: 'Now',
+      updatedAt: new Date()
+    });
+    // Clear search state
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
   // Function to go back to inbox from conversation view
   const handleBackToInbox = () => {
     setCurrentView('inbox');
@@ -193,6 +264,26 @@ const MessagingScreen: React.FC = () => {
     navigation.goBack();
   };
 
+  // Function to handle new message button
+  const handleNewMessage = () => {
+    setCurrentView('userSearch');
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  // Debug function to test user existence
+  const debugCheckUser = async (userId: string) => {
+    try {
+      const userDoc = await db.collection('users').doc(userId).get();
+      console.log(`Debug: User ${userId} exists: ${userDoc.exists}`);
+      if (userDoc.exists) {
+        console.log(`Debug: User data:`, userDoc.data());
+      }
+    } catch (error) {
+      console.error(`Debug: Error checking user ${userId}:`, error);
+    }
+  };
+
   // Render conversation header
   const renderConversationHeader = () => {
     const name = otherUserName || selectedConversation?.otherUserName || 'Chat';
@@ -202,7 +293,17 @@ const MessagingScreen: React.FC = () => {
       <View style={[styles.conversationHeader, { backgroundColor: theme.surface }]}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={currentView === 'inbox' ? handleGoBack : handleBackToInbox}
+          onPress={() => {
+            if (currentView === 'inbox') {
+              handleGoBack();
+            } else if (selectedConversation && !selectedConversation.id) {
+              // If this is a new conversation from user search, go back to inbox
+              setCurrentView('inbox');
+              setSelectedConversation(null);
+            } else {
+              handleBackToInbox();
+            }
+          }}
         >
           <Icon
             name="chevron-back"
@@ -310,8 +411,13 @@ const MessagingScreen: React.FC = () => {
 
   // Render conversation item for inbox
   const renderConversationItem = ({ item }: { item: ConversationWithDetails }) => {
-    // Check if there are unread messages
-    const hasUnread = item.unreadCount && item.unreadCount[item.otherUserId] > 0;
+    const currentUser = auth().currentUser;
+    const currentUserId = currentUser?.uid;
+    
+    // Check if the current user has unread messages AND the last message was sent by someone else
+    const currentUserUnreadCount = currentUserId ? (item.unreadCount?.[currentUserId] || 0) : 0;
+    const lastMessageSentByCurrentUser = item.lastMessageSenderId === currentUserId;
+    const hasUnread = currentUserUnreadCount > 0 && !lastMessageSentByCurrentUser;
     
     return (
       <TouchableOpacity
@@ -335,8 +441,6 @@ const MessagingScreen: React.FC = () => {
               </Text>
             </View>
           )}
-          {/* Online indicator */}
-          <View style={[styles.onlineIndicator, { backgroundColor: theme.success }]} />
         </View>
         
         <View style={styles.conversationInfo}>
@@ -370,17 +474,72 @@ const MessagingScreen: React.FC = () => {
               ]}
               numberOfLines={1}
             >
-              {item.lastMessageSenderId === auth().currentUser?.uid ? 'You: ' : ''}
+              {lastMessageSentByCurrentUser ? 'You: ' : ''}
               {item.lastMessage || 'No messages yet'}
             </Text>
             
             {hasUnread && (
               <View style={[styles.unreadBadge, { backgroundColor: theme.primary }]}>
                 <Text style={[styles.unreadCount, { color: theme.text.onPrimary }]}>
-                  {item.unreadCount?.[item.otherUserId] || 0}
+                  {currentUserUnreadCount}
                 </Text>
               </View>
             )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  // Render user search result item
+  const renderUserSearchResult = ({ item }: { item: UserProfile }) => {
+    const displayName = item.userDisplayName || item.fullName || item.username || 'User';
+    const avatar = item.profilePictureURL;
+    
+    return (
+      <TouchableOpacity
+        style={[
+          styles.conversationItem,
+          { backgroundColor: theme.background, borderBottomColor: theme.border }
+        ]}
+        onPress={() => handleSelectUser(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.avatarContainer}>
+          {avatar ? (
+            <Image
+              source={{ uri: avatar }}
+              style={styles.conversationAvatar}
+            />
+          ) : (
+            <View style={[styles.conversationAvatar, styles.avatarPlaceholder, { backgroundColor: theme.primary }]}>
+              <Text style={styles.avatarInitial}>
+                {displayName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+        </View>
+        
+        <View style={styles.conversationInfo}>
+          <View style={styles.conversationHeaderInfo}>
+            <Text 
+              style={[styles.conversationName, { color: theme.text.primary }]} 
+              numberOfLines={1}
+            >
+              {displayName}
+            </Text>
+            <Text style={[styles.conversationTime, { color: theme.text.secondary }]}>
+              @{item.username}
+            </Text>
+          </View>
+          
+          <View style={styles.conversationPreview}>
+            <Text
+              style={[styles.conversationLastMessage, { color: theme.text.secondary }]}
+              numberOfLines={1}
+            >
+              {item.bio || 'No bio available'}
+            </Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -446,7 +605,7 @@ const MessagingScreen: React.FC = () => {
           </View>
           <Text style={[styles.inboxTitle, { color: theme.text.primary }]}>Messages</Text>
           <View style={styles.inboxHeaderRight}>
-            <TouchableOpacity style={styles.newMessageButton}>
+            <TouchableOpacity style={styles.newMessageButton} onPress={handleNewMessage}>
               <Icon name="create-outline" size={20} color={theme.text.primary} />
             </TouchableOpacity>
           </View>
@@ -491,6 +650,94 @@ const MessagingScreen: React.FC = () => {
     );
   };
 
+  // Render user search view
+  const renderUserSearch = () => {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.inboxHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+          <View style={styles.inboxHeaderLeft}>
+            <TouchableOpacity onPress={() => setCurrentView('inbox')}>
+              <Icon name="chevron-back" size={28} color={theme.text.primary} />
+            </TouchableOpacity>
+          </View>
+          <Text style={[styles.inboxTitle, { color: theme.text.primary }]}>New Message</Text>
+          <View style={styles.inboxHeaderRight}>
+            <View style={{ width: 40 }} />
+          </View>
+        </View>
+        
+        <View style={[styles.searchContainer, { borderBottomColor: theme.border }]}>
+          <View style={[styles.searchBar, { backgroundColor: theme.background }]}>
+            <Icon name="search" size={18} color={theme.text.secondary} style={styles.searchIcon} />
+            <TextInput 
+              placeholder="Search for users..." 
+              placeholderTextColor={theme.text.secondary}
+              style={[styles.searchInput, { color: theme.text.primary }]}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus={true}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Icon name="close-circle" size={18} color={theme.text.secondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+        
+        {isSearching ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <Text style={[styles.emptyText, { color: theme.text.secondary, marginTop: 12 }]}>
+              Searching...
+            </Text>
+          </View>
+        ) : searchQuery.trim() === '' ? (
+          <View style={styles.emptyContainer}>
+            <Icon name="search-outline" size={50} color={theme.text.secondary} />
+            <Text style={[styles.emptyText, { color: theme.text.secondary }]}>
+              Search for users to start a conversation
+            </Text>
+            <Text style={[styles.emptySubText, { color: theme.text.secondary }]}>
+              You can search by username, display name, or email
+            </Text>
+            <TouchableOpacity 
+              style={[styles.debugButton, { backgroundColor: theme.primary, marginTop: 20 }]}
+              onPress={() => {
+                const currentUser = auth().currentUser;
+                if (currentUser) {
+                  debugCheckUser(currentUser.uid);
+                }
+              }}
+            >
+              <Text style={[styles.debugButtonText, { color: theme.text.onPrimary }]}>
+                Debug: Check Current User
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : searchResults.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Icon name="person-outline" size={50} color={theme.text.secondary} />
+            <Text style={[styles.emptyText, { color: theme.text.secondary }]}>
+              No users found
+            </Text>
+            <Text style={[styles.emptySubText, { color: theme.text.secondary }]}>
+              Try searching with a different term
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={searchResults}
+            keyExtractor={(item) => item.userID}
+            renderItem={renderUserSearchResult}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.conversationsList}
+          />
+        )}
+      </View>
+    );
+  };
+
   // Render conversation view
   const renderConversation = () => {
     return (
@@ -509,7 +756,7 @@ const MessagingScreen: React.FC = () => {
           <View style={styles.emptyContainer}>
             <Icon name="chatbubble-outline" size={50} color={theme.text.secondary} />
             <Text style={[styles.emptyText, { color: theme.text.secondary }]}>
-              No messages yet. Say hello!
+              {selectedConversation?.id ? 'No messages yet. Say hello!' : 'Start a conversation!'}
             </Text>
           </View>
         ) : (
@@ -532,7 +779,7 @@ const MessagingScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
-      {currentView === 'inbox' ? renderInbox() : renderConversation()}
+      {currentView === 'inbox' ? renderInbox() : currentView === 'userSearch' ? renderUserSearch() : renderConversation()}
     </SafeAreaView>
   );
 };
@@ -807,6 +1054,15 @@ const styles = StyleSheet.create({
   },
   unreadCount: {
     fontSize: 12,
+    fontWeight: '600',
+  },
+  debugButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  debugButtonText: {
+    fontSize: 14,
     fontWeight: '600',
   },
 });

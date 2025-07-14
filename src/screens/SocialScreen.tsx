@@ -2260,9 +2260,13 @@ const SocialScreen: React.FC = () => {
                 data={conversations}
                 keyExtractor={item => item.id || item.otherUserId}
                 renderItem={({ item }) => {
-                  // Calculate if there are unread messages from this user
-                  const hasUnread = item.unreadCount && 
-                                   item.unreadCount[auth().currentUser?.uid || ''] > 0;
+                  const currentUser = auth().currentUser;
+                  const currentUserId = currentUser?.uid;
+                  
+                  // Calculate if there are unread messages from this user AND the last message wasn't sent by current user
+                  const currentUserUnreadCount = currentUserId ? (item.unreadCount?.[currentUserId] || 0) : 0;
+                  const lastMessageSentByCurrentUser = item.lastMessageSenderId === currentUserId;
+                  const hasUnread = currentUserUnreadCount > 0 && !lastMessageSentByCurrentUser;
                                    
                   return (
                     <TouchableOpacity 
@@ -2405,11 +2409,30 @@ const SocialScreen: React.FC = () => {
                 });
               }}
             >
-              <Icon 
-                name="chatbubbles-outline" 
-                size={24} 
-                color={textColor} 
-              />
+              <View style={styles.chatIconContainer}>
+                <Icon 
+                  name="chatbubbles-outline" 
+                  size={24} 
+                  color={textColor} 
+                />
+                {(() => {
+                  const currentUser = auth().currentUser;
+                  const currentUserId = currentUser?.uid;
+                  const unreadConversationsCount = conversations.filter(item => {
+                    const currentUserUnreadCount = currentUserId ? (item.unreadCount?.[currentUserId] || 0) : 0;
+                    const lastMessageSentByCurrentUser = item.lastMessageSenderId === currentUserId;
+                    return currentUserUnreadCount > 0 && !lastMessageSentByCurrentUser;
+                  }).length;
+                  
+                  return unreadConversationsCount > 0 ? (
+                    <View style={[styles.chatNotificationBadge, { backgroundColor: mainColor }]}>
+                      <Text style={styles.chatNotificationText}>
+                        {unreadConversationsCount > 99 ? '99+' : unreadConversationsCount}
+                      </Text>
+                    </View>
+                  ) : null;
+                })()}
+              </View>
             </TouchableOpacity>
             </View>
           </View>
@@ -2641,6 +2664,28 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     padding: 8,
+  },
+  chatIconContainer: {
+    position: 'relative',
+  },
+  chatNotificationBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  chatNotificationText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   headerIconButton: {
     width: 40,
