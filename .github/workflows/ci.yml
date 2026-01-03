@@ -83,7 +83,7 @@ jobs:
             -exportOptionsPlist ios/exportOptions.plist \
             -exportPath build/ios
       - name: Upload IPA
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: iOS-App.ipa
           path: build/ios/YourApp.ipa
