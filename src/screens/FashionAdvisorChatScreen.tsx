@@ -34,6 +34,8 @@ import {
 } from '../services/fashionAdvisorChatService';
 import UnifiedProductCard from '../components/feed/UnifiedProductCard';
 import { logger } from '../utils/logger';
+import { rateLimitService, FeatureType, RateLimitResult } from '../services/rateLimitService';
+import RateLimitModal from '../components/common/RateLimitModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -77,6 +79,10 @@ const FashionAdvisorChatScreen: React.FC = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   
+  // Rate limiting state
+  const [showRateLimitModal, setShowRateLimitModal] = useState(false);
+  const [remainingRequests, setRemainingRequests] = useState(5);
+  
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
@@ -85,6 +91,16 @@ const FashionAdvisorChatScreen: React.FC = () => {
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   
+  // Update remaining requests count
+  const updateRemainingRequests = async () => {
+    try {
+      const remaining = await rateLimitService.getRemainingCount(FeatureType.FASHION_ADVISOR);
+      setRemainingRequests(remaining);
+    } catch (error) {
+      console.error('Error updating remaining requests:', error);
+    }
+  };
+
   // Colors
   const mainColor = isDarkMode ? '#FF4870' : '#EF3D47';
   const bgColor = isDarkMode ? '#0A0A0F' : '#FFFFFF';
@@ -159,6 +175,9 @@ const FashionAdvisorChatScreen: React.FC = () => {
       })
     ]).start();
     
+    // Update remaining requests count
+    updateRemainingRequests();
+    
     // Load existing session or create new one
     if (currentSessionId) {
       loadExistingSession(currentSessionId);
@@ -217,6 +236,19 @@ const FashionAdvisorChatScreen: React.FC = () => {
   
   const handleSendMessage = async () => {
     if (!inputText.trim() || isLoading) return;
+    
+    // Check rate limit before proceeding
+    try {
+      const rateLimitResult = await rateLimitService.checkLimit(FeatureType.FASHION_ADVISOR);
+      if (!rateLimitResult.allowed) {
+        console.log('🚫 Fashion Advisor: Rate limit exceeded');
+        setShowRateLimitModal(true);
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking rate limit:', error);
+      // Continue with request if rate limit check fails
+    }
     
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -307,12 +339,32 @@ const FashionAdvisorChatScreen: React.FC = () => {
             conversationContext: conversationContext
           });
           
-          advisorResponse = {
-            id: `advisor-${Date.now()}`,
-            type: 'advisor',
-            text: `Sorry - there was an issue connecting to our server😔.`,
-            timestamp: Date.now(),
-          };
+          // Check if this is a rate limit error
+          const isRateLimit = (apiError as any)?.isRateLimit === true;
+          const resetTime = (apiError as any)?.resetTime || 'midnight UTC';
+          
+          if (isRateLimit) {
+            advisorResponse = {
+              id: `advisor-${Date.now()}`,
+              type: 'advisor',
+              text: `${apiError instanceof Error ? apiError.message : 'Daily limit reached'}\n\nYour limits will reset at ${resetTime}.`,
+              timestamp: Date.now(),
+            };
+          } else if (apiError instanceof Error && apiError.message.includes('Authentication failed')) {
+            advisorResponse = {
+              id: `advisor-${Date.now()}`,
+              type: 'advisor',
+              text: `Please sign in to use the fashion advisor.`,
+              timestamp: Date.now(),
+            };
+          } else {
+            advisorResponse = {
+              id: `advisor-${Date.now()}`,
+              type: 'advisor',
+              text: `Sorry - there was an issue connecting to our server😔.`,
+              timestamp: Date.now(),
+            };
+          }
         }
       } else {
         // API not available - text only response with natural conversation
@@ -326,6 +378,14 @@ const FashionAdvisorChatScreen: React.FC = () => {
       
       // Add advisor response
       setMessages(prev => [...prev, advisorResponse]);
+      
+      // Increment rate limit usage after successful request
+      try {
+        await rateLimitService.incrementUsage(FeatureType.FASHION_ADVISOR);
+        updateRemainingRequests();
+      } catch (error) {
+        console.error('Error incrementing usage:', error);
+      }
       
       // Save advisor message to database
       if (sessionId) {
@@ -688,7 +748,12 @@ const FashionAdvisorChatScreen: React.FC = () => {
           </View>
           <View>
             <Text style={[styles.headerTitle, { color: textColor }]}>Fashion Advisor</Text>
-            <Text style={[styles.headerSubtitle, { color: subTextColor }]}>Your personal stylist</Text>
+            <Text style={[styles.headerSubtitle, { color: subTextColor }]}>
+              {remainingRequests > 0 
+                ? `${remainingRequests} requests remaining`
+                : 'Rate limit reached'
+              }
+            </Text>
           </View>
         </View>
         <TouchableOpacity
@@ -755,6 +820,13 @@ const FashionAdvisorChatScreen: React.FC = () => {
           </View>
         </View>
       </KeyboardAvoidingView>
+      
+      {/* Rate Limit Modal */}
+      <RateLimitModal
+        visible={showRateLimitModal}
+        featureType={FeatureType.FASHION_ADVISOR}
+        onClose={() => setShowRateLimitModal(false)}
+      />
     </SafeAreaView>
   );
 };

@@ -12,7 +12,8 @@ import {
   StyleSheet,
   Dimensions,
   Share,
-  Linking
+  Linking,
+  TextInput
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -50,6 +51,8 @@ const OutfitDetailScreen: React.FC = () => {
   // State
   const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState(outfit.name || '');
 
   // Colors based on theme with enhanced palette
   const bgColor = isDarkMode ? '#0B0B0F' : '#FAFAFA';
@@ -89,23 +92,23 @@ const OutfitDetailScreen: React.FC = () => {
     const type = product.type?.toLowerCase() || '';
     
     if (type === 'shirt' || name.includes('shirt') || name.includes('top') || name.includes('blouse')) {
-      return 'tshirt-crew';
+      return 'shirt-outline';
     } else if (type === 'pants' || name.includes('pants') || name.includes('jeans') || name.includes('trouser')) {
-      return 'tights';
+      return 'body-outline';
     } else if (type === 'shoes' || name.includes('shoe') || name.includes('sneaker') || name.includes('boot')) {
-      return 'shoe-sneaker';
+      return 'football-outline';
     } else if (type === 'watch' || name.includes('watch')) {
-      return 'watch';
+      return 'time-outline';
     } else if (type === 'jewelry' || name.includes('ring') || name.includes('necklace') || name.includes('earring')) {
-      return 'ring';
+      return 'diamond-outline';
     } else if (type === 'accessory' || name.includes('bag') || name.includes('hat') || name.includes('sunglasses')) {
-      return 'sunglasses';
+      return 'glasses-outline';
     } else if (name.includes('jacket') || name.includes('coat') || name.includes('blazer')) {
-      return 'coat-long';
+      return 'shirt-outline';
     } else if (name.includes('dress') || name.includes('skirt')) {
-      return 'tshirt-crew-outline';
+      return 'shirt-outline';
     }
-    return 'tshirt-crew';
+    return 'shirt-outline';
   }, []);
 
   // Handle outfit deletion
@@ -173,6 +176,157 @@ const OutfitDetailScreen: React.FC = () => {
     });
   }, [navigation, outfit]);
 
+  // Handle outfit name editing
+  const handleEditName = useCallback(() => {
+    setIsEditingName(true);
+  }, []);
+
+  // Handle saving the new outfit name
+  const handleSaveName = useCallback(async () => {
+    if (!editedName.trim()) {
+      Alert.alert('Error', 'Outfit name cannot be empty');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const currentUser = auth().currentUser;
+      
+      if (!currentUser) {
+        Alert.alert('Error', 'You must be logged in to edit outfits');
+        return;
+      }
+
+      // Update the outfit name in Firestore
+      await db.collection('saved_outfits').doc(outfit.id).update({
+        name: editedName.trim()
+      });
+      
+      // Update the local outfit object
+      outfit.name = editedName.trim();
+      
+      setIsEditingName(false);
+      Alert.alert('Success', 'Outfit name updated successfully');
+    } catch (error) {
+      console.error('Error updating outfit name:', error);
+      Alert.alert('Error', 'Failed to update outfit name. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [editedName, outfit.id, outfit]);
+
+  // Handle canceling name edit
+  const handleCancelEdit = useCallback(() => {
+    setEditedName(outfit.name || '');
+    setIsEditingName(false);
+  }, [outfit.name]);
+
+  // Analyze outfit for dynamic insights
+  const analyzeOutfitInsights = useCallback(() => {
+    const insights = [];
+    const products = outfit.products || [];
+    
+    if (products.length === 0) {
+      return [
+        {
+          icon: 'information-circle-outline',
+          text: 'Add more pieces to get personalized style insights',
+          type: 'info'
+        }
+      ];
+    }
+
+    // Analyze product categories
+    const categories = products.map(p => p.type?.toLowerCase() || 'unknown');
+    const uniqueCategories = [...new Set(categories)];
+    
+    if (uniqueCategories.length >= 3) {
+      insights.push({
+        icon: 'layers-outline',
+        text: `Well-layered outfit with ${uniqueCategories.length} different pieces`,
+        type: 'layering'
+      });
+    }
+
+    // Analyze price range
+    const prices = products.filter(p => p.price).map(p => p.price!);
+    if (prices.length > 0) {
+      const avgPrice = prices.reduce((sum, price) => sum + price, 0) / prices.length;
+      const totalValue = prices.reduce((sum, price) => sum + price, 0);
+      
+      if (totalValue > 500) {
+        insights.push({
+          icon: 'diamond-outline',
+          text: 'Premium outfit with high-value pieces',
+          type: 'premium'
+        });
+      } else if (avgPrice < 50) {
+        insights.push({
+          icon: 'wallet-outline',
+          text: 'Budget-friendly styling with affordable pieces',
+          type: 'budget'
+        });
+      }
+    }
+
+    // Analyze brands
+    const brands = products.filter(p => p.brand).map(p => p.brand!);
+    const uniqueBrands = [...new Set(brands)];
+    
+    if (uniqueBrands.length === 1 && uniqueBrands[0]) {
+      insights.push({
+        icon: 'star-outline',
+        text: `Monobrand outfit featuring ${uniqueBrands[0]}`,
+        type: 'monobrand'
+      });
+    } else if (uniqueBrands.length >= 3) {
+      insights.push({
+        icon: 'shuffle-outline',
+        text: 'Eclectic mix of brands for unique styling',
+        type: 'eclectic'
+      });
+    }
+
+    // Analyze product types for occasion
+    const hasFormal = categories.some(cat => 
+      cat.includes('blazer') || cat.includes('suit') || cat.includes('dress')
+    );
+    const hasCasual = categories.some(cat => 
+      cat.includes('jeans') || cat.includes('tshirt') || cat.includes('sneaker')
+    );
+    
+    if (hasFormal && hasCasual) {
+      insights.push({
+        icon: 'business-outline',
+        text: 'Smart casual styling perfect for office-to-evening',
+        type: 'smart-casual'
+      });
+    } else if (hasFormal) {
+      insights.push({
+        icon: 'briefcase-outline',
+        text: 'Professional look suitable for formal occasions',
+        type: 'formal'
+      });
+    } else if (hasCasual) {
+      insights.push({
+        icon: 'happy-outline',
+        text: 'Relaxed styling ideal for casual outings',
+        type: 'casual'
+      });
+    }
+
+    // Fallback if no specific insights
+    if (insights.length === 0) {
+      insights.push({
+        icon: 'shirt-outline',
+        text: `${products.length} piece outfit ready for styling`,
+        type: 'basic'
+      });
+    }
+
+    return insights.slice(0, 3); // Limit to 3 insights
+  }, [outfit.products]);
+
   // Open product link
   const handleProductPress = useCallback((product: OutfitProduct) => {
     if (product.affiliateLink) {
@@ -238,9 +392,54 @@ const OutfitDetailScreen: React.FC = () => {
         <View style={[styles.infoCard, { backgroundColor: cardBgColor }]}>
           <View style={styles.outfitHeader}>
             <View style={styles.outfitTitleContainer}>
-              <Text style={[styles.outfitName, { color: textColor }]}>
-                {outfit.name}
-              </Text>
+              {isEditingName ? (
+                <View style={styles.editNameContainer}>
+                  <TextInput
+                    style={[styles.editNameInput, { 
+                      color: textColor, 
+                      backgroundColor: surfaceColor,
+                      borderColor: mainColor 
+                    }]}
+                    value={editedName}
+                    onChangeText={setEditedName}
+                    placeholder="Enter outfit name"
+                    placeholderTextColor={subTextColor}
+                    autoFocus
+                    maxLength={50}
+                  />
+                  <View style={styles.editNameButtons}>
+                    <TouchableOpacity
+                      style={[styles.editNameButton, { backgroundColor: successColor }]}
+                      onPress={handleSaveName}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Icon name="checkmark" size={16} color="#FFFFFF" />
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.editNameButton, { backgroundColor: subTextColor }]}
+                      onPress={handleCancelEdit}
+                      disabled={isLoading}
+                    >
+                      <Icon name="close" size={16} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.outfitNameContainer}
+                  onPress={handleEditName}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.outfitName, { color: textColor }]}>
+                    {outfit.name}
+                  </Text>
+                  <Icon name="create-outline" size={16} color={subTextColor} style={styles.editIcon} />
+                </TouchableOpacity>
+              )}
               <View style={[styles.outfitMeta, { backgroundColor: surfaceColor }]}>
                 <Icon name="calendar-outline" size={14} color={subTextColor} />
                 <Text style={[styles.outfitDate, { color: subTextColor }]}>
@@ -366,32 +565,16 @@ const OutfitDetailScreen: React.FC = () => {
           </Text>
           
           <View style={styles.insightsList}>
-            <View style={[styles.insightItem, { backgroundColor: surfaceColor }]}>
-              <View style={[styles.insightIcon, { backgroundColor: `${successColor}15` }]}>
-                <Icon name="time-outline" size={18} color={successColor} />
+            {analyzeOutfitInsights().map((insight, index) => (
+              <View key={index} style={[styles.insightItem, { backgroundColor: surfaceColor }]}>
+                <View style={[styles.insightIcon, { backgroundColor: `${subTextColor}15` }]}>
+                  <Icon name={insight.icon} size={18} color={subTextColor} />
+                </View>
+                <Text style={[styles.insightText, { color: textColor }]}>
+                  {insight.text}
+                </Text>
               </View>
-              <Text style={[styles.insightText, { color: textColor }]}>
-                Perfect for casual day outings
-              </Text>
-            </View>
-            
-            <View style={[styles.insightItem, { backgroundColor: surfaceColor }]}>
-              <View style={[styles.insightIcon, { backgroundColor: `${warningColor}15` }]}>
-                <Icon name="sunny-outline" size={18} color={warningColor} />
-              </View>
-              <Text style={[styles.insightText, { color: textColor }]}>
-                Great for spring/summer weather
-              </Text>
-            </View>
-            
-            <View style={[styles.insightItem, { backgroundColor: surfaceColor }]}>
-              <View style={[styles.insightIcon, { backgroundColor: `${mainColor}15` }]}>
-                <Icon name="people-outline" size={18} color={mainColor} />
-              </View>
-              <Text style={[styles.insightText, { color: textColor }]}>
-                Ideal for social gatherings
-              </Text>
-            </View>
+            ))}
           </View>
         </View>
 
@@ -500,6 +683,40 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 8,
     lineHeight: 30,
+  },
+  outfitNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editIcon: {
+    marginLeft: 4,
+  },
+  editNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editNameInput: {
+    flex: 1,
+    fontSize: 24,
+    fontWeight: '700',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 2,
+    minWidth: 200,
+  },
+  editNameButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  editNameButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   outfitMeta: {
     flexDirection: 'row',

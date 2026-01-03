@@ -59,7 +59,7 @@ const AnimatedSplashScreen = () => {
       animation.start();
       
       return () => animation.stop();
-    }, 900); // Changed from 1800ms to 1000ms to match video duration
+    }, 300); // Start panels after video ends (video is ~1.5 seconds)
 
     return () => {
       clearTimeout(timer);
@@ -78,6 +78,7 @@ const AnimatedSplashScreen = () => {
   // Render background media based on type
   const renderBackgroundMedia = () => {
     if (SPLASH_MEDIA.isVideo) {
+      console.log('[SplashScreen] Rendering VIDEO:', SPLASH_MEDIA.source);
       return (
         <Video
           source={SPLASH_MEDIA.source}
@@ -85,17 +86,24 @@ const AnimatedSplashScreen = () => {
           resizeMode="cover"
           repeat={false}
           muted={true}
-          playInBackground={false}
-          playWhenInactive={false}
+          playInBackground={true}
+          playWhenInactive={true}
           ignoreSilentSwitch="ignore"
-          onError={(error) => console.log('Video error:', error)}
+          onLoadStart={() => console.log('[SplashScreen] Video onLoadStart', Date.now())}
+          onLoad={info => console.log('[SplashScreen] Video onLoad', info, Date.now())}
+          onError={error => console.log('[SplashScreen] Video onError', error, Date.now())}
+          onEnd={() => console.log('[SplashScreen] Video onEnd', Date.now())}
         />
       );
     } else {
+      console.log('[SplashScreen] Rendering IMAGE:', SPLASH_MEDIA.source);
       return (
         <Image
           source={SPLASH_MEDIA.source}
           style={styles.background}
+          onLoadStart={() => console.log('[SplashScreen] Image onLoadStart', Date.now())}
+          onLoad={() => console.log('[SplashScreen] Image onLoad', Date.now())}
+          onError={error => console.log('[SplashScreen] Image onError', error, Date.now())}
         />
       );
     }

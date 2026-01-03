@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { auth } from '../Config/firebaseconfig';
 import { uploadImageAndGetURL } from './storageService';
 import { getUserProfile } from './firestoreService';
@@ -7,9 +7,19 @@ import { Platform } from 'react-native';
 // Using buffer for arraybuffer to base64 conversion
 import { Buffer } from 'buffer';
 import { API_BASE_URL } from '../Config/apiConfig';
+import { getAuthToken } from '../utils/authToken';
 
 // API configuration - now using centralized config
 console.log('📡 Recommendation API configured with base URL:', API_BASE_URL);
+
+// Protected endpoints that require authentication
+const PROTECTED_ENDPOINTS = [
+  '/recommendations',
+  '/scrape_on_demand',
+  '/products/search',
+  '/user_try_on',
+  '/user/stats',
+];
 
 // Initialize API client
 const apiClient = axios.create({
@@ -19,6 +29,108 @@ const apiClient = axios.create({
   },
   timeout: 10000000000000000000
 });
+
+// Request interceptor to add Authorization header for protected endpoints
+apiClient.interceptors.request.use(
+  async (config) => {
+    if (!config.url) {
+      return config;
+    }
+    
+    // Extract the endpoint path (remove base URL if present)
+    let endpointPath = config.url;
+    if (config.url.startsWith(API_BASE_URL)) {
+      endpointPath = config.url.replace(API_BASE_URL, '');
+    }
+    // Remove leading slash for comparison
+    endpointPath = endpointPath.startsWith('/') ? endpointPath.slice(1) : endpointPath;
+    
+    // Check if this is a protected endpoint
+    const isProtected = PROTECTED_ENDPOINTS.some(endpoint => {
+      const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+      return endpointPath.startsWith(cleanEndpoint) || endpointPath.includes(cleanEndpoint);
+    });
+    
+    // Status endpoints are PUBLIC (no auth required) - they use task IDs for access
+    // /recommendations_status/{taskId}, /try_on_status/{taskId}, /try_on_image/{taskId}, /scrape_status/{taskId}
+    
+    if (isProtected) {
+      const token = await getAuthToken();
+      if (token) {
+        config.headers = config.headers || {};
+        config.headers.Authorization = `Bearer ${token}`;
+        console.log(`🔐 Added Authorization header for protected endpoint: ${endpointPath}`);
+      } else {
+        console.warn(`⚠️ No auth token available for protected endpoint: ${endpointPath}`);
+      }
+    }
+    
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor to handle 401 and 429 errors
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+    
+    // Handle 401 Unauthorized - token expired or invalid
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      
+      console.log('🔄 401 Unauthorized - attempting token refresh');
+      
+      try {
+        // Force refresh the token
+        const newToken = await getAuthToken(true);
+        
+        if (newToken && originalRequest.headers) {
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          console.log('✅ Token refreshed, retrying request');
+          
+          // Retry the original request with new token
+          return apiClient(originalRequest);
+        } else {
+          console.error('❌ Failed to refresh token - user may need to re-authenticate');
+          throw new Error('Authentication failed. Please sign in again.');
+        }
+      } catch (refreshError) {
+        console.error('❌ Error refreshing token:', refreshError);
+        throw new Error('Authentication failed. Please sign in again.');
+      }
+    }
+    
+    // Handle 429 Rate Limit Exceeded
+    if (error.response?.status === 429) {
+      const errorData = error.response.data as any;
+      const detail = errorData?.detail || errorData;
+      
+      let errorMessage = 'Daily limit reached for this action.';
+      let resetTime = 'midnight UTC';
+      
+      if (typeof detail === 'object' && detail.message) {
+        errorMessage = detail.message;
+        resetTime = detail.reset_time || resetTime;
+      } else if (typeof detail === 'string') {
+        errorMessage = detail;
+      }
+      
+      const rateLimitError = new Error(errorMessage);
+      (rateLimitError as any).isRateLimit = true;
+      (rateLimitError as any).resetTime = resetTime;
+      (rateLimitError as any).errorData = detail;
+      
+      throw rateLimitError;
+    }
+    
+    // For other errors, just pass them through
+    return Promise.reject(error);
+  }
+);
 
 // Log when the service is imported
 console.log('🚀 Recommendation service initialized');
@@ -399,25 +511,6 @@ interface CreateUserModelResponse {
 }
 
 /**
- * Interface for 3D model try-on request (legacy)
- */
-interface TryOnRequest {
-  userId: string;
-  modelUrl: string;
-  productId: string;
-  productDetails?: any;
-}
-
-/**
- * Interface for 3D model try-on response (legacy)
- */
-interface TryOnResponse {
-  resultUrl: string;
-  status: string;
-  message: string;
-}
-
-/**
  * Interface for user avatar try-on request
  */
 interface UserTryOnRequest {
@@ -498,7 +591,7 @@ export const createUserModel = async (
       imageUrls
     };
     
-    const response = await apiClient.post<CreateUserModelResponse>('/create_user_model', payload);
+    const response = await apiClient.post<CreateUserModelResponse>('/create_model', payload);
     
     if (!response.data || !response.data.modelUrl) {
       throw new Error('Invalid response from 3D model API');
@@ -515,63 +608,6 @@ export const createUserModel = async (
     
   } catch (error) {
     console.error('❌ Error creating 3D model:', error);
-    throw error;
-  }
-};
-
-/**
- * Try on a product using the user's 3D model
- * 
- * @param productId - ID of the product to try on
- * @param productDetails - Optional additional product details
- * @param onProgress - Optional progress callback function
- * @returns Promise with the URL to the generated image
- */
-export const tryOnProduct = async (
-  productId: string,
-  productDetails?: any,
-  onProgress?: (progress: number) => void
-): Promise<string> => {
-  console.log('👕 Starting product try-on for product:', productId);
-  try {
-    // Check if user is authenticated
-    const currentUser = auth().currentUser;
-    if (!currentUser) {
-      throw new Error('User not authenticated');
-    }
-    
-    // Get cached model URL
-    let modelUrl = await AsyncStorage.getItem(USER_MODEL_CACHE_KEY);
-    
-    if (!modelUrl) {
-      throw new Error('User 3D model not found. Please create a model first.');
-    }
-    
-    if (onProgress) onProgress(0.2); // Initialization complete
-    
-    // Call the API to generate the try-on image
-    console.log('🔄 Calling API for product try-on');
-    
-    const payload: TryOnRequest = {
-      userId: currentUser.uid,
-      modelUrl,
-      productId,
-      productDetails
-    };
-    
-    const response = await apiClient.post<TryOnResponse>('/fit_user_model', payload);
-    
-    if (!response.data || !response.data.resultUrl) {
-      throw new Error('Invalid response from try-on API');
-    }
-    
-    console.log('✅ Try-on image generated successfully:', response.data.resultUrl);
-    
-    if (onProgress) onProgress(1.0); // Completed
-    return response.data.resultUrl;
-    
-  } catch (error) {
-    console.error('❌ Error during product try-on:', error);
     throw error;
   }
 };

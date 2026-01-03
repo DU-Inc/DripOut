@@ -10,6 +10,7 @@ import {
   ToastAndroid,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../../styles/theme/colors';
@@ -86,8 +87,67 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   
   // Shelf context
-  const { checkIsInShelf, addProductToShelf, removeProductFromShelf } = useShelf();
+  const { checkIsInShelf, addProductToShelf, removeProductFromShelf, isInitialized, forceCheckShelfStatus } = useShelf();
   const [isInShelf, setIsInShelf] = useState(false);
+  const [isShelfLoading, setIsShelfLoading] = useState(true); // Add loading state
+
+  // Track the previous product ID to detect component recycling
+  const [prevProductId, setPrevProductId] = useState(id);
+  
+  // Track all product props to detect any changes that should trigger state reset
+  const [prevProductProps, setPrevProductProps] = useState({
+    id,
+    name,
+    brand,
+    price,
+    currency,
+    productUrl
+  });
+
+  // Enhanced recycling detection - check for ANY product prop changes
+  useEffect(() => {
+    const currentProps = { id, name, brand, price, currency, productUrl };
+    const propsChanged = JSON.stringify(currentProps) !== JSON.stringify(prevProductProps);
+    
+    if (propsChanged) {
+      console.log(`🔄 [UnifiedProductCard] Component recycled or props changed for ${id}`);
+      console.log(`🔄 [UnifiedProductCard] Previous: ${prevProductId} → Current: ${id}`);
+      
+      // Reset all component state to defaults immediately
+      setCurrentImageIndex(0);
+      setIsImageLoading(true);
+      setIsSaved(false);
+      setIsInShelf(false);
+      setIsShelfLoading(true); // Set loading state while we check shelf
+      
+      // Update tracking states
+      setPrevProductId(id);
+      setPrevProductProps(currentProps);
+      
+      // Trigger fresh shelf check after state reset
+      if (!isGuest && isInitialized) {
+        const inShelf = checkIsInShelf(id);
+        console.log(`🔍 [UnifiedProductCard] Post-recycle shelf check for ${id}: ${inShelf ? 'IN SHELF' : 'NOT IN SHELF'}`);
+        setIsInShelf(inShelf);
+        setIsShelfLoading(false);
+        
+        // If we just reset state but the product shows as in shelf, do a force check
+        // This handles cases where the component was recycled but the shelf state is stale
+        if (inShelf) {
+          console.log(`⚠️ [UnifiedProductCard] Post-recycle force check temporarily disabled for ${id}...`);
+          // TODO: Re-enable once Firebase deprecation warnings are fixed
+          // forceCheckShelfStatus(id).then(forceResult => {
+          //   if (forceResult !== inShelf) {
+          //     console.log(`🔄 [UnifiedProductCard] Post-recycle force check corrected state for ${id}: ${forceResult ? 'IN SHELF' : 'NOT IN SHELF'}`);
+          //     setIsInShelf(forceResult);
+          //   }
+          // });
+        }
+      } else if (isGuest) {
+        setIsShelfLoading(false);
+      }
+    }
+  }, [id, name, brand, price, currency, productUrl, prevProductProps, prevProductId, checkIsInShelf, isGuest, isInitialized]);
 
   // Check shelf status on mount and when shelf context changes
   useEffect(() => {
@@ -95,14 +155,40 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
       // Guest users should never show products as being in shelf
       if (isGuest) {
         setIsInShelf(false);
+        setIsShelfLoading(false);
         return;
       }
       
+      // Don't check shelf status until shelf context is initialized
+      // This prevents false negatives during app startup
+      if (!isInitialized) {
+        console.log(`⏳ [UnifiedProductCard] Shelf not initialized yet, waiting for ${id}...`);
+        setIsInShelf(false);
+        setIsShelfLoading(true);
+        return;
+      }
+      
+      setIsShelfLoading(true);
       const inShelf = checkIsInShelf(id);
+      console.log(`🔍 [UnifiedProductCard] Shelf check for ${id}: ${inShelf ? 'IN SHELF' : 'NOT IN SHELF'}`);
       setIsInShelf(inShelf);
+      setIsShelfLoading(false);
+      
+      // If we're checking a product that shows as in shelf but we just loaded,
+      // do a force check to ensure we have the latest state
+      if (inShelf && !isGuest) {
+        console.log(`⚠️ [UnifiedProductCard] Double-checking temporarily disabled for ${id}...`);
+        // TODO: Re-enable once Firebase deprecation warnings are fixed
+        // forceCheckShelfStatus(id).then(forceResult => {
+        //   if (forceResult !== inShelf) {
+        //     console.log(`🔄 [UnifiedProductCard] Force check corrected state for ${id}: ${forceResult ? 'IN SHELF' : 'NOT IN SHELF'}`);
+        //     setIsInShelf(forceResult);
+        //   }
+        // });
+      }
     };
     checkShelfStatus();
-  }, [id, checkIsInShelf, isGuest]);
+  }, [id, checkIsInShelf, isGuest, isInitialized]);
 
   // Theme colors
   const themeColors = isDarkMode ? colors.dark : colors.light;
@@ -137,6 +223,8 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
 
   const handleShelfToggle = async (newIsInShelf: boolean) => {
     try {
+      console.log(`🔄 [UnifiedProductCard] Toggling shelf for ${id}: ${newIsInShelf ? 'ADD' : 'REMOVE'}`);
+      
       // Only update visual state if user is not a guest
       if (!isGuest) {
         setIsInShelf(newIsInShelf); // Optimistic update
@@ -157,6 +245,7 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
         const success = await addProductToShelf(shelfProduct, 'overview');
         
         if (success) {
+          console.log(`✅ [UnifiedProductCard] Successfully added ${id} to shelf`);
           // Show success feedback
           const message = 'Added to shelf';
           if (Platform.OS === 'android') {
@@ -168,6 +257,7 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
           }
           onAddToShelf?.(); // Call optional callback
         } else {
+          console.error(`❌ [UnifiedProductCard] Failed to add ${id} to shelf`);
           // Revert optimistic update on failure (only if not guest)
           if (!isGuest) {
             setIsInShelf(false);
@@ -179,6 +269,7 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
         const success = await removeProductFromShelf(id);
         
         if (success) {
+          console.log(`✅ [UnifiedProductCard] Successfully removed ${id} from shelf`);
           const message = 'Removed from shelf';
           if (Platform.OS === 'android') {
             ToastAndroid.show(message, ToastAndroid.SHORT);
@@ -186,6 +277,7 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
             Alert.alert('Success', message);
           }
         } else {
+          console.error(`❌ [UnifiedProductCard] Failed to remove ${id} from shelf`);
           // Revert optimistic update on failure (only if not guest)
           if (!isGuest) {
             setIsInShelf(true);
@@ -194,6 +286,7 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
         }
       }
     } catch (error) {
+      console.error(`❌ [UnifiedProductCard] Error toggling shelf status for ${id}:`, error);
       // Revert optimistic update on error (only if not guest)
       if (!isGuest) {
         setIsInShelf(!newIsInShelf);
@@ -342,20 +435,29 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
             
             {/* Shelf Button - Primary Action */}
             <View style={styles.shelfButtonContainer}>
-              <ShelfIcon
-                isInShelf={isInShelf}
-                onToggle={handleShelfToggle}
-                size={16}
-                activeColor="#FFFFFF"
-                inactiveColor={textSecondary}
-                activeBackgroundColor="#FF6347"
-                inactiveBackgroundColor={isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'}
-                showBackground={true}
-                variant="hanger"
-                showAnimation={true}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                isGuest={isGuest}
-              />
+              {isShelfLoading ? (
+                // Show loading indicator while checking shelf status
+                <View style={[styles.shelfLoadingContainer, { 
+                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' 
+                }]}>
+                  <ActivityIndicator size={12} color={textSecondary} />
+                </View>
+              ) : (
+                <ShelfIcon
+                  isInShelf={isInShelf}
+                  onToggle={handleShelfToggle}
+                  size={16}
+                  activeColor="#FFFFFF"
+                  inactiveColor={textSecondary}
+                  activeBackgroundColor="#FF6347"
+                  inactiveBackgroundColor={isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'}
+                  showBackground={true}
+                  variant="hanger"
+                  showAnimation={true}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  isGuest={isGuest}
+                />
+              )}
             </View>
           </View>
           
@@ -462,6 +564,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   shelfButtonContainer: {
+    borderRadius: 8,
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 32,
+    minHeight: 32,
+  },
+  shelfLoadingContainer: {
     borderRadius: 8,
     padding: 4,
     justifyContent: 'center',

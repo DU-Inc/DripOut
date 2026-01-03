@@ -1,5 +1,6 @@
-import { db, auth } from '../Config/firebaseconfig';
-import firestore from '@react-native-firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db, auth, FieldValue } from '../Config/firebaseconfig';
+import { logger } from '../utils/logger';
 
 /**
  * Interface for Like document
@@ -61,7 +62,7 @@ export const likePost = async (userId: string, postId: string): Promise<void> =>
       const likeRef = db.collection('likes').doc(likeDocId);
 
       // Get current likes count
-      const currentLikes = postDoc.data().likes || 0;
+      const currentLikes = postDoc.data()?.likes || 0;
 
       // Update the post's like count
       transaction.update(postRef, {
@@ -72,7 +73,7 @@ export const likePost = async (userId: string, postId: string): Promise<void> =>
       transaction.set(likeRef, {
         userId,
         postId,
-        createdAt: firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
       });
     });
 
@@ -111,7 +112,7 @@ export const unlikePost = async (userId: string, postId: string): Promise<void> 
       // Only proceed if the like exists
       if (likeDoc.exists) {
         // Get current likes count
-        const currentLikes = postDoc.data().likes || 0;
+        const currentLikes = postDoc.data()?.likes || 0;
         
         // Update the post's like count (ensure it doesn't go below 0)
         transaction.update(postRef, {

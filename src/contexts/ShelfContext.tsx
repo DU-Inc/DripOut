@@ -1,7 +1,7 @@
 // src/contexts/ShelfContext.tsx
 // Global context for managing shelf state across the app
 
-import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, ReactNode, useCallback } from 'react';
 import { 
   ShelfProduct, 
   getShelfProducts, 
@@ -22,6 +22,7 @@ interface ShelfState {
   totalCount: number;
   recentlyAddedCount: number;
   lastUpdated: number;
+  isInitialized: boolean; // NEW: Track if shelf has been loaded from storage
 }
 
 // Context actions
@@ -33,7 +34,8 @@ type ShelfAction =
   | { type: 'REMOVE_PRODUCT'; payload: string }
   | { type: 'CLEAR_PRODUCTS' }
   | { type: 'UPDATE_STATS'; payload: { totalCount: number; recentlyAddedCount: number } }
-  | { type: 'SET_LAST_UPDATED'; payload: number };
+  | { type: 'SET_LAST_UPDATED'; payload: number }
+  | { type: 'SET_INITIALIZED'; payload: boolean };
 
 // Context interface
 interface ShelfContextType extends ShelfState {
@@ -43,6 +45,9 @@ interface ShelfContextType extends ShelfState {
   clearAllProducts: () => Promise<boolean>;
   refreshShelf: () => Promise<void>;
   checkIsInShelf: (productId: string) => boolean;
+  
+  // NEW: Force refresh for when state might be stale
+  forceCheckShelfStatus: (productId: string) => Promise<boolean>;
   
   // Utility functions
   getProductById: (productId: string) => ShelfProduct | undefined;
@@ -58,6 +63,7 @@ const initialState: ShelfState = {
   totalCount: 0,
   recentlyAddedCount: 0,
   lastUpdated: 0,
+  isInitialized: false,
 };
 
 // Reducer function
@@ -75,7 +81,8 @@ const shelfReducer = (state: ShelfState, action: ShelfAction): ShelfState => {
         products: action.payload, 
         totalCount: action.payload.length,
         loading: false, 
-        error: null 
+        error: null,
+        isInitialized: true 
       };
     
     case 'ADD_PRODUCT':
@@ -115,6 +122,9 @@ const shelfReducer = (state: ShelfState, action: ShelfAction): ShelfState => {
     case 'SET_LAST_UPDATED':
       return { ...state, lastUpdated: action.payload };
     
+    case 'SET_INITIALIZED':
+      return { ...state, isInitialized: action.payload };
+    
     default:
       return state;
   }
@@ -135,20 +145,24 @@ export const ShelfProvider: React.FC<ShelfProviderProps> = ({ children }) => {
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged((user) => {
       if (user) {
+        console.log('🔄 [ShelfContext] User authenticated, loading shelf...');
         refreshShelf();
       } else {
+        console.log('🧹 [ShelfContext] User logged out, clearing shelf...');
         // Clear shelf when user logs out
         dispatch({ type: 'CLEAR_PRODUCTS' });
         dispatch({ type: 'UPDATE_STATS', payload: { totalCount: 0, recentlyAddedCount: 0 } });
+        dispatch({ type: 'SET_INITIALIZED', payload: false });
       }
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Refresh shelf data from service
-  const refreshShelf = async (): Promise<void> => {
+  // Refresh shelf data from service - memoized to prevent recreation
+  const refreshShelf = useCallback(async (): Promise<void> => {
     try {
+      console.log('🔄 [ShelfContext] Starting shelf refresh...');
       dispatch({ type: 'SET_LOADING', payload: true });
       dispatch({ type: 'SET_ERROR', payload: null });
 
@@ -164,12 +178,14 @@ export const ShelfProvider: React.FC<ShelfProviderProps> = ({ children }) => {
       }});
       dispatch({ type: 'SET_LAST_UPDATED', payload: Date.now() });
 
+      console.log(`✅ [ShelfContext] Shelf refreshed: ${products.length} products loaded`);
       logger.log(`Shelf refreshed: ${products.length} products loaded`);
     } catch (error) {
+      console.error('❌ [ShelfContext] Error refreshing shelf:', error);
       logger.error('Error refreshing shelf:', error);
       dispatch({ type: 'SET_ERROR', payload: error instanceof Error ? error.message : 'Failed to load shelf' });
     }
-  };
+  }, []);
 
   // Add product to shelf
   const addProductToShelf = async (
@@ -260,10 +276,34 @@ export const ShelfProvider: React.FC<ShelfProviderProps> = ({ children }) => {
     }
   };
 
-  // Check if product is in shelf (fast local check)
-  const checkIsInShelf = (productId: string): boolean => {
-    return state.products.some(p => p.id === productId);
-  };
+  // Check if product is in shelf - memoized for performance
+  const checkIsInShelf = useCallback((productId: string): boolean => {
+    if (!state.isInitialized) {
+      console.log(`⏳ [ShelfContext] Shelf not initialized, cannot check ${productId}`);
+      return false;
+    }
+    
+    const isInShelf = state.products.some(p => p.id === productId);
+    console.log(`🔍 [ShelfContext] Check ${productId}: ${isInShelf ? 'IN SHELF' : 'NOT IN SHELF'}`);
+    return isInShelf;
+  }, [state.products, state.isInitialized]);
+
+  // NEW: Force check shelf status for a specific product (useful for stale state)
+  const forceCheckShelfStatus = useCallback(async (productId: string): Promise<boolean> => {
+    try {
+      console.log(`🔄 [ShelfContext] Force checking shelf status for ${productId}...`);
+      
+      // Temporarily disable force refresh to prevent infinite loading
+      // TODO: Re-enable once Firebase deprecation warnings are fixed
+      console.log(`⚠️ [ShelfContext] Force check temporarily disabled for ${productId}`);
+      
+      // Just return the current state for now
+      return checkIsInShelf(productId);
+    } catch (error) {
+      console.error(`❌ [ShelfContext] Error in force check for ${productId}:`, error);
+      return false;
+    }
+  }, [checkIsInShelf]);
 
   // Get product by ID
   const getProductById = (productId: string): ShelfProduct | undefined => {
@@ -288,6 +328,7 @@ export const ShelfProvider: React.FC<ShelfProviderProps> = ({ children }) => {
     clearAllProducts,
     refreshShelf,
     checkIsInShelf,
+    forceCheckShelfStatus,
     getProductById,
     getRecentProducts,
     getProductsBySource,

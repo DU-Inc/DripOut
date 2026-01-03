@@ -24,9 +24,8 @@ import {
   takePhotoWithCamera, 
   selectImageFromLibraryAndCrop, 
   takePhotoWithCameraAndCrop, 
-  cropImage,
   ImageAsset,
-  CroppingOptions 
+  CroppingOptions
 } from '../services/imagePickerService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '../Config/firebaseconfig';
@@ -88,17 +87,16 @@ const CreatePostScreen: React.FC = () => {
   
   // Take a photo with camera
   const takePhoto = async () => {
-    // First close the modal to prevent UI issues
-    setShowImageOptions(false);
+    // DON'T close modal first - this causes iOS gallery to close immediately
+    // Instead, add iOS animation delay and close modal AFTER picker returns
     
-    // Wait a moment for modal animation to complete 
     setTimeout(async () => {
       try {
         // Use our image picker service with cropping
         const cameraOptions = {
           maxHeight: 2400,
           maxWidth: 2400,
-          quality: 1,
+          quality: 1 as const,
           includeBase64: false,
           saveToPhotos: false,
           mediaType: 'photo' as const
@@ -117,32 +115,37 @@ const CreatePostScreen: React.FC = () => {
         
         const result = await takePhotoWithCameraAndCrop(cameraOptions, croppingOptions);
         
+        // Close modal AFTER picker returns (successful or not)
+        setShowImageOptions(false);
+        
         if (result) {
           setSelectedImage(result);
         }
       } catch (error: unknown) {
+        // Close modal even on error
+        setShowImageOptions(false);
+        
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         Alert.alert(
           'Camera Error', 
           `Failed to take photo: ${errorMessage}. Please try again.`
         );
       }
-    }, 300);
+    }, 100); // iOS animation delay as per Stack Overflow solution
   };
   
   // Select image from gallery
   const selectImage = async () => {
-    // First close the modal to prevent UI issues
-    setShowImageOptions(false);
+    // DON'T close modal first - this causes iOS gallery to close immediately
+    // Instead, add iOS animation delay and close modal AFTER picker returns
     
-    // Wait a moment for modal animation to complete
     setTimeout(async () => {
       try {
         // Use our image picker service with cropping
         const libraryOptions = {
           maxHeight: 2400,
           maxWidth: 2400,
-          quality: 1,
+          quality: 1 as const,
           selectionLimit: 1,
           includeBase64: false,
           mediaType: 'photo' as const
@@ -161,17 +164,23 @@ const CreatePostScreen: React.FC = () => {
         
         const result = await selectImageFromLibraryAndCrop(libraryOptions, croppingOptions);
         
+        // Close modal AFTER picker returns (successful or not)
+        setShowImageOptions(false);
+        
         if (result) {
           setSelectedImage(result);
         }
       } catch (error: unknown) {
+        // Close modal even on error
+        setShowImageOptions(false);
+        
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         Alert.alert(
           'Gallery Error', 
           `Failed to select image: ${errorMessage}. Please try again.`
         );
       }
-    }, 300);
+    }, 100); // iOS animation delay as per Stack Overflow solution
   };
 
   // Re-crop the currently selected image
@@ -182,22 +191,12 @@ const CreatePostScreen: React.FC = () => {
     }
 
     try {
-      const croppingOptions: CroppingOptions = {
-        cropperActiveWidgetColor: mainColor,
-        cropperToolbarColor: mainColor,
-        cropperToolbarWidgetColor: '#FFFFFF',
-        freeStyleCropEnabled: true,
-        enableRotationGesture: true,
-        compressImageQuality: 0.95,
-        compressImageMaxWidth: 2400,
-        compressImageMaxHeight: 2400,
-      };
-
-      const croppedImage = await cropImage(selectedImage.uri, croppingOptions);
-      
-      if (croppedImage) {
-        setSelectedImage(croppedImage);
-      }
+      // For now, cropping is not implemented, so we'll just show a message
+      Alert.alert(
+        'Cropping Not Available', 
+        'Image cropping is not currently available. The image will be used as selected.',
+        [{ text: 'OK' }]
+      );
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       Alert.alert(
@@ -206,6 +205,7 @@ const CreatePostScreen: React.FC = () => {
       );
     }
   };
+
   
   // Add a new featured piece
   const addFeaturedPiece = () => {
@@ -367,8 +367,16 @@ const CreatePostScreen: React.FC = () => {
       
     } catch (error) {
       // Silent error handling - just log, don't show to user
+      // (Background operation, so we don't interrupt user experience)
       console.error('❌ Error during background scraping for post:', postId);
       console.error('Error details:', error);
+      
+      // Log rate limit errors for debugging
+      const isRateLimit = (error as any)?.isRateLimit === true;
+      if (isRateLimit) {
+        const resetTime = (error as any)?.resetTime || 'midnight UTC';
+        console.warn(`⚠️ Rate limit reached for scraping. Resets at ${resetTime}`);
+      }
       
       if (error instanceof Error) {
         console.error('Error message:', error.message);
@@ -494,18 +502,20 @@ const CreatePostScreen: React.FC = () => {
             <Icon name="arrow-back" size={24} color={textColor} />
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: textColor }]}>Create Post</Text>
-          <TouchableOpacity 
-            style={[styles.postButton, 
-              (!selectedImage || isUploading) && styles.disabledButton, 
-              { backgroundColor: mainColor }
-            ]}
-            onPress={handleCreatePost}
-            disabled={!selectedImage || isUploading}
-          >
-            <Text style={styles.postButtonText}>
-              {isUploading ? 'Posting...' : 'Post'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity 
+              style={[styles.postButton, 
+                (!selectedImage || isUploading) && styles.disabledButton, 
+                { backgroundColor: mainColor }
+              ]}
+              onPress={handleCreatePost}
+              disabled={!selectedImage || isUploading}
+            >
+              <Text style={styles.postButtonText}>
+                {isUploading ? 'Posting...' : 'Post'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
         
         {/* Tab Selection */}
@@ -984,6 +994,21 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  testButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  testButtonText: {
+    fontWeight: '600',
+    fontSize: 14,
+    color: '#FFFFFF',
   },
   postButton: {
     paddingHorizontal: 20,

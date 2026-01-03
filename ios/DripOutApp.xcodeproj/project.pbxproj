@@ -16,6 +16,9 @@
 		44A8C9079A317D65EF5C50C5 /* Pods_DripOutApp.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D8242CD4707F368DB162033D /* Pods_DripOutApp.framework */; };
 		692362C25797455EB6AE7E24 /* Billabong.otf in Resources */ = {isa = PBXBuildFile; fileRef = 3650D726A3B34FBDB0026A7C /* Billabong.otf */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		9E69D62B2E2A95140053EAA3 /* DripOutCameraModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 9E69D6282E2A95140053EAA3 /* DripOutCameraModule.m */; };
+		9E69D62C2E2A95140053EAA3 /* DripOutImageCropper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E69D62A2E2A95140053EAA3 /* DripOutImageCropper.swift */; };
+		9E69D62D2E2A95140053EAA3 /* DripOutCameraModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E69D6292E2A95140053EAA3 /* DripOutCameraModule.swift */; };
 		A72BA9DAB7B40B2C44C6F3C0 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5561FEB3D0DC7D476856A2A4 /* PrivacyInfo.xcprivacy */; };
 		EFD6828EB1EB41E281586D38 /* font-info.txt in Resources */ = {isa = PBXBuildFile; fileRef = 63BE832619EF40F7A1411EE3 /* font-info.txt */; };
 /* End PBXBuildFile section */
@@ -48,6 +51,11 @@
 		66821BE790A570FEB554563A /* Pods-DripOutApp-DripOutAppTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-DripOutApp-DripOutAppTests.release.xcconfig"; path = "Target Support Files/Pods-DripOutApp-DripOutAppTests/Pods-DripOutApp-DripOutAppTests.release.xcconfig"; sourceTree = "<group>"; };
 		6A568174F699A9736F5CCA7A /* Pods-DripOutApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-DripOutApp.release.xcconfig"; path = "Target Support Files/Pods-DripOutApp/Pods-DripOutApp.release.xcconfig"; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = DripOutApp/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		9E69D6272E2A95140053EAA3 /* DripOutApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "DripOutApp-Bridging-Header.h"; sourceTree = "<group>"; };
+		9E69D6282E2A95140053EAA3 /* DripOutCameraModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DripOutCameraModule.m; sourceTree = "<group>"; };
+		9E69D6292E2A95140053EAA3 /* DripOutCameraModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DripOutCameraModule.swift; sourceTree = "<group>"; };
+		9E69D62A2E2A95140053EAA3 /* DripOutImageCropper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DripOutImageCropper.swift; sourceTree = "<group>"; };
+		9E69D62E2E2A951B0053EAA3 /* DripOutApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "DripOutApp-Bridging-Header.h"; sourceTree = "<group>"; };
 		9EA0CACD2E147D16000CB253 /* DripOutApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = DripOutApp.entitlements; path = DripOutApp/DripOutApp.entitlements; sourceTree = "<group>"; };
 		AAE7E45798E3676D73F8EAED /* Pods_DripOutApp_DripOutAppTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_DripOutApp_DripOutAppTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C3151F3D6EEDC3D98459446F /* Pods-DripOutApp-DripOutAppTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-DripOutApp-DripOutAppTests.debug.xcconfig"; path = "Target Support Files/Pods-DripOutApp-DripOutAppTests/Pods-DripOutApp-DripOutAppTests.debug.xcconfig"; sourceTree = "<group>"; };
@@ -96,6 +104,10 @@
 		13B07FAE1A68108700A75B9A /* DripOutApp */ = {
 			isa = PBXGroup;
 			children = (
+				9E69D6272E2A95140053EAA3 /* DripOutApp-Bridging-Header.h */,
+				9E69D6282E2A95140053EAA3 /* DripOutCameraModule.m */,
+				9E69D6292E2A95140053EAA3 /* DripOutCameraModule.swift */,
+				9E69D62A2E2A95140053EAA3 /* DripOutImageCropper.swift */,
 				9EA0CACD2E147D16000CB253 /* DripOutApp.entitlements */,
 				020D76DE2C8CD2690029BE91 /* GoogleService-Info.plist */,
 				13B07FAF1A68108700A75B9A /* AppDelegate.h */,
@@ -106,6 +118,7 @@
 				13B07FB71A68108700A75B9A /* main.m */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 				5561FEB3D0DC7D476856A2A4 /* PrivacyInfo.xcprivacy */,
+				9E69D62E2E2A951B0053EAA3 /* DripOutApp-Bridging-Header.h */,
 			);
 			name = DripOutApp;
 			sourceTree = "<group>";
@@ -231,7 +244,7 @@
 						TestTargetID = 13B07F861A680F5B00A75B9A;
 					};
 					13B07F861A680F5B00A75B9A = {
-						LastSwiftMigration = 1120;
+						LastSwiftMigration = 2600;
 					};
 				};
 			};
@@ -434,6 +447,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9E69D62B2E2A95140053EAA3 /* DripOutCameraModule.m in Sources */,
+				9E69D62C2E2A95140053EAA3 /* DripOutImageCropper.swift in Sources */,
+				9E69D62D2E2A95140053EAA3 /* DripOutCameraModule.swift in Sources */,
 				13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */,
 				13B07FC11A68108700A75B9A /* main.m in Sources */,
 			);
@@ -531,6 +547,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.DripOutApp;
 				PRODUCT_NAME = DripOutApp;
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_OBJC_BRIDGING_HEADER = "DripOutApp-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -566,6 +583,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = org.reactjs.native.example.DripOutApp;
 				PRODUCT_NAME = DripOutApp;
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_OBJC_BRIDGING_HEADER = "DripOutApp-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
 			};

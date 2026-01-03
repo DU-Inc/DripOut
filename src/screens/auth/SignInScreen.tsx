@@ -228,7 +228,7 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
 
   // Add a new state to track retry attempts
   const [bioAuthRetryCount, setBioAuthRetryCount] = useState<number>(0);
-  const MAX_BIO_AUTH_RETRIES = 4;
+  const MAX_BIO_AUTH_RETRIES = 10;
 
   // Key for storing biometric preference in AsyncStorage
   const BIOMETRIC_ENABLED_KEY = 'biometricAuthEnabled';
@@ -1252,6 +1252,16 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       // Reset auth guard failed checks on successful login
       authGuard.resetFailedChecks();
       
+      // Check if we're in a modal context and navigate back
+      const parent = navigation.getParent();
+      const isModalContext = parent && parent.getState().routeNames.includes('MainTabs');
+      
+      if (isModalContext) {
+        console.log('SignInScreen: Proceeding to home in modal context, navigating back to main app');
+        // Navigate back to MainTabs to dismiss the modal auth stack
+        (navigation as any).navigate('MainTabs');
+      }
+      
       // Reset the SignIn screen's state
       setLoading(false);
       setIdentifier('');
@@ -1282,6 +1292,16 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       
       // Reset auth guard failed checks on successful login
       authGuard.resetFailedChecks();
+      
+      // Check if we're in a modal context and navigate back
+      const parent = navigation.getParent();
+      const isModalContext = parent && parent.getState().routeNames.includes('MainTabs');
+      
+      if (isModalContext) {
+        console.log('SignInScreen: Options sheet dismissed in modal context, navigating back to main app');
+        // Navigate back to MainTabs to dismiss the modal auth stack
+        (navigation as any).navigate('MainTabs');
+      }
       
       // Reset the SignIn screen's state
       setLoading(false);
@@ -1392,7 +1412,18 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
       } else {
         setLoading(false);
         console.log('User completed onboarding, going to home screen');
-        // No need for any navigation here - the app navigator will detect authenticated state
+        
+        // Check if we're in a modal context (opened from guest settings or similar)
+        // If so, we need to explicitly navigate back to main app
+        const parent = navigation.getParent();
+        const isModalContext = parent && parent.getState().routeNames.includes('MainTabs');
+        
+        if (isModalContext) {
+          console.log('SignInScreen: Authentication successful in modal context, navigating back to main app');
+          // Navigate back to MainTabs to dismiss the modal auth stack
+          (navigation as any).navigate('MainTabs');
+        }
+        // If not modal, the app navigator will detect authenticated state automatically
       }
     } catch (error) {
       setLoading(false);
@@ -2506,9 +2537,19 @@ const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
               // Just ensure the authenticated flag is set - app will navigate to main tabs
               appStateManager.setAuthenticated(true);
       
-      // Reset auth guard failed checks on successful login
-      authGuard.resetFailedChecks();
+              // Reset auth guard failed checks on successful login
+              authGuard.resetFailedChecks();
               appStateManager.setOnboarding(false);
+              
+              // Check if we're in a modal context and navigate back
+              const parent = navigation.getParent();
+              const isModalContext = parent && parent.getState().routeNames.includes('MainTabs');
+              
+              if (isModalContext) {
+                console.log('SignInScreen: Phone verification successful in modal context, navigating back to main app');
+                // Navigate back to MainTabs to dismiss the modal auth stack
+                (navigation as any).navigate('MainTabs');
+              }
             }
           }]
         );

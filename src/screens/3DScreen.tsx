@@ -27,7 +27,6 @@ import {
   hasUserModel, 
   getUserModelUrl, 
   createUserModel, 
-  tryOnProduct, 
   getRandomProducts,
   scrapeProductFromUrl,
   userTryOn,
@@ -48,7 +47,13 @@ import { RootStackParamList, MainTabParamList } from "../types/NavigationTypes";
 import { useShelf } from '../contexts/ShelfContext';
 import ShelfIcon from '../components/common/ShelfIcon';
 import LockOverlay from '../components/common/LockOverlay';
+// Import centralized product ID generation
+import { generateUniqueProductId } from '../utils/productIdGenerator';
+import { rateLimitService, FeatureType, RateLimitResult } from '../services/rateLimitService';
+import RateLimitModal from '../components/common/RateLimitModal';
 import { useGuestLock } from '../hooks/useGuestLock';
+// Import modern Firebase API
+import { getFirestore, collection, addDoc, serverTimestamp } from '@react-native-firebase/firestore';
 
 // Get screen dimensions for responsive design
 const { width: screenWidth } = Dimensions.get('window');
@@ -73,6 +78,10 @@ const ThreeDScreen: React.FC = () => {
   // Try-on related states
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [tryingOn, setTryingOn] = useState<boolean>(false);
+  
+  // Rate limiting state
+  const [showRateLimitModal, setShowRateLimitModal] = useState(false);
+  const [remainingTryOns, setRemainingTryOns] = useState(5);
   const [tryOnImage, setTryOnImage] = useState<string | null>(null);
   const [tryOnProgress, setTryOnProgress] = useState<number>(0);
   const [showTryOnModal, setShowTryOnModal] = useState<boolean>(false);
@@ -131,6 +140,16 @@ const ThreeDScreen: React.FC = () => {
     title: 'Save Your Favorite Looks!',
     message: 'Sign in to save and share your virtual try-on looks.'
   });
+  
+  // Update remaining try-ons count
+  const updateRemainingTryOns = async () => {
+    try {
+      const remaining = await rateLimitService.getRemainingCount(FeatureType.TRY_ON);
+      setRemainingTryOns(remaining);
+    } catch (error) {
+      console.error('Error updating remaining try-ons:', error);
+    }
+  };
   
   // Flag to track if we're currently trying to load products
   const [productsLoading, setProductsLoading] = useState<boolean>(false);
@@ -201,7 +220,7 @@ const ThreeDScreen: React.FC = () => {
       
       // Convert outfit products to the Product format expected by the try-on system
       const convertedProducts: Product[] = preloadedOutfit.products.map((product: any, index: number) => ({
-        id: product.id || `preloaded_${index}`,
+        id: generateUniqueProductId(product.id, `preloaded_${index}`, '3d-preloaded'),
         name: product.name || 'Unknown Item',
         brand: product.brand || 'Unknown Brand',
         price: product.price || 0,
@@ -266,6 +285,9 @@ const ThreeDScreen: React.FC = () => {
         hasInitialized = true;
         
         setLoadingModel(true);
+        
+        // Update remaining try-ons count
+        updateRemainingTryOns();
         
         // Start loading products immediately, don't wait for avatar
         // Only load if we don't already have products
@@ -598,7 +620,7 @@ const ThreeDScreen: React.FC = () => {
     
     // Prepare product for the bucket (ensuring required fields are present)
     const preparedProduct: Product = {
-      id: product.id || `product_${Date.now()}`,
+      id: generateUniqueProductId(product.id, 'product', '3d-tryon'),
       name: product.name || 'Unnamed Product',
       brand: product.brand || '',
       color: product.color || '',
@@ -674,6 +696,19 @@ const ThreeDScreen: React.FC = () => {
       return;
     }
     
+    // Check rate limit before proceeding
+    try {
+      const rateLimitResult = await rateLimitService.checkLimit(FeatureType.TRY_ON);
+      if (!rateLimitResult.allowed) {
+        console.log('🚫 3D Try-On: Rate limit exceeded');
+        setShowRateLimitModal(true);
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking rate limit:', error);
+      // Continue with request if rate limit check fails
+    }
+    
     try {
       setTryingOn(true);
       setTryOnProgress(0);
@@ -702,6 +737,14 @@ const ThreeDScreen: React.FC = () => {
       
       // Update state when complete
       setTryOnImage(resultUrl);
+      
+      // Increment rate limit usage after successful try-on
+      try {
+        await rateLimitService.incrementUsage(FeatureType.TRY_ON);
+        updateRemainingTryOns();
+      } catch (error) {
+        console.error('Error incrementing try-on usage:', error);
+      }
       
       // After successful try-on, we can clear the bucket if desired
       // Uncomment the following line if you want to clear the bucket after try-on
@@ -804,21 +847,52 @@ const ThreeDScreen: React.FC = () => {
       const date = new Date();
       const outfitName = `Outfit ${date.toLocaleDateString()}`;
       
+      // Clean the products data to ensure Firestore compatibility
+      const cleanProducts = tryOnBucket.map(product => {
+        // Handle images as array of objects with url and id
+        let images: { url: string; id: string }[] = [];
+        if (Array.isArray(product.images)) {
+          images = product.images.map((img: any, idx: number) => {
+            if (typeof img === 'string') {
+              return { url: img, id: String(idx) };
+            } else if (img && typeof img === 'object') {
+              return {
+                url: img.url || '',
+                id: img.id || String(idx)
+              };
+            }
+            return { url: '', id: String(idx) };
+          });
+        }
+        return {
+          id: product.id || '',
+          name: product.name || '',
+          brand: product.brand || '',
+          price: product.price || 0,
+          currency: product.currency || 'USD',
+          description: product.description || '',
+          url: product.url || '',
+          images,
+        };
+      });
+      
       // Create a document in the saved_outfits collection
       console.log('Creating document with data:', {
         userId: currentUser.uid,
         name: outfitName,
         // Store only a snippet of the image URL for logging
         imageUrl: tryOnImage ? tryOnImage.substring(0, 50) + '...' : null,
-        products: tryOnBucket.length,
+        products: cleanProducts.length, // Log the count, not the array
       });
       
-      await db.collection("saved_outfits").add({
+      // Use modern Firebase API to avoid deprecation warnings
+      const firestoreDB = getFirestore();
+      await addDoc(collection(firestoreDB, "saved_outfits"), {
         userId: currentUser.uid,
         name: outfitName,
         imageUrl: tryOnImage,
-        products: tryOnBucket,
-        createdAt: firestore.FieldValue.serverTimestamp()
+        products: cleanProducts, // Use cleaned products array
+        createdAt: serverTimestamp()
       });
       
       console.log('Outfit saved successfully!');
@@ -885,11 +959,30 @@ const ThreeDScreen: React.FC = () => {
       } catch (error) {
         // Handle errors from the batch scraping operation
         console.error(`Error scraping URLs:`, error);
-        Alert.alert(
-          'Error with URLs',
-          `Could not process one or more URLs: ${error instanceof Error ? error.message : 'Unknown error'}.`,
-          [{ text: 'OK' }]
-        );
+        
+        // Check if this is a rate limit error
+        const isRateLimit = (error as any)?.isRateLimit === true;
+        const resetTime = (error as any)?.resetTime || 'midnight UTC';
+        
+        if (isRateLimit) {
+          Alert.alert(
+            'Daily Limit Reached',
+            `${error instanceof Error ? error.message : 'Daily limit reached'}.\n\nYour limits will reset at ${resetTime}.`,
+            [{ text: 'OK' }]
+          );
+        } else if (error instanceof Error && error.message.includes('Authentication failed')) {
+          Alert.alert(
+            'Authentication Required',
+            'Please sign in to scrape product URLs.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert(
+            'Error with URLs',
+            `Could not process one or more URLs: ${error instanceof Error ? error.message : 'Unknown error'}.`,
+            [{ text: 'OK' }]
+          );
+        }
       }
       
       // Close the modal and reset states
@@ -1140,7 +1233,7 @@ const ThreeDScreen: React.FC = () => {
           See Yourself in Style
         </Text>
         <Text style={[styles.experimentalWarning, { color: subTextColor }]}>
-          Feature in development - results may be inconsistent
+          Feature in development - results may be inconsistent and we are dedicated to improving it
         </Text>
       </View>
 
@@ -1486,7 +1579,7 @@ const ThreeDScreen: React.FC = () => {
               <FlatList
                 data={filteredProducts}
                 renderItem={renderProductItem}
-                keyExtractor={(item) => item.id || Math.random().toString()}
+                keyExtractor={(item) => generateUniqueProductId(item.id, 'list-item', '3d-shelf')}
                 numColumns={2}
                 columnWrapperStyle={styles.productRow}
                 showsVerticalScrollIndicator={false}
@@ -1532,7 +1625,7 @@ const ThreeDScreen: React.FC = () => {
               <FlatList
                 data={filteredProducts}
                 renderItem={renderProductItem}
-                keyExtractor={(item) => item.id || Math.random().toString()}
+                keyExtractor={(item) => generateUniqueProductId(item.id, 'list-item', '3d-shelf')}
                 numColumns={2}
                 columnWrapperStyle={styles.productRow}
                 showsVerticalScrollIndicator={false}
@@ -1599,7 +1692,7 @@ const ThreeDScreen: React.FC = () => {
                 const imageUrl = item.images?.[0] || item.url || 'https://via.placeholder.com/150';
                 
                 return (
-                  <View key={item.id || index} style={styles.itemCard}>
+                  <View key={generateUniqueProductId(item.id, `bucket-item-${index}`, '3d-bucket')} style={styles.itemCard}>
                     <TouchableOpacity
                       onPress={() => handleRemoveFromBucket(item.id || '')}
                       style={styles.removeBtn}
@@ -1648,6 +1741,14 @@ const ThreeDScreen: React.FC = () => {
                 Try On {tryOnBucket.length > 1 ? 'All' : 'Item'}
               </Text>
             </TouchableOpacity>
+            
+            {/* Rate limit counter */}
+            <Text style={[styles.rateLimitText, { color: subTextColor }]}>
+              {remainingTryOns > 0 
+                ? `${remainingTryOns} try-ons remaining`
+                : 'Rate limit reached'
+              }
+            </Text>
             
             {panelState === 'expanded' && (
               <View style={styles.secondaryActions}>
@@ -2220,6 +2321,13 @@ const ThreeDScreen: React.FC = () => {
       <LockOverlay {...modelLock.lockProps} />
       <LockOverlay {...tryOnLock.lockProps} />
       <LockOverlay {...saveLook.lockProps} />
+      
+      {/* Rate Limit Modal */}
+      <RateLimitModal
+        visible={showRateLimitModal}
+        featureType={FeatureType.TRY_ON}
+        onClose={() => setShowRateLimitModal(false)}
+      />
     </SafeAreaView>
   );
 };
@@ -3162,6 +3270,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  
+  rateLimitText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+    opacity: 0.8,
   },
   
   secondaryActions: {

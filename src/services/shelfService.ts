@@ -2,7 +2,7 @@
 // Service for managing user's product shelf/hanger functionality
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import firestore from '@react-native-firebase/firestore';
+import { getFirestore, collection, doc, getDoc, setDoc, serverTimestamp } from '@react-native-firebase/firestore';
 import { auth } from '../Config/firebaseconfig';
 import { logger } from '../utils/logger';
 
@@ -95,11 +95,11 @@ const updateCachedShelfProducts = async (products: ShelfProduct[], userId: strin
 // Sync shelf products with Firestore
 const syncShelfWithFirestore = async (products: ShelfProduct[], userId: string): Promise<void> => {
   try {
-    const userShelfRef = firestore().collection('user_shelves').doc(userId);
+    const userShelfRef = doc(collection(getFirestore(), 'user_shelves'), userId);
     
-    await userShelfRef.set({
+    await setDoc(userShelfRef, {
       products,
-      lastUpdated: firestore.FieldValue.serverTimestamp(),
+      lastUpdated: serverTimestamp(),
       version: CURRENT_CACHE_VERSION
     }, { merge: true });
     
@@ -113,11 +113,11 @@ const syncShelfWithFirestore = async (products: ShelfProduct[], userId: string):
 // Load shelf products from Firestore
 const loadShelfFromFirestore = async (userId: string): Promise<ShelfProduct[]> => {
   try {
-    const userShelfRef = firestore().collection('user_shelves').doc(userId);
-    const doc = await userShelfRef.get();
+    const userShelfRef = doc(collection(getFirestore(), 'user_shelves'), userId);
+    const docSnapshot = await getDoc(userShelfRef);
     
-    if (doc.exists) {
-      const data = doc.data();
+    if (docSnapshot.exists()) {
+      const data = docSnapshot.data();
       if (data && Array.isArray(data.products)) {
         logger.log(`Loaded ${data.products.length} shelf products from Firestore`);
         return data.products;

@@ -4,16 +4,15 @@ import { Platform } from 'react-native';
 // Change these URLs once and they'll update across the entire app
 
 const API_URLS = {
-  // Local development URLs for different environments
-  //192.168.1.255
-  IOS_SIMULATOR: 'http://localhost:8000',
-  IOS_DEVICE: 'http://192.168.1.251:8000', // Your computer's IP for iOS device testing
-  ANDROID_EMULATOR: 'http://10.0.2.2:8000',
-  ANDROID_DEVICE: 'http://192.168.1.251:8000', // Your computer's IP for Android device testing
+  // All environments now use the production API server
+  IOS_SIMULATOR: 'http://34.27.7.69:8000',
+  IOS_DEVICE: 'http://34.27.7.69:8000',
+  ANDROID_EMULATOR: 'http://34.27.7.69:8000',
+  ANDROID_DEVICE: 'http://34.27.7.69:8000',
   
-  // Production/Staging URLs (update these when deploying)
-  PRODUCTION: 'https://your-production-api.com',
-  STAGING: 'https://your-staging-api.com',
+  // Production/Staging URLs
+  PRODUCTION: 'http://34.27.7.69:8000',
+  STAGING: 'http://34.27.7.69:8000',
 };
 
 // Environment detection and URL selection

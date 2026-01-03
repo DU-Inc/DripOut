@@ -965,7 +965,41 @@ const RecommendationScreen: React.FC = () => {
         results = searchResponse.products;
         advisorMessage = searchResponse.advisorMessage;
       } catch (apiError) {
-        // If the API fails, use mock data for demo purposes
+        // Check if this is a rate limit error
+        const isRateLimit = (apiError as any)?.isRateLimit === true;
+        const resetTime = (apiError as any)?.resetTime || 'midnight UTC';
+        
+        if (isRateLimit) {
+          const errorMessage: ChatMessage = {
+            id: `system-${Date.now()}`,
+            type: 'system',
+            text: `${apiError instanceof Error ? apiError.message : 'Daily limit reached'}\n\nYour limits will reset at ${resetTime}.`,
+            timestamp: Date.now()
+          };
+          setChatMessages(prev => [...prev, errorMessage]);
+          setLoading(false);
+          setError('Rate limit reached. Please try again later.');
+          setTimeout(() => {
+            chatScrollRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+          return;
+        } else if (apiError instanceof Error && apiError.message.includes('Authentication failed')) {
+          const errorMessage: ChatMessage = {
+            id: `system-${Date.now()}`,
+            type: 'system',
+            text: 'Please sign in to get personalized recommendations.',
+            timestamp: Date.now()
+          };
+          setChatMessages(prev => [...prev, errorMessage]);
+          setLoading(false);
+          setError('Authentication required.');
+          setTimeout(() => {
+            chatScrollRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+          return;
+        }
+        
+        // If the API fails for other reasons, use mock data for demo purposes
         console.log('Using mock data due to API error:', apiError);
         results = MOCK_PRODUCTS;
       }

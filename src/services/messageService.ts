@@ -56,7 +56,7 @@ const getCurrentUser = () => {
  * @param text - The message text
  * @returns Promise with the message ID
  */
-export const sendMessage = async (receiverId: string, text: string): Promise<string> => {
+export const sendMessage = async (receiverId: string, text: string, retries: number = 2): Promise<string> => {
   try {
     const currentUser = getCurrentUser();
     if (!currentUser) {
@@ -67,58 +67,218 @@ export const sendMessage = async (receiverId: string, text: string): Promise<str
     const senderName = currentUser.displayName || 'Anonymous';
     const senderAvatar = currentUser.photoURL;
 
+    console.log(`📤 [MessageService] Sending message from ${senderId.substring(0, 8)}... to ${receiverId.substring(0, 8)}...`);
+    console.log(`📤 [MessageService] Message text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+
+    // Enhanced receiver validation with detailed error reporting
+    let receiverExists = false;
+    let receiverData = null;
+    try {
+      console.log(`🔍 [MessageService] Verifying receiver user: ${receiverId}`);
+      const receiverDoc = await db.collection('users').doc(receiverId).get();
+      
+      if (!receiverDoc.exists()) {
+        console.error(`❌ [MessageService] CRITICAL: Receiver user ${receiverId} does not exist in users collection`);
+        throw new Error(`User ${receiverId} not found. They may have deleted their account.`);
+      } else {
+        receiverExists = true;
+        receiverData = receiverDoc.data();
+        console.log(`✅ [MessageService] Receiver user verified: ${receiverData?.username || receiverData?.displayName || receiverId}`);
+      }
+    } catch (firestoreError: any) {
+      console.error(`❌ [MessageService] Firestore error during receiver verification:`, {
+        error: firestoreError,
+        code: firestoreError?.code,
+        message: firestoreError?.message,
+        receiverId
+      });
+      
+      if (firestoreError?.code === 'permission-denied') {
+        throw new Error('Permission denied: Unable to verify user. Please check your account permissions.');
+      } else if (firestoreError?.code === 'not-found') {
+        throw new Error(`User not found. They may have deleted their account.`);
+      } else {
+        throw new Error(`Failed to verify user: ${firestoreError?.message || 'Unknown error'}`);
+      }
+    }
+
     // Create or update the conversation document
     const conversationId = getConversationId(senderId, receiverId);
+    console.log(`💬 [MessageService] Generated conversation ID: ${conversationId}`);
+    
+    if (conversationId.length < 10 || !conversationId.includes('_')) {
+      console.error(`❌ [MessageService] Invalid conversation ID generated: ${conversationId}`);
+      throw new Error('Failed to generate valid conversation ID');
+    }
+    
     const conversationRef = db.collection('conversations').doc(conversationId);
-    const conversationSnap = await conversationRef.get();
+    
+    let conversationSnap;
+    try {
+      console.log(`🔍 [MessageService] Checking if conversation exists: ${conversationId}`);
+      conversationSnap = await conversationRef.get();
+      console.log(`📄 [MessageService] Conversation exists: ${conversationSnap.exists()}`);
+    } catch (conversationError: any) {
+      console.error(`❌ [MessageService] Error checking conversation existence:`, {
+        error: conversationError,
+        code: conversationError?.code,
+        message: conversationError?.message,
+        conversationId
+      });
+      
+      if (conversationError?.code === 'permission-denied') {
+        throw new Error('Permission denied: Unable to access conversation. Please check your account permissions.');
+      } else if (conversationError?.code === 'not-found') {
+        // This is actually expected for new conversations
+        console.log(`📄 [MessageService] Conversation doesn't exist yet, will create new one`);
+        conversationSnap = { exists: () => false };
+      } else {
+        throw new Error(`Failed to check conversation: ${conversationError?.message || 'Unknown error'}`);
+      }
+    }
     
     const timestamp = firestore.FieldValue.serverTimestamp();
     
     // Check if conversation already exists
-    if (conversationSnap.exists) {
-      // Update existing conversation
-      await conversationRef.update({
-        lastMessage: text,
-        lastMessageTime: timestamp,
-        lastMessageSenderId: senderId,
-        updatedAt: timestamp,
-        // Increment unread count for receiver
-        [`unreadCount.${receiverId}`]: (conversationSnap.data().unreadCount?.[receiverId] || 0) + 1
-      });
+    if (conversationSnap.exists()) {
+      const conversationData = conversationSnap.data();
+      const currentUnreadCount = conversationData?.unreadCount?.[receiverId] || 0;
+      
+      try {
+        console.log(`🔄 [MessageService] Updating existing conversation: ${conversationId}`);
+        // Update existing conversation
+        await conversationRef.update({
+          lastMessage: text,
+          lastMessageTime: timestamp,
+          lastMessageSenderId: senderId,
+          updatedAt: timestamp,
+          // Increment unread count for receiver
+          [`unreadCount.${receiverId}`]: currentUnreadCount + 1
+        });
+        console.log(`✅ [MessageService] Successfully updated existing conversation`);
+      } catch (updateError: any) {
+        console.error(`❌ [MessageService] Error updating existing conversation:`, {
+          error: updateError,
+          code: updateError?.code,
+          message: updateError?.message,
+          conversationId
+        });
+        throw new Error(`Failed to update conversation: ${updateError?.message || 'Unknown error'}`);
+      }
     } else {
-      // Create new conversation
-      await conversationRef.set({
-        participants: [senderId, receiverId],
-        lastMessage: text,
-        lastMessageTime: timestamp,
-        lastMessageSenderId: senderId,
-        updatedAt: timestamp,
-        // Initialize unread counters
-        unreadCount: {
-          [receiverId]: 1, // Receiver has 1 unread
-          [senderId]: 0    // Sender has 0 unread
+      try {
+        console.log(`🆕 [MessageService] Creating new conversation: ${conversationId}`);
+        // Create new conversation
+        await conversationRef.set({
+          participants: [senderId, receiverId],
+          lastMessage: text,
+          lastMessageTime: timestamp,
+          lastMessageSenderId: senderId,
+          updatedAt: timestamp,
+          // Initialize unread counters
+          unreadCount: {
+            [receiverId]: 1, // Receiver has 1 unread
+            [senderId]: 0    // Sender has 0 unread
+          }
+        });
+        console.log(`✅ [MessageService] Successfully created new conversation`);
+      } catch (createError: any) {
+        console.error(`❌ [MessageService] Error creating new conversation:`, {
+          error: createError,
+          code: createError?.code,
+          message: createError?.message,
+          conversationId,
+          senderId: senderId.substring(0, 8),
+          receiverId: receiverId.substring(0, 8)
+        });
+        
+        if (createError?.code === 'permission-denied') {
+          throw new Error('Permission denied: Unable to create conversation. Please check your account permissions.');
+        } else if (createError?.code === 'not-found') {
+          throw new Error('Firestore collection not found. Please contact support.');
+        } else {
+          throw new Error(`Failed to create conversation: ${createError?.message || 'Unknown error'}`);
         }
-      });
+      }
     }
 
     // Add the message document
-    const messageDoc = await db.collection('messages').add({
-      senderId,
-      receiverId,
-      participants: [senderId, receiverId].sort(), // Ensure consistent ordering for efficient querying
-      text,
-      createdAt: timestamp,
-      read: false,
-      senderName,
-      senderAvatar
-    });
+    let messageDoc;
+    try {
+      console.log(`📝 [MessageService] Adding message to messages collection`);
+      messageDoc = await db.collection('messages').add({
+        senderId,
+        receiverId,
+        participants: [senderId, receiverId].sort(), // Ensure consistent ordering for efficient querying
+        text,
+        createdAt: timestamp,
+        read: false,
+        senderName,
+        senderAvatar
+      });
+      console.log(`✅ [MessageService] Message added successfully: ${messageDoc.id}`);
+    } catch (messageError: any) {
+      console.error(`❌ [MessageService] Error adding message to collection:`, {
+        error: messageError,
+        code: messageError?.code,
+        message: messageError?.message,
+        senderId: senderId.substring(0, 8),
+        receiverId: receiverId.substring(0, 8)
+      });
+      
+      if (messageError?.code === 'permission-denied') {
+        throw new Error('Permission denied: Unable to send message. Please check your account permissions.');
+      } else if (messageError?.code === 'not-found') {
+        throw new Error('Messages collection not found. Please contact support.');
+      } else {
+        throw new Error(`Failed to send message: ${messageError?.message || 'Unknown error'}`);
+      }
+    }
 
-    console.log(`Message sent to ${receiverId}: ${messageDoc.id}`);
+    console.log(`✅ [MessageService] Message sent successfully to ${receiverId.substring(0, 8)}...: ${messageDoc.id}`);
     return messageDoc.id;
-  } catch (error) {
-    console.error('Error sending message:', error);
-    throw error;
+  } catch (error: any) {
+    console.error(`❌ [MessageService] FINAL ERROR - Message sending failed (attempt ${3 - retries}/3):`, {
+      error,
+      code: error?.code,
+      message: error?.message,
+      stack: error?.stack,
+      retriesLeft: retries
+    });
+    
+    // Retry logic for transient errors
+    if (retries > 0 && shouldRetryError(error)) {
+      console.log(`🔄 [MessageService] Retrying message send in 1 second... (${retries} retries left)`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return sendMessage(receiverId, text, retries - 1);
+    }
+    
+    // Re-throw with more specific error message
+    if (error?.message && typeof error.message === 'string') {
+      throw error; // Keep our custom error messages
+    } else {
+      throw new Error(`Failed to send message: ${error?.code || 'Unknown error'}`);
+    }
   }
+};
+
+/**
+ * Determines if an error should trigger a retry
+ */
+const shouldRetryError = (error: any): boolean => {
+  if (!error?.code) return false;
+  
+  // Retry on network/timeout issues but not on permission/validation errors
+  const retryableCodes = [
+    'unavailable',           // Firestore temporarily unavailable
+    'deadline-exceeded',     // Request timeout
+    'aborted',              // Request aborted
+    'internal',             // Internal server error
+    'unknown',              // Unknown error that might be transient
+    'resource-exhausted'    // Rate limiting (might resolve quickly)
+  ];
+  
+  return retryableCodes.includes(error.code);
 };
 
 /**
@@ -203,7 +363,7 @@ export const getConversations = async (): Promise<ConversationWithDetails[]> => 
       if (otherUserId && otherUserId !== userId) {
         // Get other user's profile details
         const userDoc = await db.collection('users').doc(otherUserId).get();
-        const userData = userDoc.exists ? userDoc.data() : {};
+        const userData = userDoc.exists() ? userDoc.data() : {};
         
         // Format timestamp
         let timeAgo = 'Just now';
@@ -275,14 +435,20 @@ export const markConversationAsRead = async (otherUserId: string): Promise<void>
     const conversationId = getConversationId(userId, otherUserId);
     const conversationRef = db.collection('conversations').doc(conversationId);
     
-    try {
-      await conversationRef.update({
-        [`unreadCount.${userId}`]: 0
-      });
-      console.log(`Reset unread count for conversation ${conversationId}`);
-    } catch (error) {
-      console.error('Failed to update conversation unread count:', error);
-      // Continue even if this fails
+    // Check if conversation exists before trying to update
+    const conversationSnap = await conversationRef.get();
+    if (conversationSnap.exists()) {
+      try {
+        await conversationRef.update({
+          [`unreadCount.${userId}`]: 0
+        });
+        console.log(`Reset unread count for conversation ${conversationId}`);
+      } catch (error) {
+        console.error('Failed to update conversation unread count:', error);
+        // Continue even if this fails
+      }
+    } else {
+      console.log(`Conversation ${conversationId} does not exist yet, skipping unread count reset`);
     }
     
     // Mark all unread messages as read
@@ -404,7 +570,7 @@ export const subscribeToConversations = (
           // Get other user's profile details
           try {
             const userDoc = await db.collection('users').doc(otherUserId).get();
-            const userData = userDoc.exists ? userDoc.data() : {};
+            const userData = userDoc.exists() ? userDoc.data() : {};
             
             // Format timestamp
             let timeAgo = 'Just now';
@@ -483,7 +649,7 @@ export const deleteMessage = async (messageId: string): Promise<void> => {
     const messageRef = db.collection('messages').doc(messageId);
     const messageSnap = await messageRef.get();
     
-    if (!messageSnap.exists) {
+    if (!messageSnap.exists()) {
       throw new Error('Message not found');
     }
     

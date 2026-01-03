@@ -1,6 +1,6 @@
 // src/services/productService.ts
 
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { memoryCache, CacheKeys } from './memoryCache';
 
 // Define interfaces for product data
@@ -64,9 +64,80 @@ export interface SearchRequest {
 
 import { Platform } from 'react-native';
 import { API_BASE_URL } from '../Config/apiConfig';
+import { getAuthToken } from '../utils/authToken';
 
 // For debugging - log the current API URL
 console.log(`Using API base URL: ${API_BASE_URL}`);
+
+/**
+ * Helper function to make authenticated API requests with error handling
+ */
+const makeAuthenticatedRequest = async <T>(
+  requestFn: (headers: Record<string, string>) => Promise<T>,
+  retryOn401: boolean = true
+): Promise<T> => {
+  try {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    return await requestFn(headers);
+  } catch (error) {
+    // Handle 401 Unauthorized - try refreshing token once
+    if (retryOn401 && axios.isAxiosError(error)) {
+      const axiosError = error as AxiosError;
+      if (axiosError.response?.status === 401) {
+        console.log('🔄 401 Unauthorized - attempting token refresh');
+        try {
+          const newToken = await getAuthToken(true);
+          if (newToken) {
+            const headers: Record<string, string> = {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${newToken}`,
+            };
+            console.log('✅ Token refreshed, retrying request');
+            return await requestFn(headers);
+          }
+        } catch (refreshError) {
+          console.error('❌ Error refreshing token:', refreshError);
+          throw new Error('Authentication failed. Please sign in again.');
+        }
+      }
+      
+      // Handle 429 Rate Limit Exceeded
+      if (axiosError.response?.status === 429) {
+        const errorData = axiosError.response.data as any;
+        const detail = errorData?.detail || errorData;
+        
+        let errorMessage = 'Daily limit reached for this action.';
+        let resetTime = 'midnight UTC';
+        
+        if (typeof detail === 'object' && detail.message) {
+          errorMessage = detail.message;
+          resetTime = detail.reset_time || resetTime;
+        } else if (typeof detail === 'string') {
+          errorMessage = detail;
+        }
+        
+        const rateLimitError = new Error(errorMessage);
+        (rateLimitError as any).isRateLimit = true;
+        (rateLimitError as any).resetTime = resetTime;
+        (rateLimitError as any).errorData = detail;
+        
+        throw rateLimitError;
+      }
+    }
+    
+    throw error;
+  }
+};
 
 // Function to test API connectivity
 export const testApiConnectivity = async (): Promise<boolean> => {
@@ -415,7 +486,7 @@ export const searchProducts = async (
     let response;
     
     if (usePost || Object.keys(filters).length > 0) {
-      // Use POST method for advanced searches
+      // Use POST method for advanced searches (protected endpoint - requires auth)
       const searchRequest: SearchRequest = {
         query,
         search_type: searchType,
@@ -426,15 +497,18 @@ export const searchProducts = async (
 
       console.log(`[SEARCH API] Using POST method with body:`, searchRequest);
       
-      response = await axios.post<SearchProductsResponse>(`${API_BASE_URL}/products/search`, searchRequest, {
-        timeout: 15000,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        }
+      response = await makeAuthenticatedRequest(async (headers) => {
+        return await axios.post<SearchProductsResponse>(
+          `${API_BASE_URL}/products/search`, 
+          searchRequest, 
+          {
+            timeout: 15000,
+            headers
+          }
+        );
       });
     } else {
-      // Use GET method for simple searches
+      // Use GET method for simple searches (protected endpoint - requires auth)
       const params = new URLSearchParams({
         query,
         page: page.toString(),
@@ -448,12 +522,11 @@ export const searchProducts = async (
       const searchUrl = `${API_BASE_URL}/products/search?${params}`;
       console.log(`[SEARCH API] Using GET method with URL:`, searchUrl);
       
-      response = await axios.get<SearchProductsResponse>(searchUrl, {
-        timeout: 15000,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        }
+      response = await makeAuthenticatedRequest(async (headers) => {
+        return await axios.get<SearchProductsResponse>(searchUrl, {
+          timeout: 15000,
+          headers
+        });
       });
     }
 

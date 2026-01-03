@@ -48,6 +48,8 @@ import { fetchFashionNews } from '../services/newsService';
 import { fetchRandomProducts, Product } from '../services/productService';
 // Import welcome cache for background mode
 import { getCachedWelcomeProducts } from '../services/welcomeProductCache';
+
+// Note: Product ID generation is now handled by centralized service
 // Import product cache for improved performance
 import { 
   getTrendingProducts, 
@@ -59,6 +61,8 @@ import {
 } from '../services/productCache';
 // Import auth for user-specific caching
 import { auth } from '../Config/firebaseconfig';
+// Import centralized product ID generation
+import { generateUniqueProductId } from '../utils/productIdGenerator';
 
 // Create an extended Product interface with optional title field
 interface ExtendedProduct extends Product {
@@ -239,6 +243,12 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
   // Add a ref map to store references to each product card
   const productRefs = useRef<{ [key: string]: React.RefObject<View> }>({});
   
+  // Add refresh counter to force component re-creation when data changes
+  const [refreshCounter, setRefreshCounter] = useState(0);
+  
+  // Add refresh timestamp to ensure unique product IDs on each refresh
+  const [refreshTimestamp, setRefreshTimestamp] = useState(Date.now());
+  
   // Clean up timers on unmount and set mounted state
   useEffect(() => {
     isMountedRef.current = true;
@@ -296,7 +306,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
             if (!imgs) return null;
             
             return {
-              id: product.id || `${idPrefix}-${Math.random().toString(36).substring(2, 9)}`,
+              id: generateUniqueProductId(product.id, idPrefix),
               name: product.name || 'Unnamed Product',
               brand: product.brand || 'Unknown Brand',
               price: typeof product.price === 'number' ? product.price : 0,
@@ -335,6 +345,9 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
             setEditorsPicksProducts(editorsPicksProducts);
             setOutfitGroups([]);
             setIsLoadingOutfits(false);
+            // Increment refresh counter and timestamp to force component re-creation
+            setRefreshCounter(prev => prev + 1);
+            setRefreshTimestamp(Date.now());
           }
         } else {
           // Normal mode: Use cache-first approach with background refresh
@@ -357,7 +370,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
             const imgs = formatImages(product.images, product.id || 'unknown-product');
             
             return {
-              id: product.id || `${idPrefix}-${Math.random().toString(36).substring(2, 9)}`,
+              id: generateUniqueProductId(product.id, idPrefix, 'overview'),
               name: product.name || 'Unnamed Product',
               brand: product.brand || 'Unknown Brand',
               price: typeof product.price === 'number' ? product.price : 0,
@@ -381,6 +394,9 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
             setEditorsPicksProducts(formattedEditorsPicks);
             setOutfitGroups([]);
             setIsLoadingOutfits(false);
+            // Increment refresh counter and timestamp to force component re-creation
+            setRefreshCounter(prev => prev + 1);
+            setRefreshTimestamp(Date.now());
           }
 
           // Check if background refresh is needed (non-blocking)
@@ -445,7 +461,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
         const imgs = formatImages(product.images, product.id || 'unknown-product');
         
         const formattedProduct = {
-          id: product.id || `search-${Math.random().toString(36).substring(2, 9)}`,
+          id: generateUniqueProductId(product.id, 'search' || 'product', 'overview'),
           name: product.name || 'Unnamed Product',
           brand: product.brand || 'Unknown Brand',
           price: typeof product.price === 'number' ? product.price : 0,
@@ -568,7 +584,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
     // Helper to convert product data to OutfitProduct format with unique ID
     const convertToOutfitProduct = (product: FormattedProduct, outfitIndex: number, productIndex: number): OutfitProduct => {
       // Create a unique ID by combining the original product ID with outfit and product indices
-      const uniqueProductId = `product-${outfitIndex}-${productIndex}-${Math.random().toString(36).substring(2, 7)}`;
+      const uniqueProductId = generateUniqueProductId(undefined, `product-${outfitIndex}-${productIndex}`, 'overview-outfit');
       
       return {
         id: uniqueProductId, // Use unique ID to prevent duplicate keys
@@ -1323,7 +1339,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
         data={visibleProducts}
         numColumns={NUM_COLUMNS}
         renderItem={renderUnifiedProductItem}
-        keyExtractor={(item): string => item.id}
+        keyExtractor={(item): string => `${item.id}-${refreshCounter}`}
         showsVerticalScrollIndicator={false}
         scrollEnabled={false} // Disable scrolling - parent ScrollView handles scrolling
         contentContainerStyle={styles.masonryContentContainer}
@@ -1336,7 +1352,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
         }
       />
     );
-  }, [renderUnifiedProductItem, themeColors.text.secondary]);
+  }, [renderUnifiedProductItem, themeColors.text.secondary, refreshCounter]);
 
   // Render search results section
   const renderSearchResults = useCallback(() => {
@@ -1388,7 +1404,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
           data={searchResults}
           numColumns={NUM_COLUMNS}
           renderItem={renderUnifiedProductItem}
-          keyExtractor={(item): string => item.id}
+          keyExtractor={(item): string => `${item.id}-search-${refreshCounter}`}
           showsVerticalScrollIndicator={false}
           scrollEnabled={false} // Parent ScrollView handles scrolling
           contentContainerStyle={styles.masonryContentContainer}
@@ -1606,11 +1622,15 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
             const currentUser = auth().currentUser;
             const userId = currentUser?.uid;
             if (userId) {
+              console.log('🔄 [Pull-to-Refresh] Clearing all product caches...');
               await clearAllProductCaches(userId);
+              console.log('✅ [Pull-to-Refresh] Product caches cleared successfully');
             }
             
             // Fetch fresh products from API with large batch to ensure variety
+            console.log('🔄 [Pull-to-Refresh] Fetching fresh products from API...');
             const apiProducts = await fetchRandomProducts(80);
+            console.log(`✅ [Pull-to-Refresh] Fetched ${apiProducts.length} fresh products from API`);
             if (apiProducts.length > 0) {
               // Helper function to format products for unified card (same as in initial load)
               const formatProductForUnifiedCard = (product: ExtendedProduct, idPrefix: string, cardType: 'full' | 'simple' | 'partial' = 'full'): FormattedProduct | null => {
@@ -1618,14 +1638,14 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
                 if (!imgs) return null;
                 
                 return {
-                  id: product.id || `${idPrefix}-${Math.random().toString(36).substring(2, 9)}`,
+                  id: generateUniqueProductId(product.id, idPrefix || 'product', 'overview'),
                   name: product.name || 'Unnamed Product',
                   brand: product.brand || 'Unknown Brand',
                   price: typeof product.price === 'number' ? product.price : 0,
                   currency: product.currency || '$',
                   images: imgs,
                   productUrl: product.productUrl || '',
-                  cardType,
+                  cardType: 'full',
                   title: product.name || 'Unnamed Product',
                   description: product.description || `${product.brand || 'Unknown Brand'}: ${product.name || 'Unnamed Product'}`,
                 };
@@ -1664,6 +1684,10 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
               setDisplayedTrendingCount(INITIAL_LOAD_COUNT);
               setDisplayedNewDropsCount(INITIAL_LOAD_COUNT);
               setDisplayedEditorsPicksCount(INITIAL_LOAD_COUNT);
+              
+              // Increment refresh counter and timestamp to force component re-creation
+              setRefreshCounter(prev => prev + 1);
+              setRefreshTimestamp(Date.now());
             }
           } catch (error) {
             console.error('Error refreshing products:', error);

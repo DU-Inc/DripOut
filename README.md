@@ -56,11 +56,8 @@ DripOut is a revolutionary React Native mobile app that combines fashion discove
 5. **Connect**: Follow other users and share your favorite finds
 
 ## 🌟 What Makes DripOut Special
-
-- **Privacy-First**: Your data is secure with Apple Sign-In compliance and transparent privacy policies
 - **Inclusive Fashion**: Discover products for all body types, styles, and budgets
 - **Community-Driven**: Real people sharing real fashion inspiration
-- **Technology-Enhanced**: Cutting-edge AI and 3D technology for the best shopping experience
 - **Direct-to-Consumer**: Skip the middleman and discover emerging brands
 
 ## 🎨 Core Experience
@@ -80,13 +77,6 @@ Organize your fashion finds, create wishlists, and build complete outfits with p
 ### Fashion Advisor
 Get personalized styling advice from our AI fashion expert, trained on the latest trends and styling techniques.
 
-## 🔒 Privacy & Security
-
-DripOut takes your privacy seriously:
-- **Secure Authentication**: Industry-standard security with biometric login options
-- **Data Protection**: Your personal information is encrypted and never sold to third parties
-- **Transparent Policies**: Clear privacy policies with granular consent options
-- **Apple Compliance**: Full compliance with Apple's privacy requirements for App Store
 
 ## 🤝 Community Guidelines
 

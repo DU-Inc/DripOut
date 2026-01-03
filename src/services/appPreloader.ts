@@ -187,18 +187,18 @@ const preloadInteractions = async (): Promise<{ interactions: boolean; errors: s
     await clearAllInteractionCaches();
     
     // Import services dynamically to avoid circular dependencies
-    const { getUserLikes } = require('./likeService');
-    const { getUserSaves } = require('./saveService');
+    const { getLikedPostsByUser } = require('./likeService');
+    const { getSavedPostsByUser } = require('./saveService');
     const { getFollowingList } = require('./followService');
     
     // Preload user interactions in parallel with retry logic
     const interactionPromises = [
-      getUserLikes(currentUser.uid).catch((error: any) => {
+      getLikedPostsByUser(currentUser.uid).catch((error: any) => {
         logger.error('Failed to preload likes:', error);
         errors.push(`Likes preload failed: ${error}`);
         return [];
       }),
-      getUserSaves(currentUser.uid).catch((error: any) => {
+      getSavedPostsByUser(currentUser.uid).catch((error: any) => {
         logger.error('Failed to preload saves:', error);
         errors.push(`Saves preload failed: ${error}`);
         return [];
@@ -214,8 +214,8 @@ const preloadInteractions = async (): Promise<{ interactions: boolean; errors: s
     
     // Update caches with fetched data
     await Promise.all([
-      batchUpdateLikesCache(likes.map((like: any) => like.postId || like.id)),
-      batchUpdateSavesCache(saves.map((save: any) => save.postId || save.id)),
+      batchUpdateLikesCache(likes), // likes is already an array of post IDs
+      batchUpdateSavesCache(saves), // saves is already an array of post IDs
       batchUpdateFollowsCache(follows.map((follow: any) => follow.followedUserId || follow.id))
     ]);
     

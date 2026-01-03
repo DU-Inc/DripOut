@@ -1081,7 +1081,9 @@ const ClosetScreen: React.FC = () => {
       </Text>
       <TouchableOpacity 
         style={[styles.emptyStateButton, { backgroundColor: mainColor }]}
-        onPress={() => navigation.navigate('SocialScreen')}
+        onPress={() => navigation.navigate('MainTabs', {
+          screen: 'SocialTab'
+        })}
       >
         <Text style={styles.emptyStateButtonText}>Browse Fashion Feed</Text>
       </TouchableOpacity>
@@ -1295,7 +1297,10 @@ const ClosetScreen: React.FC = () => {
                 <TouchableOpacity
                   style={[styles.outfitDetailSecondaryAction, { backgroundColor: surfaceColor, borderColor: borderColor }]}
                   onPress={() => {
-                    Alert.alert("Delete", "Delete outfit functionality");
+                    if (selectedOutfit) {
+                      setOutfitModalVisible(false);
+                      deleteOutfit(selectedOutfit.id, selectedOutfit.name);
+                    }
                   }}
                 >
                   <Icon name="trash-outline" size={16} color="#FF4757" />

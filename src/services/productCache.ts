@@ -546,7 +546,8 @@ export const needsBackgroundRefresh = async (userId: string): Promise<{
 // ===== CACHE MANAGEMENT =====
 
 /**
- * Clear all product caches for specific user - Requires userId for data isolation
+ * Clear all product caches for a specific user
+ * This includes both AsyncStorage and memory cache for complete refresh
  */
 export const clearAllProductCaches = async (userId: string): Promise<void> => {
   try {
@@ -557,8 +558,14 @@ export const clearAllProductCaches = async (userId: string): Promise<void> => {
       getUserSpecificCacheKey(EDITORS_PICKS_CACHE_KEY, userId)
     ];
 
+    // Clear AsyncStorage caches
     await AsyncStorage.multiRemove(cacheKeys);
-    console.log('Cleared all product caches for user:', userId);
+    
+    // Clear memory cache for random products (used by fetchRandomProducts)
+    // This ensures pull-to-refresh actually fetches fresh data from API
+    await memoryCache.clearPattern('random_products_');
+    
+    console.log('Cleared all product caches (AsyncStorage + Memory) for user:', userId);
   } catch (error) {
     console.error('Error clearing all product caches:', error);
   }
