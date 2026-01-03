@@ -57,13 +57,22 @@ name: CI
       if: github.event_name == 'pull_request'
       runs-on: macos-latest
       steps:
-        - uses: actions/checkout@v2
+        - uses: actions/checkout@v4
+        - name: Setup Node.js
+          uses: actions/setup-node@v4
+          with:
+            node-version: '18'
         - name: Install dependencies
           run: npm install
-        - name: Install CocoaPods
+        - name: Setup Ruby
+          uses: ruby/setup-ruby@v1
+          with:
+            ruby-version: '3.2'
+        - name: Install CocoaPods dependencies
+          working-directory: ios
           run: |
-            cd ios
-            pod install
+            gem install cocoapods
+            pod install --repo-update
         - name: Build iOS
           run: |
             xcodebuild -workspace ios/DripOutApp.xcworkspace \
