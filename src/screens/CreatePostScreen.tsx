@@ -190,20 +190,8 @@ const CreatePostScreen: React.FC = () => {
       return;
     }
 
-    try {
-      // For now, cropping is not implemented, so we'll just show a message
-      Alert.alert(
-        'Cropping Not Available', 
-        'Image cropping is not currently available. The image will be used as selected.',
-        [{ text: 'OK' }]
-      );
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      Alert.alert(
-        'Crop Error', 
-        `Failed to crop image: ${errorMessage}. Please try again.`
-      );
-    }
+    // Re-open image options so users can re-select and crop with the native flow.
+    setShowImageOptions(true);
   };
 
   
@@ -569,7 +557,7 @@ const CreatePostScreen: React.FC = () => {
                     onPress={reCropImage}
                   >
                     <Icon name="crop" size={18} color="#FFFFFF" />
-                    <Text style={styles.changeImageText}>Crop</Text>
+                    <Text style={styles.changeImageText}>Re-crop</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.changeImageButton, { backgroundColor: 'rgba(0,0,0,0.5)', marginLeft: 8 }]}

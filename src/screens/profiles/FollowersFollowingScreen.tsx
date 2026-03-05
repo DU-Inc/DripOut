@@ -10,14 +10,13 @@ import {
   ActivityIndicator,
   RefreshControl,
   StatusBar,
-  Alert,
 } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../../styles/themeprovider';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { followService, UserPreview } from '../../services/followService';
-import { RootStackParamList } from '../../navigations/types';
+import { RootStackParamList } from '../../types/NavigationTypes';
 
 type FollowersFollowingScreenRouteProp = RouteProp<
   RootStackParamList,
@@ -108,11 +107,11 @@ const FollowersFollowingScreen: React.FC = () => {
 
   // Handle user press
   const handleUserPress = useCallback((user: UserPreview) => {
-    // Navigate to user profile - for now just show alert
-    Alert.alert('User Profile', `Navigate to ${user.userDisplayName || user.fullName || user.username}'s profile`);
-    // TODO: Implement navigation to user profile
-    // navigation.navigate('UserProfile', { userId: user.id });
-  }, []);
+    navigation.navigate('UserDetailScreen', {
+      userId: user.id,
+      username: user.username
+    });
+  }, [navigation]);
 
   // Get user initials
   const getUserInitials = useCallback((user: UserPreview): string => {

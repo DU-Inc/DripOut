@@ -5,6 +5,11 @@
 
 import { InteractionManager } from 'react-native';
 import { memoryCache } from './memoryCache';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth } from '../Config/firebaseconfig';
+import { getTrendingProducts, getNewDropsProducts } from './productCache';
+import { getUserProfile } from './firestoreService';
+import { fetchPosts } from './postService';
 
 // Tab names and their adjacent tabs for prefetching
 const TAB_ADJACENCY_MAP = {
@@ -32,6 +37,10 @@ class TabPrefetchService {
   private isEnabled = true;
   private prefetchInProgress = new Set<string>();
   private lastActiveTab: string | null = null;
+
+  private getCurrentUserId(): string | null {
+    return auth().currentUser?.uid || null;
+  }
   
   /**
    * Register data loaders for tabs
@@ -40,11 +49,7 @@ class TabPrefetchService {
     'Social': [
       {
         key: 'social_posts',
-        loader: async () => {
-          // Import dynamically to avoid circular dependencies
-          const { fetchPosts } = await import('./postService');
-          return await fetchPosts();
-        },
+        loader: async () => await fetchPosts(),
         ttl: 10 * 60 * 1000, // 10 minutes
         priority: 'high'
       }
@@ -53,9 +58,8 @@ class TabPrefetchService {
       {
         key: 'trending_products',
         loader: async () => {
-          const { getTrendingProducts } = await import('./productCache');
-          // For prefetch, we need a user ID - this would come from auth state
-          const userId = 'prefetch_user'; // TODO: Get from auth context
+          const userId = this.getCurrentUserId();
+          if (!userId) return null;
           return await getTrendingProducts(false, userId);
         },
         ttl: 30 * 60 * 1000, // 30 minutes
@@ -64,8 +68,8 @@ class TabPrefetchService {
       {
         key: 'new_drops',
         loader: async () => {
-          const { getNewDropsProducts } = await import('./productCache');
-          const userId = 'prefetch_user'; // TODO: Get from auth context
+          const userId = this.getCurrentUserId();
+          if (!userId) return null;
           return await getNewDropsProducts(false, userId);
         },
         ttl: 3 * 60 * 60 * 1000, // 3 hours
@@ -76,8 +80,8 @@ class TabPrefetchService {
       {
         key: 'user_profile',
         loader: async () => {
-          const { getUserProfile } = await import('./firestoreService');
-          const userId = 'current_user'; // TODO: Get from auth context
+          const userId = this.getCurrentUserId();
+          if (!userId) return null;
           return await getUserProfile(userId);
         },
         ttl: 60 * 60 * 1000, // 1 hour
@@ -88,8 +92,21 @@ class TabPrefetchService {
       {
         key: 'avatar_data',
         loader: async () => {
-          // Placeholder for 3D avatar data loading
-          return { avatarLoaded: true, timestamp: Date.now() };
+          const userId = this.getCurrentUserId();
+          if (!userId) return null;
+
+          const avatarKey = `user_avatar_image_url_${userId}`;
+          const avatarTimestampKey = `user_avatar_image_timestamp_${userId}`;
+          const [avatarUrl, avatarTimestamp] = await Promise.all([
+            AsyncStorage.getItem(avatarKey),
+            AsyncStorage.getItem(avatarTimestampKey),
+          ]);
+
+          return {
+            avatarLoaded: !!avatarUrl,
+            avatarUrl: avatarUrl || null,
+            timestamp: avatarTimestamp ? Number(avatarTimestamp) : null,
+          };
         },
         ttl: 24 * 60 * 60 * 1000, // 24 hours
         priority: 'low'

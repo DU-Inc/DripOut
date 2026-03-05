@@ -403,6 +403,7 @@ const ProductDetailsModal = React.memo(({
   item, 
   onClose, 
   onOpenProduct,
+  onViewCloset,
   onFavorite,
   mainColor, 
   cardBgColor,
@@ -414,6 +415,7 @@ const ProductDetailsModal = React.memo(({
   item: Product | null, 
   onClose: () => void,
   onOpenProduct: (url: string) => void,
+  onViewCloset: () => void,
   onFavorite: (product: Product) => void,
   mainColor: string,
   cardBgColor: string,
@@ -572,7 +574,7 @@ const ProductDetailsModal = React.memo(({
               {/* View in Closet button */}
               <TouchableOpacity 
                 style={[styles.viewClosetButton, { borderColor: subTextColor }]}
-                onPress={() => navigation.navigate('ClosetTab' as never)}
+                onPress={onViewCloset}
               >
                 <Icon name="shirt-outline" size={20} color={subTextColor} style={{ marginRight: 8 }} />
                 <Text style={[styles.viewClosetButtonText, { color: subTextColor }]}>View in Closet</Text>
@@ -584,50 +586,6 @@ const ProductDetailsModal = React.memo(({
     )
   );
 });
-
-// Mock Products data - for testing
-const MOCK_PRODUCTS: Product[] = [
-  {
-    id: '1',
-    name: 'Striped Cotton T-Shirt',
-    price: 39.99,
-    images: ['https://images.unsplash.com/photo-1523381210434-271e8be1f52b?q=80&w=600&auto=format'],
-    url: 'https://example.com/product1',
-    site: 'H&M'
-  },
-  {
-    id: '2',
-    name: 'Slim-Fit Jeans',
-    price: 59.99,
-    images: ['https://images.unsplash.com/photo-1541099649105-f69ad21f3246?q=80&w=600&auto=format'],
-    url: 'https://example.com/product2',
-    site: 'Zara'
-  },
-  {
-    id: '3',
-    name: 'Leather Jacket',
-    price: 199.99,
-    images: ['https://images.unsplash.com/photo-1551028719-00167b16eac5?q=80&w=600&auto=format'],
-    url: 'https://example.com/product3',
-    site: 'Mango'
-  },
-  {
-    id: '4',
-    name: 'White Sneakers',
-    price: 89.99,
-    images: ['https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?q=80&w=600&auto=format'],
-    url: 'https://example.com/product4',
-    site: 'Nike'
-  },
-  {
-    id: '5',
-    name: 'Wool Coat',
-    price: 149.99,
-    images: ['https://images.unsplash.com/photo-1544022613-e87ca75a784a?q=80&w=600&auto=format'],
-    url: 'https://example.com/product5',
-    site: 'ASOS'
-  }
-];
 
 // Professional greeting utilities
 const getProfessionalGreeting = (userProfile?: any) => {
@@ -747,7 +705,7 @@ const ASSISTANT_SUGGESTIONS = [
 
 const RecommendationScreen: React.FC = () => {
   const { isDarkMode } = useTheme();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   
   // Search and API state
   const [query, setQuery] = useState('');
@@ -999,9 +957,19 @@ const RecommendationScreen: React.FC = () => {
           return;
         }
         
-        // If the API fails for other reasons, use mock data for demo purposes
-        console.log('Using mock data due to API error:', apiError);
-        results = MOCK_PRODUCTS;
+        const errorMessage: ChatMessage = {
+          id: `system-${Date.now()}`,
+          type: 'system',
+          text: 'Recommendation service is unavailable right now. Please try again shortly.',
+          timestamp: Date.now()
+        };
+        setChatMessages(prev => [...prev, errorMessage]);
+        setLoading(false);
+        setError('Recommendation service unavailable.');
+        setTimeout(() => {
+          chatScrollRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+        return;
       }
       
       // Create system response with products
@@ -1298,7 +1266,8 @@ const RecommendationScreen: React.FC = () => {
   // Render a chat message
   const renderChatMessage = (message: ChatMessage, index: number) => {
     const isUser = message.type === 'user';
-    const hasProducts = message.products && message.products.length > 0;
+    const products = message.products ?? [];
+    const hasProducts = products.length > 0;
     
     return (
       <View 
@@ -1333,10 +1302,10 @@ const RecommendationScreen: React.FC = () => {
         {hasProducts && (
           <View style={styles.productsGrid}>
             <Text style={[styles.productsGridTitle, { color: textColor }]}>
-              {message.products && message.products.length} items found
+              {products.length} items found
             </Text>
             <FlatList
-              data={message.products}
+              data={products}
               renderItem={({ item, index }) => (
                 <ProductItem
                   item={item}
@@ -1349,14 +1318,14 @@ const RecommendationScreen: React.FC = () => {
                   mainColor={mainColor}
                 />
               )}
-              keyExtractor={item => item.id}
+              keyExtractor={(item, idx) => item.id ?? `${idx}-${item.url}`}
               horizontal
               showsHorizontalScrollIndicator={false}
               decelerationRate="fast"
               snapToAlignment="center"
               snapToInterval={width * 0.75 + 20}
               contentContainerStyle={styles.productsCarouselContent}
-              snapToOffsets={message.products.map((_, i) => i * (width * 0.75 + 20))}
+              snapToOffsets={products.map((_, i) => i * (width * 0.75 + 20))}
               initialNumToRender={2}
             />
           </View>
@@ -1616,6 +1585,7 @@ const RecommendationScreen: React.FC = () => {
         item={selectedProduct}
         onClose={closeProductPreview}
         onOpenProduct={openProductUrl}
+        onViewCloset={() => navigation.navigate('ClosetTab')}
         onFavorite={handleFavoriteProduct}
         mainColor={mainColor}
         cardBgColor={cardBgColor}

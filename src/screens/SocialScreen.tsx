@@ -798,9 +798,9 @@ const SocialScreen: React.FC = () => {
             commentCount = post.comments || 0; // Fall back to the post's comment count field
           }
         } else {
-          // Generate fake comments for demo posts
-          comments = generateSampleComments(post.id);
-          commentCount = comments.length;
+          // Do not synthesize demo comments in production flow.
+          comments = [];
+          commentCount = post.comments || 0;
         }
         
         // Convert tags array to include hashtags if they don't have them
@@ -821,34 +821,9 @@ const SocialScreen: React.FC = () => {
         // Use real outfit items if available, otherwise only generate for mock posts
         let outfitItems = post.outfitItems || [];
         
-        // Only generate sample outfit items for mock posts
+        // Keep outfit items empty when no real data is available.
         if (outfitItems.length === 0 && (!isRealUserId(post.userId) || post.id.includes('mock'))) {
-          outfitItems = [
-            {
-              name: 'Oversized Shirt', 
-              brand: 'COS',
-              type: 'shirt',
-              affiliateLink: Math.random() > 0.5 ? 'https://www.cos.com' : undefined
-            },
-            {
-              name: 'Slim Trousers', 
-              brand: 'Uniqlo',
-              type: 'pants',
-              affiliateLink: Math.random() > 0.5 ? 'https://www.uniqlo.com' : undefined
-            },
-            {
-              name: 'Minimal Sneakers', 
-              brand: 'Common Projects',
-              type: 'shoes',
-              affiliateLink: Math.random() > 0.5 ? 'https://www.mrporter.com' : undefined
-            },
-            {
-              name: 'Classic Watch', 
-              brand: 'Timex',
-              type: 'accessory',
-              affiliateLink: Math.random() > 0.5 ? 'https://www.timex.com' : undefined
-            }
-          ];
+          outfitItems = [];
         }
           
         return {

@@ -39,6 +39,8 @@ interface IdentifierInputProps {
   onEmailValidated?: (isValid: boolean, errorMessage?: string) => void;
   // Add a prop to track if user has attempted submission
   hasAttemptedSubmit?: boolean;
+  // Disable phone toggle when the flow only supports email verification.
+  phoneOptionEnabled?: boolean;
 }
 
 const IdentifierInput: React.FC<IdentifierInputProps> = ({
@@ -56,7 +58,8 @@ const IdentifierInput: React.FC<IdentifierInputProps> = ({
   onIdentifierBlur,
   theme,
   onEmailValidated,
-  hasAttemptedSubmit
+  hasAttemptedSubmit,
+  phoneOptionEnabled = true
 }) => {
   // Add state for email validation
   const [isCheckingEmail, setIsCheckingEmail] = useState(false);
@@ -269,41 +272,44 @@ const IdentifierInput: React.FC<IdentifierInputProps> = ({
         <TouchableOpacity
           style={[
             styles.toggleButton,
-            { borderBottomColor: identifierType === 'email' ? theme.primary : theme.border },
+            { borderBottomColor: identifierType === 'email' || !phoneOptionEnabled ? theme.primary : theme.border },
           ]}
           onPress={() => {
             if (identifierType !== 'email') onToggleIdentifierType();
           }}
+          disabled={!phoneOptionEnabled}
         >
           <Text
             style={[
               styles.toggleText,
-              { color: identifierType === 'email' ? theme.primary : theme.text.secondary },
+              { color: identifierType === 'email' || !phoneOptionEnabled ? theme.primary : theme.text.secondary },
               identifierType === 'email' ? styles.toggleTextActive : null,
             ]}
           >
             {text.components.identifierInput.emailToggle}
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.toggleButton,
-            { borderBottomColor: identifierType === 'phone' ? theme.primary : theme.border },
-          ]}
-          onPress={() => {
-            if (identifierType !== 'phone') onToggleIdentifierType();
-          }}
-        >
-          <Text
+        {phoneOptionEnabled && (
+          <TouchableOpacity
             style={[
-              styles.toggleText,
-              { color: identifierType === 'phone' ? theme.primary : theme.text.secondary },
-              identifierType === 'phone' ? styles.toggleTextActive : null,
+              styles.toggleButton,
+              { borderBottomColor: identifierType === 'phone' ? theme.primary : theme.border },
             ]}
+            onPress={() => {
+              if (identifierType !== 'phone') onToggleIdentifierType();
+            }}
           >
-            {text.components.identifierInput.phoneToggle}
-          </Text>
-        </TouchableOpacity>
+            <Text
+              style={[
+                styles.toggleText,
+                { color: identifierType === 'phone' ? theme.primary : theme.text.secondary },
+                identifierType === 'phone' ? styles.toggleTextActive : null,
+              ]}
+            >
+              {text.components.identifierInput.phoneToggle}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
       
       <AnimatedFormContainer

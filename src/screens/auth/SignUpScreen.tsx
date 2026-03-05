@@ -135,8 +135,8 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
   // First, find where the initial state is being set from route params
   // Get email/phone from route params if available
   const initialEmail = route.params?.email || '';
-  const initialPhone = route.params?.phone || '';
-  const initialIdentifierType = route.params?.identifierType || 'email';
+  // Signup flow currently supports email verification only.
+  const initialIdentifierType: 'email' = 'email';
   const initialValidated = route.params?.isValidated || false;
   const isGoogleAuth = route.params?.isGoogleAuth || false;
   const initialFirstName = route.params?.firstName || '';
@@ -152,9 +152,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
   const buttonRef = useRef<View>(null);
 
   // Form state (centralized)
-  const [email, setEmail] = useState(initialIdentifierType === 'email' ? initialEmail : '');
-  const [phone, setPhone] = useState(initialIdentifierType === 'phone' ? initialPhone : '');
-  const [identifierType, setIdentifierType] = useState<'email' | 'phone'>(initialIdentifierType);
+  const [email, setEmail] = useState(initialEmail);
+  const [phone, setPhone] = useState('');
+  const [identifierType] = useState<'email' | 'phone'>(initialIdentifierType);
   
   // Add state for password - moved up before it's used
   const [personalPassword, setPersonalPassword] = useState('');
@@ -719,34 +719,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
 
   // Toggle between email and phone with fade animation
   const toggleIdentifierType = useCallback(() => {
-    Animated.timing(inputOpacity, {
-      toValue: 0,
-      duration: 150, // Faster fade out
-      easing: Easing.ease,
-      useNativeDriver: true,
-    }).start(() => {
-      // Update state AFTER fade out
-      const nextType = identifierType === 'email' ? 'phone' : 'email';
-      setIdentifierType(nextType);
-      setIdentifierError(''); // Clear error on switch
-      
-      // Re-validate based on the NEW type and its CURRENT value
-      if (nextType === 'email') {
-        setIdentifierValid(validateEmail(email));
-      } else {
-        setIdentifierValid(validatePhone(phone));
-      }
-
-      // Fade back in
-      Animated.timing(inputOpacity, {
-        toValue: 1,
-        duration: 200, // Slightly slower fade in
-        easing: Easing.ease,
-        useNativeDriver: true,
-        delay: 50 // Slight delay before fade in
-      }).start();
-    });
-  }, [identifierType, inputOpacity, email, phone, validateEmail, validatePhone]);
+    // Phone signup is disabled until phone verification is fully implemented.
+    return;
+  }, []);
 
   // Email and phone change handlers
   const handleEmailChange = useCallback((inputText: string) => {
@@ -1592,10 +1567,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
           }, 450);
         }, 100);
       } else {
-        // Phone not implemented yet
         Alert.alert(
           "Phone Verification",
-          "Phone verification is not yet implemented. Please use email instead.",
+          "Phone signup is temporarily unavailable. Please use email instead.",
           [{ text: "OK" }]
         );
         setLoading(false);
@@ -1692,8 +1666,7 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
           throw new Error('Verification failed');
         }
       } else {
-        // Phone not implemented yet
-        throw new Error('Phone verification not implemented');
+        throw new Error('Phone signup is temporarily unavailable');
       }
     } catch (error) {
       console.error('Verification error:', error);
@@ -2078,10 +2051,9 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
           }
         }
       } else {
-        // Phone not implemented yet
         Alert.alert(
           "Phone Verification",
-          "Phone verification is not yet implemented. Please use email instead.",
+          "Phone signup is temporarily unavailable. Please use email instead.",
           [{ text: "OK" }]
         );
       }
@@ -2520,13 +2492,8 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
               // Save current field values to pass to SignIn
               const params: any = {};
               
-              // Always pass the current email/phone, whether valid or not
-              if (identifierType === 'email') {
-                params.email = email;
-              } else {
-                params.phone = phone;
-              }
-              params.identifierType = identifierType;
+              params.email = email;
+              params.identifierType = 'email';
               
               // Pass the current validation state
               params.isValidated = identifierValid;
@@ -2549,13 +2516,8 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
       // Always pass the current field values
       const params: any = {};
       
-      // Always pass the current email/phone, whether valid or not
-      if (identifierType === 'email') {
-        params.email = email;
-      } else {
-        params.phone = phone;
-      }
-      params.identifierType = identifierType;
+      params.email = email;
+      params.identifierType = 'email';
       
       // Pass the current validation state
       params.isValidated = identifierValid;
@@ -2735,11 +2697,7 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
                 if (!isTermsChecked) {
                   Alert.alert("Terms Agreement Required", "Please check the box to agree to the terms and conditions before proceeding.");
                 } else if (!identifierValid) {
-                  if (identifierType === 'email') {
-                    setIdentifierError('Please enter a valid email address');
-                  } else {
-                    setIdentifierError('Please enter a valid phone number');
-                  }
+                  setIdentifierError('Please enter a valid email address');
                 }
               }}
               style={styles.button.withLargerMargin}
@@ -3069,6 +3027,7 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation, route }) => {
               }
               setIdentifierValid(isValid);
             }}
+            phoneOptionEnabled={false}
           />
         ) : (
           /* Collapsed Status Display */

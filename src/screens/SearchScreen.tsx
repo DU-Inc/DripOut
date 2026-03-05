@@ -25,6 +25,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../styles/themeprovider';
 import Fuse from 'fuse.js';
+import type { FuseResult } from 'fuse.js';
 import { searchUsers, getUserProfileByUsername, UserProfile } from '../services/firestoreService';
 import { auth } from '../Config/firebaseconfig';
 import { getFollowCounts } from '../services/followService';
@@ -132,7 +133,7 @@ const UNIQUE_TAGS: Tag[] = Array.from(
 
 // Search screen component
 const SearchScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { isDarkMode } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('accounts');
@@ -145,8 +146,8 @@ const SearchScreen: React.FC = () => {
   
   // Search results
   const [firebaseUsers, setFirebaseUsers] = useState<UserProfile[]>([]);
-  const [postResults, setPostResults] = useState<Fuse.FuseResult<Post>[]>([]);
-  const [tagResults, setTagResults] = useState<Fuse.FuseResult<Tag>[]>([]);
+  const [postResults, setPostResults] = useState<FuseResult<Post>[]>([]);
+  const [tagResults, setTagResults] = useState<FuseResult<Tag>[]>([]);
   
   // User display data with follow counts
   const [userDisplayData, setUserDisplayData] = useState<User[]>([]);
@@ -261,17 +262,9 @@ const SearchScreen: React.FC = () => {
         const users = await searchUsers(searchQuery);
         setFirebaseUsers(users);
         
-        // Mock post search (would be replaced with Firestore implementation)
-        if (postSearchRef.current) {
-          const posts = postSearchRef.current.search(searchQuery);
-          setPostResults(posts);
-        }
-        
-        // Mock tag search (would be replaced with Firestore implementation)
-        if (tagSearchRef.current) {
-          const tags = tagSearchRef.current.search(searchQuery);
-          setTagResults(tags);
-        }
+        // Keep post/tag results empty until those tabs are backed by real data.
+        setPostResults([]);
+        setTagResults([]);
       } catch (error) {
         console.error('Search error:', error);
       } finally {
@@ -285,14 +278,15 @@ const SearchScreen: React.FC = () => {
   // Save search results after they're loaded
   useEffect(() => {
     // Only save when we have search results and we're not still searching
-    if (searchQuery.trim() !== '' && !isSearching && hasResults) {
+    const anyResults = userDisplayData.length > 0 || postResults.length > 0 || tagResults.length > 0;
+    if (searchQuery.trim() !== '' && !isSearching && anyResults) {
       console.log('Saving search results for:', searchQuery);
       // Use setTimeout to ensure all state updates have completed
       setTimeout(() => {
         savePreviousSearchResults();
       }, 500);
     }
-  }, [isSearching, hasResults, searchQuery, userDisplayData, postResults, tagResults]);
+  }, [isSearching, searchQuery, userDisplayData, postResults, tagResults]);
   
   // Load recent searches from AsyncStorage with user-specific key
   const loadRecentSearches = async () => {
@@ -322,7 +316,8 @@ const SearchScreen: React.FC = () => {
   
   // Save previous search results with the complete result data
   const savePreviousSearchResults = async () => {
-    if (!searchQuery.trim() || !hasResults) {
+    const anyResults = userDisplayData.length > 0 || postResults.length > 0 || tagResults.length > 0;
+    if (!searchQuery.trim() || !anyResults) {
       console.log('Not saving search results - Empty query or no results');
       return;
     }
@@ -581,7 +576,7 @@ const SearchScreen: React.FC = () => {
   };
   
   // Render post item
-  const renderPostItem = ({ item }: { item: Fuse.FuseResult<Post> }) => {
+  const renderPostItem = ({ item }: { item: FuseResult<Post> }) => {
     const post = item.item;
     return (
       <TouchableOpacity 
@@ -626,7 +621,7 @@ const SearchScreen: React.FC = () => {
   };
   
   // Render tag item
-  const renderTagItem = ({ item }: { item: Fuse.FuseResult<Tag> }) => {
+  const renderTagItem = ({ item }: { item: FuseResult<Tag> }) => {
     const tag = item.item;
     return (
       <TouchableOpacity 
