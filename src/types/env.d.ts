@@ -2,6 +2,7 @@
 // Types for environment variables
 
 declare module '@env' {
+  export const API_BASE_URL: string;
   export const FIREBASE_CLIENT_ID: string;
   export const FIREBASE_API_KEY: string;
   export const FIREBASE_AUTH_DOMAIN: string;

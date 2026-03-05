@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { GoogleSignin, statusCodes, User as GoogleUser } from '@react-native-google-signin/google-signin';
-import { googleSignIn } from '../services/firebase';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { Platform } from 'react-native';
 import { FIREBASE_CLIENT_ID } from '@env';
 // Using React Native Firebase
-import { db } from '../Config/firebaseconfig';
+import { auth, db } from '../Config/firebaseconfig';
 import { FirebaseAuthTypes } from '@react-native-firebase/auth';
 
 // Initialize Google Sign In
@@ -26,6 +25,15 @@ interface GoogleSignInData {
     photo: string | null;
   };
 }
+
+const signInWithFirebaseGoogleCredential = async (
+  idToken: string,
+  accessToken?: string
+): Promise<FirebaseAuthTypes.User> => {
+  const credential = auth.GoogleAuthProvider.credential(idToken, accessToken);
+  const userCredential = await auth().signInWithCredential(credential);
+  return userCredential.user;
+};
 
 // Custom hook for Google authentication
 export const useGoogleAuth = () => {
@@ -85,7 +93,7 @@ export const useGoogleAuth = () => {
       const { idToken, accessToken } = await GoogleSignin.getTokens();
       
       // Sign in with Firebase
-      const firebaseUser = await googleSignIn(idToken, accessToken);
+      const firebaseUser = await signInWithFirebaseGoogleCredential(idToken, accessToken);
       setUser(firebaseUser);
       
       return {

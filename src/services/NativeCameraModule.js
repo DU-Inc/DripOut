@@ -12,14 +12,14 @@ class NativeCameraModuleClass {
   /**
    * Check if native camera module is available
    */
-  isAvailable(): boolean {
+  isAvailable() {
     return Platform.OS === 'ios' && DripOutCameraModule != null;
   }
 
   /**
    * Request camera permission
    */
-  async requestCameraPermission(): Promise<boolean> {
+  async requestCameraPermission() {
     if (!this.isAvailable()) {
       console.warn('Native camera module not available');
       return false;
@@ -38,7 +38,7 @@ class NativeCameraModuleClass {
   /**
    * Request photo library permission
    */
-  async requestPhotoLibraryPermission(): Promise<boolean> {
+  async requestPhotoLibraryPermission() {
     if (!this.isAvailable()) {
       console.warn('Native camera module not available');
       return false;

@@ -1,18 +1,22 @@
 import { Platform } from 'react-native';
+import { API_BASE_URL as API_BASE_URL_ENV } from '@env';
 
 // Centralized API Configuration
 // Change these URLs once and they'll update across the entire app
 
+const CLOUD_FALLBACK_URL = 'http://34.27.7.69:8000';
+const NORMALIZED_ENV_API_BASE_URL = API_BASE_URL_ENV?.trim() || '';
+
 const API_URLS = {
-  // All environments now use the production API server
-  IOS_SIMULATOR: 'http://34.27.7.69:8000',
-  IOS_DEVICE: 'http://34.27.7.69:8000',
-  ANDROID_EMULATOR: 'http://34.27.7.69:8000',
-  ANDROID_DEVICE: 'http://34.27.7.69:8000',
+  // Local defaults for emulator/simulator workflows
+  IOS_SIMULATOR: 'http://127.0.0.1:8000',
+  IOS_DEVICE: NORMALIZED_ENV_API_BASE_URL || CLOUD_FALLBACK_URL,
+  ANDROID_EMULATOR: 'http://10.0.2.2:8000',
+  ANDROID_DEVICE: NORMALIZED_ENV_API_BASE_URL || CLOUD_FALLBACK_URL,
   
-  // Production/Staging URLs
-  PRODUCTION: 'http://34.27.7.69:8000',
-  STAGING: 'http://34.27.7.69:8000',
+  // Production/Staging URLs can be overridden by env
+  PRODUCTION: NORMALIZED_ENV_API_BASE_URL || CLOUD_FALLBACK_URL,
+  STAGING: NORMALIZED_ENV_API_BASE_URL || CLOUD_FALLBACK_URL,
 };
 
 // Environment detection and URL selection
@@ -22,13 +26,15 @@ const getApiBaseUrl = (): string => {
     return API_URLS.PRODUCTION;
   }
   
+  if (NORMALIZED_ENV_API_BASE_URL) {
+    return NORMALIZED_ENV_API_BASE_URL;
+  }
+
   // For development, detect platform and environment
   if (Platform.OS === 'ios') {
-    // iOS Simulator uses localhost, real device uses localhost (will be auto-detected)
-    return API_URLS.IOS_DEVICE;
+    return API_URLS.IOS_SIMULATOR;
   } else {
-    // Android Emulator uses 10.0.2.2, real device uses localhost (will be auto-detected)
-    return __DEV__ ? API_URLS.ANDROID_DEVICE : API_URLS.ANDROID_EMULATOR;
+    return API_URLS.ANDROID_EMULATOR;
   }
 };
 
