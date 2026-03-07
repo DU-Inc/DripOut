@@ -4,16 +4,18 @@ import { API_BASE_URL as API_BASE_URL_ENV } from '@env';
 // Centralized API Configuration
 // Change these URLs once and they'll update across the entire app
 
-const CLOUD_FALLBACK_URL = 'http://34.27.7.69:8000';
+// Railway deployment URL
+const RAILWAY_URL = 'https://dripout-api-production.up.railway.app';
+const CLOUD_FALLBACK_URL = RAILWAY_URL;
 const NORMALIZED_ENV_API_BASE_URL = API_BASE_URL_ENV?.trim() || '';
 
 const API_URLS = {
   // Local defaults for emulator/simulator workflows
-  IOS_SIMULATOR: 'http://127.0.0.1:8000',
+  IOS_SIMULATOR: 'http://127.0.0.1:8002',
   IOS_DEVICE: NORMALIZED_ENV_API_BASE_URL || CLOUD_FALLBACK_URL,
   ANDROID_EMULATOR: 'http://10.0.2.2:8000',
   ANDROID_DEVICE: NORMALIZED_ENV_API_BASE_URL || CLOUD_FALLBACK_URL,
-  
+
   // Production/Staging URLs can be overridden by env
   PRODUCTION: NORMALIZED_ENV_API_BASE_URL || CLOUD_FALLBACK_URL,
   STAGING: NORMALIZED_ENV_API_BASE_URL || CLOUD_FALLBACK_URL,

@@ -263,6 +263,10 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
         clearTimeout(loadMoreTimerRef.current);
         loadMoreTimerRef.current = null;
       }
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
       
       // Clean up animation values to prevent memory leaks
       if (scrollY) {
@@ -495,7 +499,10 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
     } catch (error) {
       console.error('[OverviewScreen] Search error:', error);
       if (isMountedRef.current) {
-        setSearchError('Search failed. Please try again.');
+        const isRateLimit = (error as any)?.response?.status === 429;
+        setSearchError(isRateLimit
+          ? 'You\'ve reached the search limit. Please wait a moment and try again.'
+          : 'Search failed. Please try again.');
         setSearchResults([]);
         setSearchMeta(null);
       }
@@ -773,7 +780,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
       if (!isMountedRef.current) return;
       
       // console.error('❌ Error loading fashion news:', error);
-      setNewsError(error instanceof Error ? error.message : 'Failed to load news');
+      setNewsError('Unable to load news right now. Please try again later.');
       setNewsArticles([]);
     } finally {
       if (isMountedRef.current) {
@@ -1333,7 +1340,7 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
   // Unified function to render any product section
   const renderProductSection = useCallback((products: FormattedProduct[], displayedCount: number) => {
     const visibleProducts = products.slice(0, displayedCount);
-    
+
     return (
       <MasonryList
         data={visibleProducts}
@@ -1344,15 +1351,27 @@ const OverviewScreen: React.FC<OverviewScreenProps> = ({ isBackgroundMode = fals
         scrollEnabled={false} // Disable scrolling - parent ScrollView handles scrolling
         contentContainerStyle={styles.masonryContentContainer}
         ListEmptyComponent={
-          <View style={styles.emptyContent}>
-            <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
-              Loading products...
-            </Text>
-          </View>
+          isLoadingOutfits ? (
+            <View style={styles.emptyContent}>
+              <ActivityIndicator size="small" color={accentColor} />
+              <Text style={[styles.emptyText, { color: themeColors.text.secondary, marginTop: 8 }]}>
+                Loading products...
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContent}>
+              <Text style={[styles.emptyText, { color: themeColors.text.secondary }]}>
+                No products available
+              </Text>
+              <Text style={[styles.emptyText, { color: themeColors.text.secondary, fontSize: 13, marginTop: 4 }]}>
+                Pull down to refresh
+              </Text>
+            </View>
+          )
         }
       />
     );
-  }, [renderUnifiedProductItem, themeColors.text.secondary, refreshCounter]);
+  }, [renderUnifiedProductItem, themeColors.text.secondary, refreshCounter, isLoadingOutfits, accentColor]);
 
   // Render search results section
   const renderSearchResults = useCallback(() => {

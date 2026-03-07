@@ -6,6 +6,7 @@ import AnimatedSplashScreen from './src/components/common/AnimatedSplashScreen';
 import { ThemeProvider } from './src/styles/themeprovider';
 import { ShelfProvider } from './src/contexts/ShelfContext';
 import AppNavigator from './src/navigations/AppNavigator';
+import ErrorBoundary from './src/components/common/ErrorBoundary';
 import { appStateManager } from './src/utils/appStateManager';
 import { testApiConnectivity } from './src/services/productService';
 import { 
@@ -128,27 +129,29 @@ const App: React.FC = () => {
 
   return (
     <GestureHandlerRootView style={styles.flexOne}>
-      <SafeAreaProvider>
-        <ThemeProvider>
-          <ShelfProvider>
-            {/* AppNavigator handles all navigation flows: auth, onboarding, and main app */}
-            <AppNavigator />
+      <ErrorBoundary>
+        <SafeAreaProvider>
+          <ThemeProvider>
+            <ShelfProvider>
+              {/* AppNavigator handles all navigation flows: auth, onboarding, and main app */}
+              <AppNavigator />
 
-            {/* Splash Screen Overlay - shown while initializing */}
-            {isSplashVisible && (
-              <Animated.View
-                style={[
-                  styles.splashOverlay,
-                  { opacity: splashOpacity }, // Apply fade-out animation
-                ]}
-                pointerEvents="none" // Make overlay non-interactive during fade
-              >
-                <AnimatedSplashScreen />
-              </Animated.View>
-            )}
-          </ShelfProvider>
-        </ThemeProvider>
-      </SafeAreaProvider>
+              {/* Splash Screen Overlay - shown while initializing */}
+              {isSplashVisible && (
+                <Animated.View
+                  style={[
+                    styles.splashOverlay,
+                    { opacity: splashOpacity }, // Apply fade-out animation
+                  ]}
+                  pointerEvents="none" // Make overlay non-interactive during fade
+                >
+                  <AnimatedSplashScreen />
+                </Animated.View>
+              )}
+            </ShelfProvider>
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 };

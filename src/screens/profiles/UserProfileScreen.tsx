@@ -521,9 +521,11 @@ const UserProfileScreen: React.FC = () => {
                 <Text style={styles.uploadText}>{Math.round(uploadProgress * 100)}%</Text>
               </View>
             )}
-            <View style={[styles.editIconContainer, { backgroundColor: mainColor }]}>
-              <Icon name="camera-outline" size={16} color="#FFFFFF" />
-            </View>
+            {!isGuest && (
+              <View style={[styles.editIconContainer, { backgroundColor: mainColor }]}>
+                <Icon name="camera-outline" size={16} color="#FFFFFF" />
+              </View>
+            )}
           </TouchableOpacity>
           
           <Text style={[styles.profileName, { color: textColor }]}>

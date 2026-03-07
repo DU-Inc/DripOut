@@ -506,8 +506,7 @@ async function fetchNewsAPI(): Promise<Article[]> {
   } catch (error: any) {
     console.error(
       `NewsAPI fetch error: ${error.message}`,
-      `Status: ${error.response?.status}`,
-      `Data: ${JSON.stringify(error.response?.data)}`
+      `Status: ${error.response?.status || 'N/A'}`
     );
     // Return empty array instead of throwing
     return [];
@@ -570,8 +569,7 @@ async function fetchNewsData(): Promise<Article[]> {
   } catch (error: any) {
     console.error(
       `NewsData.io fetch error: ${error.message}`,
-      `Status: ${error.response?.status}`,
-      `Data: ${JSON.stringify(error.response?.data)}`
+      `Status: ${error.response?.status || 'N/A'}`
     );
     // Return empty array instead of throwing
     return [];
@@ -641,8 +639,7 @@ async function fetchNYT(): Promise<Article[]> {
   } catch (error: any) {
     console.error(
       `NYT API fetch error: ${error.message}`,
-      `Status: ${error.response?.status}`,
-      `Data: ${JSON.stringify(error.response?.data)}`
+      `Status: ${error.response?.status || 'N/A'}`
     );
     // Return empty array instead of throwing
     return [];
@@ -728,8 +725,7 @@ async function fetchGuardian(): Promise<Article[]> {
   } catch (error: any) {
     console.error(
       `Guardian API fetch error: ${error.message}`,
-      `Status: ${error.response?.status}`,
-      `Data: ${JSON.stringify(error.response?.data)}`
+      `Status: ${error.response?.status || 'N/A'}`
     );
     // Return empty array instead of throwing
     return [];

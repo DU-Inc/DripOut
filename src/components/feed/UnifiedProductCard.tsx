@@ -83,6 +83,7 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isImageLoading, setIsImageLoading] = useState(true);
+  const [imageError, setImageError] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   
@@ -116,6 +117,7 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
       // Reset all component state to defaults immediately
       setCurrentImageIndex(0);
       setIsImageLoading(true);
+      setImageError(false);
       setIsSaved(false);
       setIsInShelf(false);
       setIsShelfLoading(true); // Set loading state while we check shelf
@@ -209,6 +211,11 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
     setIsImageLoading(false);
   };
 
+  const handleImageError = () => {
+    setIsImageLoading(false);
+    setImageError(true);
+  };
+
   const handleSavePress = () => {
     // Only update visual state if user is not a guest
     if (!isGuest) {
@@ -299,8 +306,12 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
   const mainImage = images && images.length > 0 ? images[currentImageIndex] : null;
   const imageHeight = cardWidth / imageAspectRatio;
 
-  // Format price display
-  const formattedPrice = `${currency}${price.toFixed(2)}`;
+  // Format price display with proper currency symbol
+  const currencySymbols: Record<string, string> = {
+    USD: '$', GBP: '£', EUR: '€', JPY: '¥', CAD: 'CA$', AUD: 'A$',
+  };
+  const symbol = currencySymbols[currency?.toUpperCase()] || currency || '$';
+  const formattedPrice = `${symbol}${price.toFixed(2)}`;
 
   // Process sizes for display
   const processedSizes = processSizeData(sizes);
@@ -333,12 +344,19 @@ const UnifiedProductCard: React.FC<UnifiedProductCardProps> = ({
           {mainImage && (
             <>
               <SharedElement id={`product.${id}.image`}>
-                <Image
-                  source={{ uri: mainImage.url }}
-                  style={[styles.image, { height: imageHeight }]}
-                  onLoad={handleImageLoad}
-                  resizeMode="cover"
-                />
+                {imageError ? (
+                  <View style={[styles.image, { height: imageHeight, backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center' }]}>
+                    <Icon name="image-off-outline" size={32} color="#BDBDBD" />
+                  </View>
+                ) : (
+                  <Image
+                    source={{ uri: mainImage.url }}
+                    style={[styles.image, { height: imageHeight }]}
+                    onLoad={handleImageLoad}
+                    onError={handleImageError}
+                    resizeMode="cover"
+                  />
+                )}
               </SharedElement>
               
               {/* Image indicators for multiple images */}
