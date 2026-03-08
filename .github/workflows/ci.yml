@@ -1,8 +1,14 @@
 name: CI
 
 on:
+  # Full workflow runs on pull requests to main and dev
   pull_request:
     branches:
+      - main
+      - dev
+
+  push:
+    branches-ignore:
       - main
       - dev
 
@@ -11,28 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-
       - name: Install dependencies
         run: npm install
-
       - name: Run ESLint
         run: npm run lint
-        continue-on-error: true
 
-      - name: Fix Linting Issues
-        if: failure()
-        run: npm run lint -- --fix
-
-      - name: Commit and Push Fixes
-        if: success()
-        run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          git add .
-          git commit -m "Auto-fix linting issues"
-          git push origin dev
-
-  build:
+  build-and-test:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -43,44 +34,54 @@ jobs:
         uses: actions/setup-node@v2
         with:
           node-version: ${{ matrix.node-version }}
-      - run: npm install
-      - run: npm run build
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run Tests
+      - name: Install dependencies
+        run: npm install
+      - name: Build project
+        run: npm run build
+      - name: Run tests
         run: npm run test
 
-  ios-build:
-    runs-on: macos-latest
+
+  basic-build:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies
         run: npm install
-      - name: Install CocoaPods
+      - name: Build project
+        run: npm run build
+
+
+  ios-build:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm install
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+      - name: Install CocoaPods dependencies
+        working-directory: ios
         run: |
-          cd ios
-          pod install
+          gem install cocoapods
+          pod deintegrate || true
+          pod install --repo-update
+      - name: Clean derived data
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData
       - name: Build iOS
         run: |
-          xcodebuild -workspace ios/YourApp.xcworkspace \
-            -scheme YourApp \
+          xcodebuild -workspace ios/DripOutApp.xcworkspace \
+            -scheme DripOutApp \
             -sdk iphonesimulator \
-            -configuration Release \
-            -destination 'platform=iOS Simulator,name=iPhone 11,OS=14.0' \
-            clean build
-      
-  android-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set up JDK for Android
-        uses: actions/setup-java@v2
-        with:
-          java-version: '11'
-      - name: Install Android SDK
-        run: sudo apt-get install android-sdk
-      - name: Build Android
-        run: ./gradlew assembleRelease
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            clean build \
+            -UseModernBuildSystem=YES

@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "434862143827",
+    "project_id": "dripout-32d33",
+    "storage_bucket": "dripout-32d33.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:434862143827:android:02532fd7c5f810e48f09a6",
+        "android_client_info": {
+          "package_name": "com.solutionsinc.dripout"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "434862143827-3f7cv7ji3j4rsc3ekdf662gpbmu14mcb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBmIyKskkrV4c1kJZLTy_U-V0WiijFvdkM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "434862143827-3f7cv7ji3j4rsc3ekdf662gpbmu14mcb.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "434862143827-ocfagkn1o4ubrpscpp6rjls20n4l5j8l.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "org.reactjs.native.example.DripOutApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

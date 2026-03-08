@@ -1,0 +1,3164 @@
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  SafeAreaView, 
+  Alert, 
+  Animated,
+  Easing,
+  Keyboard,
+  TouchableWithoutFeedback,
+  Platform,
+  LayoutAnimation,
+  BackHandler,
+  Dimensions
+  // StyleSheet // UNUSED
+} from 'react-native';
+import { useTheme } from "../../styles/themeprovider";
+import { createAuthStyles } from '../../styles/components/auth.styles';
+import { createSignInStyles } from '../../styles/components/signIn.styles';
+import FormInput from '../../components/common/FormInput';
+import Button from '../../components/common/Button';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { AuthStackNavigationProp, RootStackNavigationProp } from '../../navigations/types';
+// import TermsCheckbox from '../../components/common/TermsCheckbox'; // MOVED TO SignInFooter
+import { text } from '../../styles/theme/text';
+import { signIn, resetPassword, /* setBiometricAuth, */ isBiometricAuthEnabled, AuthErrorResponse, determineIdentifierType, IdentifierType, getOnboardingProgress } from '../../services/auth';
+import { appStateManager } from '../../utils/appStateManager';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { /* CommonActions, */ useFocusEffect } from '@react-navigation/native';
+import { useBiometricAuth } from '../../hooks/useBiometricAuth';
+// import CodeInput from '../../components/auth/CodeInput'; // MOVED TO PhoneVerificationPanel
+import BiometricAuthSection from '../../components/auth/BiometricAuthSection';
+import SignInFooter from '../../components/auth/SignInFooter';
+import PhoneVerificationPanel from '../../components/auth/PhoneVerificationPanel';
+import { auth } from '../../Config/firebaseconfig';
+import { FirebaseAuthTypes } from '@react-native-firebase/auth';
+// import firebase from '@react-native-firebase/app'; // UNUSED
+import SuccessOptionsSheet from '../../components/common/SuccessOptionsSheet';
+// Using React Native Firebase - import db from config
+import { db } from '../../Config/firebaseconfig';
+import { authGuard } from '../../services/authGuard';
+
+// Add global setTimeout and clearTimeout type declarations
+declare const setTimeout: (callback: () => void, ms: number) => number;
+declare const clearTimeout: (id: number | null) => void;
+// Add global interval type declarations
+declare const setInterval: (callback: () => void, ms: number) => number;
+declare const clearInterval: (id: number | null) => void;
+
+type SignInScreenProps = {
+  navigation: AuthStackNavigationProp & RootStackNavigationProp;
+  route: any;
+};
+
+// Get device dimensions
+const { width } = Dimensions.get('window'); // height unused
+// Scale factor based on screen width
+const scale = width / 375; // Using iPhone 8 as baseline
+
+// Function to make dimensions responsive
+const normalize = (size: number) => {
+  return Math.round(scale * size);
+};
+
+// Function to handle CAPTCHA verification with retry logic
+const handlePhoneAuth = async (phoneNumber: string): Promise<FirebaseAuthTypes.ConfirmationResult> => {
+  console.log(`Attempting phone verification for: ${phoneNumber}`);
+  
+  let attempts = 0;
+  const maxAttempts = 3;
+  const baseDelay = 1000; // 1 second base delay
+  
+  while (attempts < maxAttempts) {
+    try {
+      attempts++;
+      console.log(`Phone auth attempt ${attempts}/${maxAttempts}`);
+      
+      // Phone authentication with reCAPTCHA verification handled by Firebase
+      // Firebase handles CAPTCHA invisibly by default in React Native
+      const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
+      
+      console.log('Phone auth successful');
+      return confirmation;
+      
+    } catch (error: any) {
+      console.error(`Phone auth attempt ${attempts} failed:`, error);
+      
+      // If this is an internal error and we have attempts left, retry
+      if (error.code === 'auth/internal-error' && attempts < maxAttempts) {
+        const delay = baseDelay * attempts; // Exponential backoff
+        console.log(`Retrying phone auth in ${delay}ms...`);
+        await new Promise<void>(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // If we've exhausted retries or it's a different error, throw
+      console.error('Phone auth failed after all attempts:', error);
+      throw error;
+    }
+  }
+  
+  // This should never be reached, but just in case
+  throw new Error('Phone authentication failed: Maximum retry attempts exceeded');
+};
+
+const SignInScreen: React.FC<SignInScreenProps> = ({ navigation, route }) => {
+  const { theme } = useTheme();
+  const authStyles = createAuthStyles(theme);
+  const styles = createSignInStyles(theme);
+
+  // Get identifier from route params if available
+  const initialIdentifier = route.params?.email || route.params?.phone || route.params?.username || '';
+  const initialIdentifierType = route.params?.identifierType || 'email';
+  const initialValidated = route.params?.isValidated || false;
+
+  // Form state - initialize with data from route params
+  const [identifier, setIdentifier] = useState(initialIdentifier);
+  const [identifierType, setIdentifierType] = useState<IdentifierType>(
+    initialIdentifierType === 'email' ? IdentifierType.EMAIL : 
+    initialIdentifierType === 'phone' ? IdentifierType.PHONE : 
+    initialIdentifierType === 'username' ? IdentifierType.USERNAME : 
+    IdentifierType.UNKNOWN
+  );
+  
+  // Auth method state (email or phone)
+  const [authMethod, setAuthMethod] = useState<'email' | 'phone'>(
+    initialIdentifierType === 'phone' ? 'phone' : 'email'
+  );
+  
+  // Store separate values for email and phone to preserve them when switching tabs
+  const [emailIdentifier, setEmailIdentifier] = useState(initialIdentifierType === 'email' ? initialIdentifier : '');
+  const [phoneIdentifier, setPhoneIdentifier] = useState(initialIdentifierType === 'phone' ? initialIdentifier : '');
+  
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [identifierValid, setIdentifierValid] = useState(initialValidated);
+  const [passwordValid, setPasswordValid] = useState(false);
+  const [identifierError, setIdentifierError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [isTermsChecked, setIsTermsChecked] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [shouldShowPasswordField, setShouldShowPasswordField] = useState(initialValidated);
+  const [useFaceId, setUseFaceId] = useState<boolean>(false);
+  
+  // Phone verification state
+  const [showVerificationPanel, setShowVerificationPanel] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verifyingCode, setVerifyingCode] = useState(false);
+  const [attemptsLeft, setAttemptsLeft] = useState(5);
+  
+  // Firebase phone auth state
+  const [verificationId, setVerificationId] = useState<string>('');
+  const [phoneAuthError, setPhoneAuthError] = useState<string>('');
+  const [isAuthInProgress, setIsAuthInProgress] = useState(false);
+  
+  // Add state for resend code timer
+  const [remainingTime, setRemainingTime] = useState(0);
+  const resendTimerRef = useRef<number | null>(null);
+  
+  // Add enhanced phone verification tracking
+  const [resendAttempts, setResendAttempts] = useState(0);
+  const [resendLimitReached, setResendLimitReached] = useState(false);
+  const [verificationCooldown, setVerificationCooldown] = useState(false);
+  const [cooldownEndTime, setCooldownEndTime] = useState(0);
+  const [invalidAttempts, setInvalidAttempts] = useState(0);
+  const MAX_RESEND_ATTEMPTS = 5; // Max 5 resends per hour
+  const MAX_INVALID_ATTEMPTS = 3; // Max 3 invalid code entries
+  const COOLDOWN_DURATION = 15 * 60 * 1000; // 15 minutes in milliseconds
+  const cooldownTimerRef = useRef<number | null>(null);
+
+  // Add a ref for storing verification start time
+  const verificationStartTimeRef = useRef<number>(0);
+  
+  // Add a ref for the code input component
+  const codeInputRef = useRef<any>(null);
+  
+  // Typing detection state
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimeout = useRef<number | null>(null);
+  
+  // Animation values
+  const emailOpacity = useRef(new Animated.Value(0)).current;
+  const emailTranslateY = useRef(new Animated.Value(10)).current;
+  const passwordOpacity = useRef(new Animated.Value(0)).current;
+  const passwordTranslateY = useRef(new Animated.Value(-20)).current;
+  const forgotPasswordOpacity = useRef(new Animated.Value(0)).current;
+  const forgotPasswordTranslateY = useRef(new Animated.Value(-10)).current;
+
+  // Timer refs for validation prompts
+  const identifierTimer = useRef<number | null>(null);
+  const passwordTimer = useRef<number | null>(null);
+
+  // Add focus tracking
+  const [identifierFocused, setIdentifierFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+
+  // Add a ref to preserve the password
+  const passwordRef = useRef(password);
+
+  // Initialize the biometric auth hook with updated functionality
+  const { 
+    isAvailable: isBiometricAvailable, 
+    isEnabled: isBiometricEnabled,
+    isLocked: isBiometricLocked,
+    biometricType,
+    authenticateWithBiometrics,
+    storeCredentialsForBiometrics,
+    toggleBiometricAuth,
+    resetFailureCount
+  } = useBiometricAuth();
+
+  // Add state for verification expiration tracking
+  const [verificationExpiryTime, setVerificationExpiryTime] = useState<number>(0);
+  const [verificationRemainingTime, setVerificationRemainingTime] = useState<number>(0);
+  const verificationTimerRef = useRef<number | null>(null);
+  const VERIFICATION_EXPIRY_SECONDS = 10 * 60; // 10 minutes
+
+  // Add state for onboarding options sheet
+  const [showOptionsSheet, setShowOptionsSheet] = useState<boolean>(false);
+  const [userFirstName, setUserFirstName] = useState('');
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [onboardingProgress, setOnboardingProgress] = useState<{[key: string]: boolean}>({});
+
+  // First, add a new ref to track biometric auth attempts and prevent multiple simultaneous attempts
+  const biometricAuthInProgress = useRef<boolean>(false);
+  const isMounted = useRef<boolean>(false);
+
+  // Add a new state to track retry attempts
+  const [bioAuthRetryCount, setBioAuthRetryCount] = useState<number>(0);
+  const MAX_BIO_AUTH_RETRIES = 10;
+
+  // Key for storing biometric preference in AsyncStorage
+  const BIOMETRIC_ENABLED_KEY = 'biometricAuthEnabled';
+
+  // Animation logic based on field focus
+  useEffect(() => {
+    // Add dummy listeners to prevent "onAnimatedValueUpdate with no listeners registered" warning
+    const emailTranslateYListener = emailTranslateY.addListener(() => {});
+    const passwordTranslateYListener = passwordTranslateY.addListener(() => {});
+    
+    if (shouldShowPasswordField) {
+      if (passwordFocused) {
+        // Slide both fields up when password is focused, but email moves more
+        Animated.parallel([
+          Animated.timing(emailTranslateY, {
+            toValue: -2, // Reduced from -20 to -2
+            duration: 300,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          Animated.timing(passwordTranslateY, {
+            toValue: -1, // Reduced from -8 to -1
+            duration: 300,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          })
+        ]).start();
+      } else if (identifierFocused) {
+        // Return both fields to normal positions when email is focused
+        Animated.parallel([
+          Animated.timing(emailTranslateY, {
+            toValue: 0,
+            duration: 250,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          Animated.timing(passwordTranslateY, {
+            toValue: 0,
+            duration: 250,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          })
+        ]).start();
+      }
+    }
+    
+    // Clean up listeners on unmount
+    return () => {
+      emailTranslateY.removeListener(emailTranslateYListener);
+      passwordTranslateY.removeListener(passwordTranslateYListener);
+    };
+  }, [identifierFocused, passwordFocused, shouldShowPasswordField, emailTranslateY, passwordTranslateY]);
+
+  // Animate email field in on mount
+  useEffect(() => {
+    // Add dummy listeners to prevent warnings
+    const emailOpacityListener = emailOpacity.addListener(() => {});
+    const emailTranslateYListener = emailTranslateY.addListener(() => {});
+    
+    // Check if we have valid data from route params
+    if (initialIdentifier) {
+      // Set field value (we already set the state in useState, but double check)
+      setIdentifier(initialIdentifier);
+      
+      // Validate identifier
+      const type = determineIdentifierType(initialIdentifier);
+      setIdentifierType(type);
+      const isValid = validateIdentifier(initialIdentifier, type);
+      if (isValid) {
+        setIdentifierValid(isValid);
+      }
+    }
+    
+    // Always animate email field in
+    const animation = Animated.parallel([
+      Animated.timing(emailOpacity, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.ease),
+      }),
+      Animated.timing(emailTranslateY, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.ease),
+      })
+    ]);
+    
+    animation.start();
+    
+    // Cleanup animations and listeners
+    return () => {
+      animation.stop();
+      emailOpacity.removeListener(emailOpacityListener);
+      emailTranslateY.removeListener(emailTranslateYListener);
+    };
+  }, [initialIdentifier, emailOpacity, emailTranslateY]);
+
+  // Update the ref when the password changes
+  useEffect(() => {
+    passwordRef.current = password;
+  }, [password]);
+
+  // Email input handlers
+  const handleIdentifierFocus = () => {
+    // If verification panel is showing and user tries to focus on phone input
+    if (authMethod === 'phone' && showVerificationPanel) {
+      // Ask for confirmation before allowing edits
+      Alert.alert(
+        "Change Phone Number?",
+        `A verification code has been sent to ${identifier}. Changing it will require you to send a new code.`,
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => {
+              // Refocus on code input if user cancels
+              setTimeout(() => {
+                if (codeInputRef.current) {
+                  codeInputRef.current.focusLastInput();
+                }
+              }, 100);
+            }
+          },
+          {
+            text: "Change",
+            onPress: () => {
+              // Reset verification state
+              setShowVerificationPanel(false);
+              setVerificationCode('');
+              setAttemptsLeft(5);
+              setIdentifierFocused(true);
+              setPasswordFocused(false);
+            }
+          }
+        ]
+      );
+      return;
+    }
+    
+    // Clear any error when the field is focused
+    if (identifierError) {
+      setIdentifierError('');
+    }
+    
+    setIdentifierFocused(true);
+    setPasswordFocused(false);
+  };
+
+  const handleIdentifierBlur = () => {
+    setIdentifierFocused(false);
+  };
+
+  // Password input handlers  
+  const handlePasswordFocus = () => {
+    // Clear any error when the field is focused
+    if (passwordError) {
+      setPasswordError('');
+    }
+    
+    setPasswordFocused(true);
+    setIdentifierFocused(false);
+    
+    // Ensure the current password value is restored from ref if needed
+    if (password !== passwordRef.current) {
+      setPassword(passwordRef.current);
+    }
+  };
+
+  const handlePasswordBlur = () => {
+    // Only update the focus state, don't clear the password
+    setPasswordFocused(false);
+  };
+
+  // Handle back button interruption during authentication
+  useFocusEffect(
+    React.useCallback(() => {
+      const onBackPress = () => {
+        // If authentication is in progress, show confirmation
+        if (isAuthInProgress) {
+          Alert.alert(
+            "Cancel Authentication?",
+            "Going back will cancel the phone verification process and count as a failed attempt. Are you sure?",
+            [
+              { text: "Stay", style: "cancel" },
+              { 
+                text: "Cancel Verification", 
+                style: "destructive",
+                onPress: () => {
+                  // Track this abandonment as a verification failure
+                  trackVerificationFailure('User pressed back button');
+                  
+                  // Reset authentication state
+                  setIsAuthInProgress(false);
+                  setShowVerificationPanel(false);
+                  setVerificationCode('');
+                  setVerificationId('');
+                  setPhoneAuthError('');
+                  setAttemptsLeft(MAX_INVALID_ATTEMPTS);
+                  
+                  // Clear timer
+                  if (resendTimerRef.current) {
+                    clearInterval(resendTimerRef.current);
+                    resendTimerRef.current = null;
+                  }
+                  setRemainingTime(0);
+                  
+                  // Navigate back
+                  navigation.goBack();
+                }
+              }
+            ]
+          );
+          return true; // Prevent default back button behavior
+        }
+        
+        // Let default back button behavior happen for non-authentication states
+        return false;
+      };
+
+      // Add back button handler
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+
+      return () => backHandler.remove();
+    }, [isAuthInProgress, navigation, resendAttempts])
+  );
+
+  // Handle back button press with confirmation
+  const handleBackPress = () => {
+    // If authentication is in progress, show confirmation
+    if (isAuthInProgress) {
+      Alert.alert(
+        "Cancel Authentication?",
+        "Going back will cancel the phone verification process and count as a failed attempt. Are you sure?",
+        [
+          { text: "Stay", style: "cancel" },
+          { 
+            text: "Cancel Verification", 
+            style: "destructive",
+            onPress: () => {
+              // Track this abandonment as a verification failure
+              trackVerificationFailure('User pressed back button');
+              
+              // Reset authentication state
+              setIsAuthInProgress(false);
+              setShowVerificationPanel(false);
+              setVerificationCode('');
+              setVerificationId('');
+              setPhoneAuthError('');
+              setAttemptsLeft(MAX_INVALID_ATTEMPTS);
+              
+              // Clear timer
+              if (resendTimerRef.current) {
+                clearInterval(resendTimerRef.current);
+                resendTimerRef.current = null;
+              }
+              setRemainingTime(0);
+              
+              // Navigate back
+              navigation.goBack();
+            }
+          }
+        ]
+      );
+      return;
+    }
+    
+    // Otherwise, show standard exit confirmation
+    Alert.alert(
+      text.auth.signIn.exitConfirm.title,
+      text.auth.signIn.exitConfirm.message,
+      [
+        { text: text.auth.signIn.exitConfirm.stayButton, style: "cancel" },
+        { text: text.auth.signIn.exitConfirm.exitButton, onPress: () => navigation.goBack() }
+      ],
+      { cancelable: true }
+    );
+  };
+
+  // Dismiss keyboard when tapping outside of inputs
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
+  };
+
+  // Function to get placeholder text based on identifier type
+  const getIdentifierPlaceholder = () => {
+    if (authMethod === 'phone') {
+      return "Enter phone number";
+    }
+    
+    if (identifierValid) {
+      switch (identifierType) {
+        case IdentifierType.EMAIL:
+          return text.auth.signIn.identifierType.email;
+        case IdentifierType.PHONE:
+          return text.auth.signIn.identifierType.phone;
+        case IdentifierType.USERNAME:
+          return text.auth.signIn.identifierType.username;
+        default:
+          return "Enter email/username";
+      }
+    }
+    return "Enter email/username";
+  };
+
+  // Validate identifier based on detected type
+  const validateIdentifier = (value: string, type: IdentifierType): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneRegex = /^\+?[0-9]{10,15}$/;
+    
+    switch (type) {
+      case IdentifierType.EMAIL:
+        return emailRegex.test(value);
+      case IdentifierType.PHONE:
+        return phoneRegex.test(value.replace(/[\s-()]/g, ''));
+      case IdentifierType.USERNAME:
+        // Username should be at least 3 characters
+        return value.length >= 3;
+      default:
+        return false;
+    }
+  };
+
+  const validatePassword = useCallback((passwordValue: string) => {
+    return passwordValue.length >= 8;
+  }, []);
+
+  // Animation logic for showing password field
+  const showPasswordField = useCallback(() => {
+    // Add dummy listeners to prevent warnings for forgot password animations
+    const passwordOpacityListener = passwordOpacity.addListener(() => {});
+    const passwordTranslateYListener = passwordTranslateY.addListener(() => {});
+    const forgotPasswordOpacityListener = forgotPasswordOpacity.addListener(() => {});
+    const forgotPasswordTranslateYListener = forgotPasswordTranslateY.addListener(() => {});
+    
+    // Animate password field sliding down with a slight delay
+    setTimeout(() => {
+      const passwordAnimation = Animated.parallel([
+        Animated.timing(passwordOpacity, {
+          toValue: 1,
+          duration: 1000, // Longer duration for smoother feel
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease),
+        }),
+        Animated.timing(passwordTranslateY, {
+          toValue: 0,
+          duration: 700, // Longer duration for smoother slide
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        })
+      ]);
+      
+      passwordAnimation.start();
+      
+      // Animate just the forgot password text, not the whole container
+      setTimeout(() => {
+        const forgotPasswordAnimation = Animated.parallel([
+          Animated.timing(forgotPasswordOpacity, {
+            toValue: 1,
+            duration: 600, // Longer duration 
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          Animated.timing(forgotPasswordTranslateY, {
+            toValue: 0,
+            duration: 600, // Match opacity duration
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          })
+        ]);
+        
+        forgotPasswordAnimation.start();
+      }, 300); // Slightly longer delay for sequential effect
+    }, 200); // Increased delay before showing password field
+    
+    // Return cleanup function
+    return () => {
+      // Remove animation listeners on cleanup
+      passwordOpacity.removeListener(passwordOpacityListener);
+      passwordTranslateY.removeListener(passwordTranslateYListener);
+      forgotPasswordOpacity.removeListener(forgotPasswordOpacityListener);
+      forgotPasswordTranslateY.removeListener(forgotPasswordTranslateYListener);
+    };
+  }, [passwordOpacity, passwordTranslateY, forgotPasswordOpacity, forgotPasswordTranslateY]);
+
+  // Add initial animation on component mount if email was already validated
+  useEffect(() => {
+    // If identifier was already validated from route params, immediately show password field
+    if (initialValidated && initialIdentifier) {
+      // First make sure state is set properly
+      setIdentifierValid(true);
+      setShouldShowPasswordField(true);
+      
+      // Add dummy listeners to prevent warnings
+      const passwordOpacityListener = passwordOpacity.addListener(() => {});
+      const passwordTranslateYListener = passwordTranslateY.addListener(() => {});
+      const forgotPasswordOpacityListener = forgotPasswordOpacity.addListener(() => {});
+      const forgotPasswordTranslateYListener = forgotPasswordTranslateY.addListener(() => {});
+      
+      // Then trigger the animation directly
+      setTimeout(() => {
+        // Animate password field in
+        const passwordAnimation = Animated.parallel([
+          Animated.timing(passwordOpacity, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          }),
+          Animated.timing(passwordTranslateY, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.ease),
+          })
+        ]);
+        
+        passwordAnimation.start();
+        
+        // Then animate forgot password
+        setTimeout(() => {
+          const forgotPasswordAnimation = Animated.parallel([
+            Animated.timing(forgotPasswordOpacity, {
+              toValue: 1,
+              duration: 400,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.ease),
+            }),
+            Animated.timing(forgotPasswordTranslateY, {
+              toValue: 0,
+              duration: 400,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.ease),
+            })
+          ]);
+          
+          forgotPasswordAnimation.start();
+        }, 200);
+      }, 100);
+      
+      // Clean up listeners on unmount
+      return () => {
+        passwordOpacity.removeListener(passwordOpacityListener);
+        passwordTranslateY.removeListener(passwordTranslateYListener);
+        forgotPasswordOpacity.removeListener(forgotPasswordOpacityListener);
+        forgotPasswordTranslateY.removeListener(forgotPasswordTranslateYListener);
+      };
+    }
+  }, [initialValidated, initialIdentifier, passwordOpacity, passwordTranslateY, forgotPasswordOpacity, forgotPasswordTranslateY]);
+
+  // Add new constants for phone number formatting
+  const PHONE_COUNTRY_CODE_PREFIX = '+';
+  const DEFAULT_COUNTRY_CODE = '1'; // US country code as default
+
+  // Enhance the validatePhoneNumber function to explicitly check for country code
+  const validatePhoneNumber = (phone: string): boolean => {
+    // Remove any non-digit characters for validation
+    const digitsOnly = phone.replace(/\D/g, '');
+    
+    // Check if the phone number starts with a country code
+    const hasCountryCode = phone.startsWith('+');
+    
+    // For international format validation
+    const e164Regex = /^\+[1-9]\d{1,14}$/;
+    if (e164Regex.test(phone)) {
+      return true;
+    }
+    
+    // Check if it's a reasonable length for a phone number with country code
+    return hasCountryCode && digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  };
+
+  // Helper function to format phone number for Firebase (minimal formatting)
+  const formatPhoneForFirebase = (phone: string): string => {
+    // If already has country code, return as is
+    if (phone.startsWith('+')) {
+      return phone;
+    }
+    
+    // Add + prefix if missing
+    return `+${phone}`;
+  };
+
+  // New function to format phone number as the user types
+  const formatPhoneNumber = (text: string): string => {
+    // Remove all non-digit characters except +
+    let formattedNumber = text.replace(/[^\d+]/g, '');
+    
+    // Ensure it starts with +
+    if (!formattedNumber.startsWith('+')) {
+      formattedNumber = '+' + formattedNumber;
+    }
+    
+    // Prevent multiple + signs
+    formattedNumber = '+' + formattedNumber.replace(/\+/g, '');
+    
+    // Only format if there are enough digits
+    if (formattedNumber.length > 2) {
+      // Basic formatting with country code and then groups of numbers
+      // This will depend on the specific country formats you want to support
+      // Here's a simple version that adds spaces after country code and every 3 digits
+      const countryCode = formattedNumber.substring(0, 3); // +1, +91, etc.
+      const restOfNumber = formattedNumber.substring(3);
+      
+      // Group the rest of the number in chunks of 3/4
+      let formattedRest = '';
+      if (restOfNumber.length <= 3) {
+        formattedRest = restOfNumber;
+      } else if (restOfNumber.length <= 6) {
+        formattedRest = `${restOfNumber.substring(0, 3)} ${restOfNumber.substring(3)}`;
+      } else if (restOfNumber.length <= 10) {
+        formattedRest = `${restOfNumber.substring(0, 3)} ${restOfNumber.substring(3, 6)} ${restOfNumber.substring(6)}`;
+      } else {
+        formattedRest = `${restOfNumber.substring(0, 3)} ${restOfNumber.substring(3, 6)} ${restOfNumber.substring(6, 10)} ${restOfNumber.substring(10)}`;
+      }
+      
+      formattedNumber = `${countryCode} ${formattedRest}`.trim();
+    }
+    
+    return formattedNumber;
+  };
+
+  // Add a function to format remaining time for display in minutes and seconds
+  const formatRemainingTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  // Handle resend verification code
+  const handleResendCode = async () => {
+    // Don't do anything if the timer is still active
+    if (remainingTime > 0) return;
+    
+    // Check if the resend limit has been reached
+    if (resendLimitReached) {
+      Alert.alert(
+        "Resend Limit Reached",
+        "You've reached the maximum number of verification attempts for this hour. Please try again later or use email sign-in instead.",
+        [
+          { text: "Use Email Instead", onPress: () => toggleAuthMethod('email') },
+          { text: "OK" }
+        ]
+      );
+      return;
+    }
+    
+    // Check if in cooldown period
+    if (verificationCooldown) {
+      const remainingCooldown = Math.ceil((cooldownEndTime - Date.now()) / 60000); // convert to minutes
+      Alert.alert(
+        "Verification Temporarily Disabled",
+        `Too many failed attempts. Please try again in ${remainingCooldown} minutes or use email sign-in instead.`,
+        [
+          { text: "Use Email Instead", onPress: () => toggleAuthMethod('email') },
+          { text: "OK" }
+        ]
+      );
+      return;
+    }
+    
+    // Reset verification code but keep verification state
+    setVerificationCode('');
+    setPhoneAuthError('');
+    setLoading(true);
+    
+    try {
+      // Increment resend attempts counter
+      const updatedResendAttempts = resendAttempts + 1;
+      setResendAttempts(updatedResendAttempts);
+      
+      // Check if we've hit the resend limit
+      if (updatedResendAttempts >= MAX_RESEND_ATTEMPTS) {
+        setResendLimitReached(true);
+        
+        // Reset the limit after 1 hour
+        setTimeout(() => {
+          setResendLimitReached(false);
+          setResendAttempts(0);
+        }, 60 * 60 * 1000); // 1 hour
+        
+        Alert.alert(
+          "Resend Limit Reached",
+          "You've reached the maximum number of verification attempts for this hour. Please try email sign-in instead.",
+          [
+            { text: "Use Email Instead", onPress: () => toggleAuthMethod('email') },
+            { text: "OK" }
+          ]
+        );
+        setLoading(false);
+        return;
+      }
+      
+      // Format phone number for Firebase (must be in E.164 format)
+      let formattedPhoneNumber = formatPhoneForFirebase(identifier);
+      
+      // Set the resend timer to 60 seconds
+      setRemainingTime(60);
+      
+      // Start the timer countdown
+      if (resendTimerRef.current) {
+        clearInterval(resendTimerRef.current);
+      }
+      
+      resendTimerRef.current = setInterval(() => {
+        setRemainingTime(prev => {
+          if (prev <= 1) {
+            if (resendTimerRef.current) {
+              clearInterval(resendTimerRef.current);
+              resendTimerRef.current = null;
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000) as unknown as number;
+      
+      // Use updated phone auth method that handles CAPTCHA automatically
+      const confirmation = await handlePhoneAuth(formattedPhoneNumber);
+      
+      // Store the new verification ID
+      setVerificationId(confirmation.verificationId || ''); // Use empty string as fallback
+      
+      // Set expiration time for 10 minutes from now and start expiration timer
+      const expiryTime = Date.now() + VERIFICATION_EXPIRY_SECONDS * 1000;
+      setVerificationExpiryTime(expiryTime);
+      
+      // Make sure we properly start the expiry timer with the new time
+      startVerificationExpiryTimer();
+      
+      // Reset attempts as we're giving them a fresh code
+      setAttemptsLeft(MAX_INVALID_ATTEMPTS);
+      
+      // Format the identifier for display
+      const formattedIdentifier = formatPhoneForDisplay(identifier);
+      
+      // Provide feedback to user
+      Alert.alert(
+        "Verification Code Resent",
+        `A new code has been sent to ${formattedIdentifier}.`,
+        [{ text: "OK" }]
+      );
+      
+      // Focus on the first input after a short delay
+      setTimeout(() => {
+        if (codeInputRef.current) {
+          codeInputRef.current.focusLastInput();
+        }
+      }, 200);
+      
+    } catch (error: any) {
+      // Handle specific Firebase phone auth errors with improved messages
+      let errorMessage = "Failed to resend verification code. Please try again.";
+      let errorTitle = "Resend Failed";
+      let isCriticalError = false;
+      
+      if (error.code) {
+        let endTime: number;
+        switch(error.code) {
+          case 'auth/invalid-phone-number':
+            errorTitle = "Invalid Number";
+            errorMessage = "Please enter a valid phone number with country code";
+            break;
+          case 'auth/missing-phone-number':
+            errorTitle = "Missing Number";
+            errorMessage = "Please enter your phone number";
+            break;
+          case 'auth/quota-exceeded':
+            errorTitle = "Limit Reached";
+            errorMessage = "Verification limit reached. Try again later or use email";
+            isCriticalError = true;
+            setResendLimitReached(true);
+            break;
+          case 'auth/user-disabled':
+            errorTitle = "Account Disabled";
+            errorMessage = "This account is disabled";
+            isCriticalError = true;
+            break;
+          case 'auth/operation-not-allowed':
+            errorTitle = "Not Available";
+            errorMessage = "Phone sign-in is not available";
+            isCriticalError = true;
+            break;
+          case 'auth/too-many-requests':
+            errorTitle = "Too Many Attempts";
+            errorMessage = "Too many attempts. Try again later";
+            isCriticalError = true;
+            // Trigger cooldown period for security
+            setVerificationCooldown(true);
+            endTime = Date.now() + COOLDOWN_DURATION;
+            setCooldownEndTime(endTime);
+            
+            // Set a timer to clear the cooldown
+            if (cooldownTimerRef.current) {
+              clearTimeout(cooldownTimerRef.current);
+            }
+            cooldownTimerRef.current = setTimeout(() => {
+              setVerificationCooldown(false);
+              setInvalidAttempts(0);
+            }, COOLDOWN_DURATION) as unknown as number;
+            break;
+          case 'auth/captcha-check-failed':
+            errorTitle = "Verification Failed";
+            errorMessage = "Security check failed. Try again";
+            break;
+          case 'auth/network-request-failed':
+            errorTitle = "Network Error";
+            errorMessage = "Check your connection and try again";
+            break;
+          case 'auth/internal-error':
+            errorTitle = "Something Went Wrong";
+            errorMessage = "Please try again or use email sign-in";
+            isCriticalError = true;
+            break;
+          default:
+            errorTitle = "Verification Issue";
+            errorMessage = "Unable to verify right now. Try again later";
+        }
+      }
+      
+      setPhoneAuthError(errorMessage);
+      
+      // Log the error with timestamp for security monitoring
+      console.error("Phone auth error on resend at", new Date().toISOString(), ":", error);
+      
+      // Show error in alert dialog with option to switch to email for critical errors
+      if (isCriticalError) {
+        Alert.alert(
+          errorTitle, 
+          errorMessage, 
+          [
+            { text: "Use Email Instead", onPress: () => toggleAuthMethod('email') },
+            { text: "OK" }
+          ]
+        );
+      } else {
+        Alert.alert(errorTitle, errorMessage, [{ text: "OK" }]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Helper function to format phone number for display
+  const formatPhoneForDisplay = (phone: string): string => {
+    // Simple format for US numbers
+    if (phone.length === 10) {
+      return `(${phone.substring(0, 3)}) ${phone.substring(3, 6)}-${phone.substring(6)}`;
+    }
+    // Fallback for other formats
+    return phone;
+  };
+
+  // Add a function to validate all fields and show errors
+  const validateAndShowErrors = () => {
+    let isValid = true;
+    
+    if (!identifierValid) {
+      // Show specific error message based on detected identifier type
+      if (authMethod === 'phone') {
+        setIdentifierError('Please enter a valid phone number');
+      } else {
+        switch (identifierType) {
+          case IdentifierType.EMAIL:
+            setIdentifierError(text.auth.validation.email.invalid);
+            break;
+          case IdentifierType.PHONE:
+            setIdentifierError(text.auth.validation.phone.invalid);
+            break;
+          case IdentifierType.USERNAME:
+            setIdentifierError('Please enter a valid username');
+            break;
+          default:
+            setIdentifierError('Please enter a valid email, phone number, or username');
+        }
+      }
+      isValid = false;
+    }
+    
+    if (authMethod === 'email' && shouldShowPasswordField && !passwordValid) {
+      setPasswordError(text.auth.validation.password.minLength);
+      isValid = false;
+    }
+    
+    return isValid;
+  };
+
+  // Then modify the automatic biometric authentication effect to prevent multiple attempts
+  useEffect(() => {
+    let mounted = true;
+    isMounted.current = true;
+    
+    const tryBiometricAuth = async () => {
+      // Only proceed if not already attempting biometric auth
+      if (biometricAuthInProgress.current) return;
+      
+      try {
+        // If component unmounted, stop further processing
+        if (!mounted) return;
+        
+        // Only try biometric auth if it's available, enabled, and not locked
+        if (isBiometricAvailable && isBiometricEnabled && !isBiometricLocked) {
+          // Check for stored credentials first
+          const storedIdentifier = await AsyncStorage.getItem('biometricAuthIdentifier');
+          const storedPassword = await AsyncStorage.getItem('biometricAuthPassword');
+          
+          if (storedIdentifier && storedPassword) {
+            // Set biometric auth in progress flag
+            biometricAuthInProgress.current = true;
+            
+            // Pre-fill identifier without showing password field yet
+              setIdentifier(storedIdentifier);
+              
+              // Update identifier type
+              const type = determineIdentifierType(storedIdentifier);
+              setIdentifierType(type);
+              setIdentifierValid(validateIdentifier(storedIdentifier, type));
+              
+            // Store password but don't set it in the field yet
+            passwordRef.current = storedPassword;
+            
+            // Attempt biometric authentication directly
+            const authenticated = await authenticateWithBiometrics();
+            
+            // Only proceed if the component is still mounted
+            if (!mounted) return;
+            
+            if (authenticated) {
+              // Since we're doing direct auth, just sign in without showing password field
+              setLoading(true);
+              
+              try {
+                // Call Firebase sign-in service directly with stored credentials
+                const result = await signIn(storedIdentifier, storedPassword, useFaceId);
+                
+                // Reset biometric failure count on successful sign in
+                await resetFailureCount();
+                
+                console.log('Biometric authentication successful, signed in');
+                
+                // Get user ID for fetching details
+                const userId = result.userCredential.user.uid;
+                
+                // Fetch the user's first name and onboarding progress
+                await fetchUserDetails(userId);
+                
+                // Handle onboarding status
+                if (result.needsOnboarding) {
+                  console.log('User needs onboarding after biometric auth');
+                  setLoading(false);
+                  appStateManager.setShowOnboardingOptions(true);
+                  setShowOptionsSheet(true);
+                }
+              } catch (error) {
+                console.error('Error signing in after biometric auth:', error);
+                
+                // If sign-in fails after biometric auth, show password field for manual entry
+                setPassword('');
+                setPasswordValid(false);
+                setShouldShowPasswordField(true);
+                showPasswordField();
+                
+                // Show appropriate error
+                const authError = error as AuthErrorResponse;
+                if (authError.code === 'auth/wrong-password') {
+                  Alert.alert(
+                    'Sign In Failed',
+                    'Your stored password appears to be out of date. Please sign in manually.'
+                  );
+                } else {
+                  Alert.alert(
+                    'Sign In Failed',
+                    authError.userFriendlyMessage || 'An error occurred during sign in.'
+                  );
+                }
+              } finally {
+                setLoading(false);
+                biometricAuthInProgress.current = false;
+              }
+            } else {
+              biometricAuthInProgress.current = false;
+              
+              // If biometric auth failed or was canceled, show password field for manual entry
+              setPassword('');
+              if (identifierValid) {
+                  setShouldShowPasswordField(true);
+                  showPasswordField();
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Biometric authentication attempt failed:', error);
+        biometricAuthInProgress.current = false;
+      }
+    };
+    
+    // Run biometric auth after a short delay on mount to let the screen render
+    const timer = setTimeout(() => {
+      // Only try biometric auth if no auth is in progress and we're mounted
+      if (!biometricAuthInProgress.current && mounted) {
+        tryBiometricAuth();
+      }
+    }, 1000);
+    
+    return () => {
+      mounted = false;
+      isMounted.current = false;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Add a separate useFocusEffect for handling when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      // Only try biometric auth if no auth is in progress and we're mounted
+      if (!biometricAuthInProgress.current && isMounted.current) {
+        const timer = setTimeout(() => {
+          // Only try bioauth on focus if it's not already in progress
+          if (!biometricAuthInProgress.current && isMounted.current) {
+            console.log("Screen in focus, checking for biometric auth");
+            // Set flag to check biometric auth next time
+            // (without immediately triggering it to avoid multiple auth attempts)
+          }
+        }, 500); // Shorter delay for focus check
+        
+    return () => clearTimeout(timer);
+      }
+      return () => {};
+    }, [])
+  );
+
+  // Function to fetch user's first name and onboarding progress
+  const fetchUserDetails = async (userId: string) => {
+    try {
+      const userDoc = await db.collection('users').doc(userId).get();
+      
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        // Set first name if available
+        if (userData?.firstName) {
+          setUserFirstName(userData.firstName);
+        } else if (userData?.displayName) {
+          // Try to extract first name from display name
+          const names = userData.displayName.split(' ');
+          setUserFirstName(names[0]);
+        }
+        
+        // Store the user object for potential later use
+        setCurrentUser(userData);
+        
+        // Check and store onboarding progress if available
+        if (userData?.onboardingProgress) {
+          setOnboardingProgress(userData.onboardingProgress);
+        }
+      }
+      
+      // Fetch onboarding progress using the auth service function
+      const progress = await getOnboardingProgress(userId);
+      setOnboardingProgress(progress);
+      
+      console.log('Fetched onboarding progress:', progress);
+    } catch (error) {
+      console.error('Error fetching user details:', error);
+    }
+  };
+
+  // Handle complete onboarding button press in options sheet
+  const handleCompleteOnboarding = () => {
+    console.log('Navigating to onboarding with progress:', onboardingProgress);
+    
+    // Hide the options sheet
+    setShowOptionsSheet(false);
+    
+    setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
+      // Then set the onboarding flag to true to trigger navigation to onboarding screen
+      appStateManager.setOnboarding(true);
+      
+      // Store onboarding progress in AsyncStorage to be accessed by the onboarding screens
+      AsyncStorage.setItem('onboardingProgress', JSON.stringify(onboardingProgress))
+        .then(() => console.log('Stored onboarding progress in AsyncStorage'))
+        .catch(err => console.error('Failed to store onboarding progress:', err));
+      
+      // Directly navigate to the OnboardingFlow screen without parameters
+      navigation.navigate('OnboardingFlow');
+      
+      // Reset the SignIn screen's state after navigation
+      setTimeout(() => {
+        setLoading(false);
+        setIdentifier('');
+        setPassword('');
+        setIdentifierValid(false);
+        setPasswordValid(false);
+        setShouldShowPasswordField(false);
+      }, 500);
+    }, 300);
+  };
+  
+  // Handle home button press in options sheet
+  const handleProceedToHome = () => {
+    console.log('User chose to proceed to home screen');
+    
+    // Hide the options sheet
+    setShowOptionsSheet(false);
+    
+    setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
+      // Set onboarding flag to false to go home
+      appStateManager.setOnboarding(false);
+      
+      // Just set the authenticated flag - the app will navigate to main tabs
+      // Don't reset the navigation stack as it's causing issues
+      appStateManager.setAuthenticated(true);
+      
+      // Reset auth guard failed checks on successful login
+      authGuard.resetFailedChecks();
+      
+      // Check if we're in a modal context and navigate back
+      const parent = navigation.getParent();
+      const isModalContext = parent && parent.getState().routeNames.includes('MainTabs');
+      
+      if (isModalContext) {
+        console.log('SignInScreen: Proceeding to home in modal context, navigating back to main app');
+        // Navigate back to MainTabs to dismiss the modal auth stack
+        (navigation as any).navigate('MainTabs');
+      }
+      
+      // Reset the SignIn screen's state
+      setLoading(false);
+      setIdentifier('');
+      setPassword('');
+      setIdentifierValid(false);
+      setPasswordValid(false);
+      setShouldShowPasswordField(false);
+    }, 300);
+  };
+  
+  // Handle sheet dismiss (same as proceeding to home)
+  const handleDismissSheet = () => {
+    console.log('Options sheet dismissed, going to home screen');
+    
+    // Hide the options sheet
+    setShowOptionsSheet(false);
+    
+    setTimeout(() => {
+      // First tell appStateManager to hide the options sheet
+      appStateManager.setShowOnboardingOptions(false);
+      
+      // Set onboarding flag to false to go home
+      appStateManager.setOnboarding(false);
+      
+      // Just set the authenticated flag - the app will navigate to main tabs
+      // Don't reset the navigation stack as it's causing issues
+      appStateManager.setAuthenticated(true);
+      
+      // Reset auth guard failed checks on successful login
+      authGuard.resetFailedChecks();
+      
+      // Check if we're in a modal context and navigate back
+      const parent = navigation.getParent();
+      const isModalContext = parent && parent.getState().routeNames.includes('MainTabs');
+      
+      if (isModalContext) {
+        console.log('SignInScreen: Options sheet dismissed in modal context, navigating back to main app');
+        // Navigate back to MainTabs to dismiss the modal auth stack
+        (navigation as any).navigate('MainTabs');
+      }
+      
+      // Reset the SignIn screen's state
+      setLoading(false);
+      setIdentifier('');
+      setPassword('');
+      setIdentifierValid(false);
+      setPasswordValid(false);
+      setShouldShowPasswordField(false);
+    }, 300);
+  };
+  
+  // Handle sheet drag progress (if needed)
+  const handleSheetDragProgress = (progress: number) => {
+    // Optional: You can add visual effects based on drag progress
+  };
+
+  // Handle sign in with Firebase
+  const handleSignIn = async () => {
+    if (!isTermsChecked) {
+      Alert.alert("Terms Agreement Required", text.auth.validation.terms.required);
+      return;
+    }
+    
+    // Validate and show errors
+    if (!validateAndShowErrors()) {
+      return;
+    }
+    
+    // For phone auth, we need to handle verification
+    if (authMethod === 'phone') {
+      if (showVerificationPanel) {
+        // Check if code is complete before verifying
+        if (verificationCode.length !== 6) {
+          Alert.alert(
+            "Incomplete Code",
+            "Please enter all 6 digits of the verification code.",
+            [{ text: "OK" }]
+          );
+          return;
+        }
+        handleVerifyCode();
+      } else {
+        handleSendCode();
+      }
+      return;
+    }
+    
+    setLoading(true);
+    
+    try {
+      // Call Firebase sign-in service - now passing the identifier directly
+      const result = await signIn(identifier, password, useFaceId);
+      console.log('Sign-in result:', JSON.stringify(result));
+      
+      // Store biometric preference and credentials if enabled
+      if (useFaceId && isBiometricAvailable) {
+        try {
+          console.log("Storing credentials for biometric auth");
+          // Store credentials for biometric auth
+          await storeCredentialsForBiometrics(identifier, password);
+          
+          // Also update AsyncStorage preference (should already be true, but ensure it)
+          await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'true');
+          
+          // Update biometric preference in the user profile for persistence
+          await toggleBiometricAuth(true, result.userCredential.user.uid);
+          
+          // Reset retry counter after successful sign-in
+          setBioAuthRetryCount(0);
+        } catch (error) {
+          console.error('Error setting up biometric auth:', error);
+          // Non-critical error, continue with sign in
+        }
+      } else if (!useFaceId && isBiometricAvailable) {
+        // If biometric was toggled off, update the preference
+        try {
+          await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'false');
+          await toggleBiometricAuth(false, result.userCredential.user.uid);
+        } catch (error) {
+          console.error('Error updating biometric preference:', error);
+          // Non-critical error, continue with sign in
+        }
+      }
+      
+      // Rest of handleSignIn remains the same...
+      // Handle successful login
+      console.log('User successfully signed in');
+      // Note: authentication state was already set to true by the auth service
+      
+      // Get user ID for fetching details
+      const userId = result.userCredential.user.uid;
+      console.log('User ID:', userId);
+      
+      // Fetch the user's first name and onboarding progress before checking onboarding status
+      await fetchUserDetails(userId);
+      
+      // Check if user needs onboarding
+      if (result.needsOnboarding) {
+        console.log('User needs onboarding, showing options sheet');
+        // Set loading to false
+        setLoading(false);
+        
+        // Update appStateManager to track that options sheet should be shown
+        appStateManager.setShowOnboardingOptions(true);
+        
+        // Directly show the options sheet using component state
+        setShowOptionsSheet(true);
+      } else {
+        setLoading(false);
+        console.log('User completed onboarding, going to home screen');
+        
+        // Check if we're in a modal context (opened from guest settings or similar)
+        // If so, we need to explicitly navigate back to main app
+        const parent = navigation.getParent();
+        const isModalContext = parent && parent.getState().routeNames.includes('MainTabs');
+        
+        if (isModalContext) {
+          console.log('SignInScreen: Authentication successful in modal context, navigating back to main app');
+          // Navigate back to MainTabs to dismiss the modal auth stack
+          (navigation as any).navigate('MainTabs');
+        }
+        // If not modal, the app navigator will detect authenticated state automatically
+      }
+    } catch (error) {
+      setLoading(false);
+      
+      // Handle specific authentication errors
+      const authError = error as AuthErrorResponse;
+      console.error('Auth error:', authError);
+      
+      // Show appropriate error message
+      if (authError.code === 'auth/wrong-password') {
+        setPasswordError(authError.userFriendlyMessage);
+      } else if (
+        authError.code === 'auth/user-not-found' || 
+        authError.code === 'auth/invalid-email' ||
+        authError.code === 'auth/invalid-phone-number' ||
+        authError.code === 'auth/username-not-found'
+      ) {
+        setIdentifierError(authError.userFriendlyMessage);
+      } else {
+        // For other errors, show an alert
+        Alert.alert('Sign In Error', authError.userFriendlyMessage);
+      }
+    }
+  };
+
+  // Toggle between email and phone authentication methods
+  const toggleAuthMethod = (method: 'email' | 'phone') => {
+    // Only process if different from current method
+    if (method === authMethod) return;
+    
+    // If trying to switch to phone but resend limit has been reached
+    if (method === 'phone' && resendLimitReached) {
+      Alert.alert(
+        "Phone Verification Limit Reached",
+        "You've reached the maximum number of verification attempts. Please use email authentication instead.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    
+    // If verification is in progress, confirm with user before switching
+    if (isAuthInProgress && showVerificationPanel) {
+      Alert.alert(
+        "Cancel Verification?",
+        "Switching authentication methods will cancel your current phone verification process and count as a failed attempt. Are you sure?",
+        [
+          { text: "Stay with Phone", style: "cancel" },
+          { 
+            text: "Switch Authentication",
+            style: "destructive",
+            onPress: () => {
+              // Track this as a verification failure
+              trackVerificationFailure('User switched auth methods during verification');
+              
+              // Reset verification state
+              setIsAuthInProgress(false);
+              setShowVerificationPanel(false);
+              setVerificationCode('');
+              setVerificationId('');
+              
+              // If we've hit the resend limit, force switch to email
+              if (resendAttempts >= MAX_RESEND_ATTEMPTS) {
+                // Force switch to email auth method
+                performAuthMethodSwitch('email');
+                
+                // Show alert about reaching limit
+                Alert.alert(
+                  "Verification Limit Reached",
+                  "You've reached the maximum number of verification attempts. You've been switched to email authentication.",
+                  [{ text: "OK" }]
+                );
+                return;
+              }
+              
+              // Complete the switch if under the limit
+              performAuthMethodSwitch(method);
+            }
+          }
+        ]
+      );
+      return;
+    }
+    
+    // If no verification in progress, switch directly
+    performAuthMethodSwitch(method);
+  };
+
+  // Helper function to actually perform the auth method switch
+  const performAuthMethodSwitch = (method: 'email' | 'phone') => {
+    // Reset state and animations with a nice transition
+    LayoutAnimation.configureNext({
+      duration: 300,
+      create: { 
+        type: LayoutAnimation.Types.easeOut, 
+        property: LayoutAnimation.Properties.opacity 
+      },
+      update: { 
+        type: LayoutAnimation.Types.easeInEaseOut 
+      }
+    });
+    
+    // Save current identifier value before switching
+    if (authMethod === 'email') {
+      setEmailIdentifier(identifier);
+    } else {
+      setPhoneIdentifier(identifier);
+    }
+    
+    // Reset form state (but preserve identifier values for each method)
+    setIdentifierError('');
+    setPasswordError('');
+    
+    // Set appropriate identifier for the new auth method
+    if (method === 'phone') {
+      // If switching to phone, initialize with + if needed
+      let initialPhoneValue = phoneIdentifier;
+      if (!initialPhoneValue.startsWith('+')) {
+        initialPhoneValue = '+' + (initialPhoneValue || '');
+      }
+      
+      setIdentifier(initialPhoneValue);
+      setIdentifierType(IdentifierType.PHONE);
+      setIdentifierValid(validatePhoneNumber(initialPhoneValue));
+      setShouldShowPasswordField(false);
+      setShowVerificationPanel(false);
+      setVerificationCode('');
+    } else {
+      setIdentifier(emailIdentifier);
+      // Determine identifier type for email mode
+      const type = determineIdentifierType(emailIdentifier);
+      setIdentifierType(type);
+      setIdentifierValid(validateIdentifier(emailIdentifier, type));
+      setShouldShowPasswordField(false);
+    }
+    
+    // Update auth method
+    setAuthMethod(method);
+  };
+
+  // Update forgot password handler to work with different identifier types
+  const handleForgotPassword = () => {
+    // Only email can be used for password reset
+    if (identifierType !== IdentifierType.EMAIL) {
+      Alert.alert(
+        'Email Required', 
+        'Please enter your email address to reset your password.', 
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Validate the email first
+    if (!identifierValid) {
+      setIdentifierError(text.auth.validation.email.invalid);
+      return;
+    }
+    
+    // Confirm with the user
+    Alert.alert(
+      'Reset Password',
+      `We'll send a password reset link to ${identifier}. Continue?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Send Reset Link', 
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await resetPassword(identifier);
+              setLoading(false);
+              Alert.alert(
+                'Reset Link Sent',
+                `A password reset link has been sent to ${identifier}. Please check your email.`
+              );
+            } catch (error) {
+              setLoading(false);
+              const authError = error as AuthErrorResponse;
+              Alert.alert('Password Reset Error', authError.userFriendlyMessage);
+            }
+          }
+        }
+      ]
+    );
+  };
+  
+  // Add protection for sign up navigation during verification
+  const handleSignUp = () => {
+    // Check if phone verification is in progress
+    if (isAuthInProgress) {
+      Alert.alert(
+        "Verification in Progress",
+        "You have a phone verification in progress. Leaving now will count as a failed attempt and may affect your verification limits. Are you sure you want to proceed to sign up?",
+        [
+          { text: "Stay", style: "cancel" },
+          { 
+            text: "Proceed to Sign Up", 
+            style: "destructive",
+            onPress: () => {
+              // Track this abandonment as a verification failure
+              trackVerificationFailure('User abandoned verification to sign up');
+              
+              // Reset verification state
+              setIsAuthInProgress(false);
+              setShowVerificationPanel(false);
+              setVerificationCode('');
+              setVerificationId('');
+              
+              // Navigate to sign up with current parameters
+              navigateToSignUp();
+            }
+          }
+        ]
+      );
+      return;
+    }
+    
+    // Regular sign up navigation if no verification in progress
+    navigateToSignUp();
+  };
+
+  // Extract navigation to sign up into a separate function
+  const navigateToSignUp = () => {
+    // Always pass current field values to SignUp
+    const params: any = {};
+    
+    // Pass the current identifier based on its type
+    switch (identifierType) {
+      case IdentifierType.EMAIL:
+        params.email = identifier;
+        params.identifierType = 'email';
+        break;
+      case IdentifierType.PHONE:
+        params.phone = identifier;
+        params.identifierType = 'phone';
+        break;
+      case IdentifierType.USERNAME:
+        // For username, don't send anything since SignUp expects email or phone
+        params.identifierType = 'email';
+        break;
+      default:
+        params.email = identifier; // Default to email
+        params.identifierType = 'email';
+    }
+    
+    // Pass the current validation state
+    params.isValidated = identifierValid;
+    
+    navigation.navigate('SignUp', params);
+  };
+
+  // Update the toggle biometric function to update AsyncStorage
+  const handleToggleBiometric = async () => {
+    if (!isBiometricAvailable) {
+      Alert.alert(
+        'Biometric Authentication Not Available',
+        'Your device does not appear to support biometric authentication.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // If toggling off, confirm with the user
+    if (useFaceId) {
+      Alert.alert(
+        `Disable ${biometricType}`,
+        `Are you sure you want to disable ${biometricType} authentication?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Disable', 
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                console.log("Disabling biometric authentication");
+                // Update local state
+                setUseFaceId(false);
+                
+                // Update AsyncStorage first
+                await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'false');
+                console.log("Updated AsyncStorage preference to false");
+                
+                // Get current user ID if signed in
+                const currentUser = auth().currentUser;
+                if (currentUser) {
+                  console.log("Also updating database biometric preference to false");
+                  // Update database with user preference (for persistence)
+                  await toggleBiometricAuth(false, currentUser.uid);
+                }
+                
+                Alert.alert(
+                  `${biometricType} Disabled`,
+                  `${biometricType} authentication has been disabled.`
+                );
+              } catch (error) {
+                console.error('Error disabling biometric auth:', error);
+                Alert.alert('Error', 'Failed to disable biometric authentication.');
+              }
+            } 
+          }
+        ]
+      );
+    } else {
+      // If toggling on, first check if they have entered credentials
+      if (!identifierValid || !passwordValid) {
+        Alert.alert(
+          `Enable ${biometricType}`,
+          `Please enter your email/username and password first, then sign in to enable ${biometricType} authentication.`,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      // If they have entered credentials, show information message
+      Alert.alert(
+        `Enable ${biometricType}`,
+        `You can use ${biometricType} for faster sign-in. Your credentials will be stored securely on your device.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Enable',
+            onPress: async () => {
+              // Update local state
+              setUseFaceId(true);
+              
+              try {
+                // Store preference in AsyncStorage
+                await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'true');
+                console.log("Updated AsyncStorage preference to true");
+                
+                // The credentials will be stored after successful authentication
+                // We don't need to store them now as the handleSignIn function will do that
+                
+                // Show confirmation
+                Alert.alert(
+                  `${biometricType} Enabled`,
+                  `${biometricType} will be activated after you sign in successfully. Please proceed with sign in.`
+                );
+              } catch (error) {
+                console.error("Error enabling biometric auth:", error);
+                Alert.alert("Error", "Failed to enable biometric authentication.");
+                // Revert UI state on error
+                setUseFaceId(false);
+              }
+            }
+          }
+        ]
+      );
+    }
+  };
+  
+  // Modify handleFaceIdIconPress function to use useCallback to prevent infinite loops
+  const handleFaceIdIconPress = useCallback(async () => {
+    // Skip if auth already in progress
+    if (biometricAuthInProgress.current || loading) return;
+    
+    // Check if exceeded retry limit
+    if (bioAuthRetryCount >= MAX_BIO_AUTH_RETRIES) {
+          Alert.alert(
+        'Authentication Limit Reached',
+        `You've attempted biometric authentication ${MAX_BIO_AUTH_RETRIES} times. Please sign in with your credentials.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Increment retry counter
+    setBioAuthRetryCount(prevCount => prevCount + 1);
+    
+    // Check if biometric is available on device
+    if (!isBiometricAvailable) {
+      Alert.alert(
+        'Biometric Authentication Not Available',
+        'Your device does not appear to support biometric authentication.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Check if biometric is enabled via toggle
+    if (!useFaceId) {
+      Alert.alert(
+        `${biometricType} Not Enabled`,
+        `Please enable ${biometricType} authentication using the toggle switch to use this feature.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Enable Now', 
+              onPress: () => {
+              // Update local state to turn on toggle
+              setUseFaceId(true);
+            } 
+          }
+        ]
+      );
+      return;
+    }
+    
+    // Check if biometric is locked due to too many failures
+    if (isBiometricLocked) {
+      Alert.alert(
+        `${biometricType} Temporarily Locked`,
+        `${biometricType} authentication has been temporarily locked due to too many failed attempts. Please sign in with your credentials to reset.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Attempt biometric authentication
+    try {
+      biometricAuthInProgress.current = true;
+      setLoading(true);
+      
+      // Fetch stored credentials
+      const storedIdentifier = await AsyncStorage.getItem('biometricAuthIdentifier');
+      const storedPassword = await AsyncStorage.getItem('biometricAuthPassword');
+      
+      if (!storedIdentifier || !storedPassword) {
+        Alert.alert(
+          'Missing Credentials',
+          'No stored credentials found. Please sign in with your email and password first.',
+          [{ text: 'OK' }]
+        );
+        biometricAuthInProgress.current = false;
+        setLoading(false);
+        return;
+      }
+      
+      // Attempt biometric authentication
+      const authenticated = await authenticateWithBiometrics();
+      
+      if (authenticated) {
+        // Reset retry counter on success
+        setBioAuthRetryCount(0);
+        
+        try {
+          // Sign in with stored credentials
+          const result = await signIn(storedIdentifier, storedPassword, useFaceId);
+          
+          // Reset biometric failure count on successful sign in
+          await resetFailureCount();
+          
+          console.log('Biometric authentication successful, signed in');
+          
+          // Get user ID for fetching details
+          const userId = result.userCredential.user.uid;
+          
+          // Fetch the user's first name and onboarding progress
+          await fetchUserDetails(userId);
+          
+          // Handle onboarding status
+          if (result.needsOnboarding) {
+            console.log('User needs onboarding after manual biometric auth');
+            appStateManager.setShowOnboardingOptions(true);
+            setShowOptionsSheet(true);
+          }
+        } catch (error) {
+          console.error('Error signing in after manual biometric auth:', error);
+          
+          // If sign-in fails after biometric auth, show password field for manual entry
+          setPassword('');
+          setPasswordValid(false);
+          setShouldShowPasswordField(true);
+          showPasswordField();
+          
+          // Show appropriate error
+          const authError = error as AuthErrorResponse;
+          Alert.alert(
+            'Sign In Failed',
+            authError.userFriendlyMessage || 'An error occurred during sign in.'
+          );
+        }
+      } else if (bioAuthRetryCount >= MAX_BIO_AUTH_RETRIES) {
+        Alert.alert(
+          'Authentication Limit Reached',
+          `You've attempted biometric authentication ${MAX_BIO_AUTH_RETRIES + 1} times. Please sign in with your credentials.`,
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('Error with manual biometric authentication:', error);
+      Alert.alert(
+        'Authentication Failed',
+        'Failed to authenticate using biometrics. Please sign in with your credentials.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      biometricAuthInProgress.current = false;
+      setLoading(false);
+    }
+  }, [bioAuthRetryCount, isBiometricAvailable, useFaceId, isBiometricLocked, biometricType, loading]);
+
+  // Effect to check AsyncStorage (not DB) for biometric preference on load
+  useEffect(() => {
+    const checkLocalBiometricPreference = async () => {
+      try {
+        console.log("Checking for biometric auth preference in AsyncStorage");
+        
+        // Check if biometric is enabled in AsyncStorage
+        const storedPrefString = await AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY);
+        const enabled = storedPrefString === 'true';
+        console.log("Biometric enabled in AsyncStorage:", enabled);
+        
+        // Update toggle state based on AsyncStorage value
+        setUseFaceId(enabled);
+        
+        // If enabled and biometrics are available, attempt authentication
+        if (enabled && isBiometricAvailable && !isBiometricLocked && bioAuthRetryCount < MAX_BIO_AUTH_RETRIES) {
+          console.log("Auto-triggering biometric auth");
+          
+          // Set a small delay to allow UI to render
+          setTimeout(async () => {
+            if (!biometricAuthInProgress.current) {
+              // Get stored credentials
+              const storedIdentifier = await AsyncStorage.getItem('biometricAuthIdentifier');
+              const storedPassword = await AsyncStorage.getItem('biometricAuthPassword');
+              
+              if (storedIdentifier && storedPassword) {
+                console.log("Found stored credentials, attempting auth");
+                biometricAuthInProgress.current = true;
+                
+                try {
+                  // Directly attempt biometric authentication
+                  const authenticated = await authenticateWithBiometrics();
+                  
+                  if (authenticated) {
+                    console.log("Auto-triggered biometric auth successful");
+                    
+                    // Directly sign in without showing password field
+                    setLoading(true);
+                    try {
+                      const result = await signIn(storedIdentifier, storedPassword, true);
+                      
+                      // Reset biometric failure count on successful sign in
+                      await resetFailureCount();
+                      
+                      // Handle onboarding if needed
+                      const userId = result.userCredential.user.uid;
+                      await fetchUserDetails(userId);
+                      
+                      if (result.needsOnboarding) {
+                        appStateManager.setShowOnboardingOptions(true);
+                        setShowOptionsSheet(true);
+                      }
+                    } catch (error) {
+                      console.error("Error signing in after biometric auth:", error);
+                      Alert.alert(
+                        "Sign In Failed", 
+                        "Your stored credentials could not be used. Please sign in manually."
+                      );
+                    } finally {
+                      setLoading(false);
+                    }
+                  } else {
+                    console.log("Auto-triggered biometric auth failed or was canceled");
+                    // Increment retry counter for failed attempts
+                    setBioAuthRetryCount(prev => prev + 1);
+                  }
+                } catch (error) {
+                  console.error("Error in auto-triggered biometric auth:", error);
+                  setBioAuthRetryCount(prev => prev + 1);
+                } finally {
+                  biometricAuthInProgress.current = false;
+                }
+              } else {
+                console.log("No stored credentials found");
+                // Disable biometric if we don't have stored credentials
+                setUseFaceId(false);
+                await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'false');
+              }
+            }
+          }, 800);
+        }
+      } catch (error) {
+        console.error('Error checking local biometric preference:', error);
+      }
+    };
+
+    // Call the function if biometrics are available
+    if (isBiometricAvailable) {
+      checkLocalBiometricPreference();
+    }
+  }, [isBiometricAvailable, isBiometricLocked, bioAuthRetryCount]);
+
+  // Improve database sync for toggle state by adding separate focus effect
+  useFocusEffect(
+    React.useCallback(() => {
+      const syncBiometricToggle = async () => {
+        try {
+          const currentUser = auth().currentUser;
+          if (currentUser) {
+            console.log("Syncing biometric toggle with database");
+            const enabled = await isBiometricAuthEnabled();
+            console.log("Database says biometric is:", enabled);
+            setUseFaceId(enabled);
+          }
+        } catch (error) {
+          console.error("Error syncing biometric toggle:", error);
+        }
+      };
+      
+      if (isBiometricAvailable) {
+        syncBiometricToggle();
+      }
+      
+      return () => {
+        // Cleanup if needed
+      };
+    }, [isBiometricAvailable])
+  );
+
+  // Handle identifier changes with typing detection
+  const handleIdentifierChange = useCallback((inputValue: string) => {
+    // Clear any existing error when user starts typing
+    if (identifierError) {
+      setIdentifierError('');
+    }
+    
+    // For phone authentication, just store the raw input
+    if (authMethod === 'phone') {
+      // No formatting, take the number as is
+      setIdentifier(inputValue);
+      
+      // Force phone type for this authentication method
+      setIdentifierType(IdentifierType.PHONE);
+      setPhoneIdentifier(inputValue); // Store in phone-specific state
+    } else {
+      // For email/username, use the input as-is
+      setIdentifier(inputValue);
+      setEmailIdentifier(inputValue); // Store in email-specific state
+      
+      // Determine identifier type while typing
+      const detectedType = determineIdentifierType(inputValue);
+      if (detectedType !== identifierType) {
+        setIdentifierType(detectedType);
+      }
+    }
+    
+    setIsTyping(true);
+    
+    // Clear any previous typing timeout
+    if (typingTimeout.current) {
+      clearTimeout(typingTimeout.current);
+    }
+    
+    // Set a timeout to detect when typing stops
+    typingTimeout.current = setTimeout(() => {
+      setIsTyping(false);
+      
+      // Validate identifier after typing has stopped
+      const isValid = authMethod === 'phone' 
+        ? validatePhoneNumber(identifier)
+        : validateIdentifier(identifier, identifierType);
+      
+      setIdentifierValid(isValid);
+      
+      // Show appropriate field after typing has stopped and identifier is valid
+      if (isValid) {
+        if (authMethod === 'email') {
+          // For email, show password field
+          if (!shouldShowPasswordField) {
+            setShouldShowPasswordField(true);
+            showPasswordField();
+          }
+        } else {
+          // For phone, prepare to show verification panel
+          setShowVerificationPanel(false);  // Reset to initial state
+        }
+      } else if (authMethod === 'phone' && !identifier.startsWith('+')) {
+        // Show specific error for missing country code
+        setIdentifierError('Add country code (e.g., +1 for US)');
+      }
+      
+      // Clear error if valid
+      if (isValid) {
+        setIdentifierError('');
+      }
+    }, 500); // Wait 500ms after typing stops
+    
+    // Clear any existing email error timer
+    if (identifierTimer.current) {
+      clearTimeout(identifierTimer.current);
+      identifierTimer.current = null;
+    }
+  }, [identifierType, shouldShowPasswordField, showPasswordField, authMethod, identifierError, identifier]);
+
+  // Handle password changes
+  const handlePasswordChange = useCallback((inputValue: string) => {
+    // Clear any existing error when user starts typing
+    if (passwordError) {
+      setPasswordError('');
+    }
+    
+    // Store the value in both state and ref
+    setPassword(inputValue);
+    passwordRef.current = inputValue;
+    
+    const isValid = validatePassword(inputValue);
+    setPasswordValid(isValid);
+    
+    // Clear any existing password error timer
+    if (passwordTimer.current) {
+      clearTimeout(passwordTimer.current);
+      passwordTimer.current = null;
+    }
+    
+    // Clear error if valid
+    if (isValid) {
+      setPasswordError('');
+    }
+  }, [validatePassword, passwordError]);
+
+  // Handle phone verification code input
+  const handleVerificationCodeChange = (code: string) => {
+    // Clear any error when the user starts entering a code
+    if (phoneAuthError) {
+      setPhoneAuthError('');
+    }
+    
+    setVerificationCode(code);
+    
+    // If code is complete (6 digits), dismiss keyboard
+    if (code.length === 6) {
+      dismissKeyboard();
+    }
+  };
+
+  // Replace the network check function with a simpler version
+  const checkBeforeVerification = async (): Promise<boolean> => {
+    // Ask user to confirm sending SMS
+    return new Promise((resolve) => {
+      Alert.alert(
+        "Send Verification Code",
+        "We'll send a verification code to your phone. Standard SMS rates may apply.",
+        [
+          { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+          { text: "Send Code", onPress: () => resolve(true) }
+        ]
+      );
+    });
+  };
+
+  // Then update the handleSendCode function to check network first
+  const handleSendCode = async () => {
+    // First confirm with user
+    const shouldProceed = await checkBeforeVerification();
+    if (!shouldProceed) {
+      return;
+    }
+    
+    // Check if in cooldown period
+    if (verificationCooldown) {
+      const remainingCooldown = Math.ceil((cooldownEndTime - Date.now()) / 60000); // convert to minutes
+      Alert.alert(
+        "Verification Temporarily Disabled",
+        `You've reached the maximum number of attempts. Please try again in ${remainingCooldown} minutes or use email sign-in instead.`,
+        [
+          { text: "Use Email Instead", onPress: () => toggleAuthMethod('email') },
+          { text: "OK" }
+        ]
+      );
+      return;
+    }
+
+    // Check if max resend attempts reached
+    if (resendLimitReached) {
+      Alert.alert(
+        "Resend Limit Reached",
+        "You've reached the maximum number of verification attempts for this hour. Please try again later or use email sign-in instead.",
+        [
+          { text: "Use Email Instead", onPress: () => toggleAuthMethod('email') },
+          { text: "OK" }
+        ]
+      );
+      return;
+    }
+
+    // Enhanced validation for country code
+    if (!identifier.startsWith('+')) {
+      setIdentifierError('Please include country code (e.g., +1 for US)');
+      Alert.alert(
+        "Missing Country Code",
+        "Please include your country code (e.g., +1 for US) before your phone number.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    // Validate phone number using stronger validation
+    if (!validatePhoneNumber(identifier)) {
+      setIdentifierError('Please enter a valid phone number with country code');
+      return;
+    }
+    
+    // Format phone number for Firebase (must be in E.164 format)
+    const formattedPhoneNumber = formatPhoneForFirebase(identifier);
+    
+    // Reset verification state
+    setVerificationCode('');
+    setAttemptsLeft(MAX_INVALID_ATTEMPTS);
+    setPhoneAuthError('');
+    
+    // Set authentication in progress flag
+    setIsAuthInProgress(true);
+    
+    // Record verification start time
+    verificationStartTimeRef.current = Date.now();
+    
+    try {
+      // Start loading state
+      setLoading(true);
+      
+      // Increment resend attempts counter (first send counts too)
+      const updatedResendAttempts = resendAttempts + 1;
+      setResendAttempts(updatedResendAttempts);
+      
+      // Check if we've hit the resend limit
+      if (updatedResendAttempts >= MAX_RESEND_ATTEMPTS) {
+        setResendLimitReached(true);
+        setLoading(false);
+        
+        // Reset the limit after 1 hour
+        setTimeout(() => {
+          setResendLimitReached(false);
+          setResendAttempts(0);
+        }, 60 * 60 * 1000); // 1 hour
+        
+        // Auto-switch to email authentication
+        Alert.alert(
+          "Verification Limit Reached",
+          "You've reached the maximum number of verification attempts. Switching to email authentication instead.",
+          [{ 
+            text: "OK",
+            onPress: () => {
+              // Switch to email authentication
+              performAuthMethodSwitch('email');
+            }
+          }]
+        );
+        return;
+      }
+      
+      // Set the resend timer to 60 seconds
+      setRemainingTime(60);
+      
+      // Start the timer countdown
+      if (resendTimerRef.current) {
+        clearInterval(resendTimerRef.current);
+      }
+      
+      resendTimerRef.current = setInterval(() => {
+        setRemainingTime(prev => {
+          if (prev <= 1) {
+            if (resendTimerRef.current) {
+              clearInterval(resendTimerRef.current);
+              resendTimerRef.current = null;
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000) as unknown as number;
+      
+      // Log the attempted phone number for audit/security purposes
+      console.log('Attempting phone verification for:', formattedPhoneNumber);
+      
+      // Use updated phone auth method that handles CAPTCHA automatically
+      const confirmation = await handlePhoneAuth(formattedPhoneNumber);
+      setVerificationId(confirmation.verificationId || ''); // Use empty string as fallback
+      
+      // Set expiration time for 10 minutes from now and start expiration timer
+      const expiryTime = Date.now() + VERIFICATION_EXPIRY_SECONDS * 1000;
+      setVerificationExpiryTime(expiryTime);
+      startVerificationExpiryTimer();
+      
+      // Use LayoutAnimation for smooth transition
+      LayoutAnimation.configureNext({
+        duration: 250,
+        create: { 
+          type: LayoutAnimation.Types.easeOut, 
+          property: LayoutAnimation.Properties.opacity 
+        },
+        update: { 
+          type: LayoutAnimation.Types.easeInEaseOut 
+        }
+      });
+      
+      // Show verification panel
+      setShowVerificationPanel(true);
+      
+      // Provide feedback to user
+      Alert.alert(
+        "Verification Code Sent",
+        `A verification code has been sent to ${formatPhoneForDisplay(identifier)}.`,
+        [{ text: "OK" }]
+      );
+      
+      // Set focus to code input after showing verification panel
+      setTimeout(() => {
+        if (codeInputRef.current) {
+          codeInputRef.current.focusLastInput();
+        }
+      }, 300);
+      
+    } catch (error: any) {
+      // Handle specific Firebase phone auth errors with improved messages
+      let errorMessage = "Failed to send verification code. Please try again.";
+      let errorTitle = "Verification Failed";
+      let isCriticalError = false;
+      
+      if (error.code) {
+        let endTime: number;
+        switch(error.code) {
+          case 'auth/invalid-phone-number':
+            errorTitle = "Invalid Number";
+            errorMessage = "Please enter a valid phone number with country code";
+            break;
+          case 'auth/missing-phone-number':
+            errorTitle = "Missing Number";
+            errorMessage = "Please enter your phone number";
+            break;
+          case 'auth/quota-exceeded':
+            errorTitle = "Limit Reached";
+            errorMessage = "Verification limit reached. Try again later or use email";
+            isCriticalError = true;
+            setResendLimitReached(true);
+            break;
+          case 'auth/user-disabled':
+            errorTitle = "Account Disabled";
+            errorMessage = "This account is disabled";
+            isCriticalError = true;
+            break;
+          case 'auth/operation-not-allowed':
+            errorTitle = "Not Available";
+            errorMessage = "Phone sign-in is not available";
+            isCriticalError = true;
+            break;
+          case 'auth/too-many-requests':
+            errorTitle = "Too Many Attempts";
+            errorMessage = "Too many attempts. Try again later";
+            isCriticalError = true;
+            // Trigger cooldown period for security
+            setVerificationCooldown(true);
+            endTime = Date.now() + COOLDOWN_DURATION;
+            setCooldownEndTime(endTime);
+            
+            // Set a timer to clear the cooldown
+            if (cooldownTimerRef.current) {
+              clearTimeout(cooldownTimerRef.current);
+            }
+            cooldownTimerRef.current = setTimeout(() => {
+              setVerificationCooldown(false);
+              setInvalidAttempts(0);
+            }, COOLDOWN_DURATION) as unknown as number;
+            break;
+          case 'auth/captcha-check-failed':
+            errorTitle = "Verification Failed";
+            errorMessage = "Security check failed. Try again";
+            break;
+          case 'auth/network-request-failed':
+            errorTitle = "Network Error";
+            errorMessage = "Check your connection and try again";
+            break;
+          case 'auth/internal-error':
+            errorTitle = "Something Went Wrong";
+            errorMessage = "Please try again or use email sign-in";
+            isCriticalError = true;
+            break;
+          default:
+            errorTitle = "Verification Issue";
+            errorMessage = "Unable to verify right now. Try again later";
+        }
+      }
+      
+      // Show error in alert dialog for better visibility
+      if (error.userFriendlyMessage) {
+        errorMessage = error.userFriendlyMessage;
+      }
+      
+      setPhoneAuthError(errorMessage);
+      setIdentifierError(errorMessage);
+      setIsAuthInProgress(false);
+      
+      // Log the error
+      console.error("Phone auth error:", error);
+      
+      // Show error in alert dialog with option to switch to email for critical errors
+      if (isCriticalError) {
+        Alert.alert(
+          errorTitle, 
+          errorMessage, 
+          [
+            { text: "Use Email Instead", onPress: () => toggleAuthMethod('email') },
+            { text: "OK" }
+          ]
+        );
+      } else {
+        Alert.alert(errorTitle, errorMessage, [{ text: "OK" }]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Handle verification code submission with error tracking
+  const handleVerifyCode = async () => {
+    // Ensure code is complete (6 digits)
+    if (verificationCode.length !== 6) {
+      Alert.alert(
+        "Incomplete Code",
+        "Please enter all 6 digits of the verification code.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    
+    // Check if we're in a cooldown period
+    if (verificationCooldown) {
+      const remainingCooldown = Math.ceil((cooldownEndTime - Date.now()) / 60000); // convert to minutes
+      Alert.alert(
+        "Verification Temporarily Disabled",
+        `You've reached the maximum number of attempts. Please try again in ${remainingCooldown} minutes or use email sign-in instead.`,
+        [
+          { text: "Use Email Instead", onPress: () => toggleAuthMethod('email') },
+          { text: "OK" }
+        ]
+      );
+      return;
+    }
+    
+    // Set verifying state
+    setVerifyingCode(true);
+    setPhoneAuthError('');
+    
+    try {
+      // Check if verification session has expired (more than 10 minutes since sending code)
+      const verificationAge = Date.now() - verificationStartTimeRef.current;
+      if (verificationAge > 10 * 60 * 1000) { // 10 minutes in milliseconds
+        throw {
+          code: 'auth/code-expired',
+          message: 'The verification code has expired. Please request a new code.'
+        };
+      }
+      
+      // Verify the code is not empty and verification ID exists
+      if (!verificationCode) {
+        throw {
+          code: 'auth/invalid-verification-code',
+          message: 'Please enter the verification code'
+        };
+      }
+      
+      if (!verificationId) {
+        throw {
+          code: 'auth/invalid-verification-id',
+          message: 'The verification session has expired. Please request a new code.'
+        };
+      }
+      
+      // Use Firebase to confirm the verification code
+      // Create a credential with the verification ID and code
+      const credential = auth.PhoneAuthProvider.credential(verificationId, verificationCode);
+      
+      // Sign in with the credential
+      const userCredential = await auth().signInWithCredential(credential);
+      
+      console.log('Verification successful!');
+        
+      // Get the Firebase token and store it
+      const token = await userCredential.user.getIdToken();
+      await AsyncStorage.setItem('firebaseUserToken', token);
+      await AsyncStorage.setItem('lastActivityTimestamp', Date.now().toString());
+        
+      // User is now authenticated
+      // Update global state
+      appStateManager.setAuthenticated(true);
+      
+      // Reset auth guard failed checks on successful login
+      authGuard.resetFailedChecks();
+      
+      // Reset verification tracking
+      setInvalidAttempts(0);
+      setVerificationCooldown(false);
+      
+      // Get the user's document from Firestore to check onboarding status
+      const userDoc = await db.collection('users').doc(userCredential.user.uid).get();
+      const needsOnboarding = !userDoc.exists || userDoc.data()?.onboardingCompleted !== true;
+      
+      // Fetch user details (first name and onboarding progress)
+      await fetchUserDetails(userCredential.user.uid);
+      
+      // Reset verification panel state regardless of onboarding need
+      setIsAuthInProgress(false);
+      setShowVerificationPanel(false);
+      
+      if (needsOnboarding) {
+        console.log('User needs onboarding after phone verification, showing options sheet');
+        // Update appStateManager to track that options sheet should be shown
+        appStateManager.setShowOnboardingOptions(true);
+        
+        // Show the options sheet using component state
+        setShowOptionsSheet(true);
+      } else {
+        console.log('User already completed onboarding, proceeding to home');
+        // Show success message and navigate to home
+        Alert.alert(
+          "Verification Successful",
+          "Your phone number has been verified and you are now signed in.",
+          [{ 
+            text: "OK",
+            onPress: () => {
+              // Just ensure the authenticated flag is set - app will navigate to main tabs
+              appStateManager.setAuthenticated(true);
+      
+              // Reset auth guard failed checks on successful login
+              authGuard.resetFailedChecks();
+              appStateManager.setOnboarding(false);
+              
+              // Check if we're in a modal context and navigate back
+              const parent = navigation.getParent();
+              const isModalContext = parent && parent.getState().routeNames.includes('MainTabs');
+              
+              if (isModalContext) {
+                console.log('SignInScreen: Phone verification successful in modal context, navigating back to main app');
+                // Navigate back to MainTabs to dismiss the modal auth stack
+                (navigation as any).navigate('MainTabs');
+              }
+            }
+          }]
+        );
+      }
+    } catch (error: any) {
+      // Track this specific failure reason
+      trackVerificationFailure(`Verification error: ${error.code || 'unknown'}`);
+      
+      // Handle Firebase auth errors with more detailed messages
+      let errorMessage = "Failed to verify the code. Please try again.";
+      let errorTitle = "Verification Failed";
+      let isCriticalError = false;
+      
+      if (error.code) {
+        let newInvalidAttempts: number;
+        let cooldownEnd: number;
+        let endTime: number;
+        
+        switch(error.code) {
+          case 'auth/invalid-verification-code': {
+            errorMessage = "Incorrect code";
+            // Increment invalid attempts counter
+            newInvalidAttempts = invalidAttempts + 1;
+            setInvalidAttempts(newInvalidAttempts);
+            
+            // If max invalid attempts reached, implement cooldown
+            if (newInvalidAttempts >= MAX_INVALID_ATTEMPTS) {
+              isCriticalError = true;
+              setVerificationCooldown(true);
+              cooldownEnd = Date.now() + COOLDOWN_DURATION;
+              setCooldownEndTime(cooldownEnd);
+              
+              // Set timer to clear cooldown
+              if (cooldownTimerRef.current) {
+                clearTimeout(cooldownTimerRef.current);
+              }
+              cooldownTimerRef.current = setTimeout(() => {
+                setVerificationCooldown(false);
+                setInvalidAttempts(0);
+              }, COOLDOWN_DURATION) as unknown as number;
+              
+              errorMessage = "Too many failed attempts";
+            }
+            
+            // Reduce remaining attempts
+            const newAttempts = attemptsLeft - 1;
+            setAttemptsLeft(newAttempts);
+            
+            if (newAttempts > 0) {
+              errorMessage += ` (${newAttempts} left)`;
+            }
+            
+            if (newAttempts <= 0) {
+              // Handle max attempts per verification session exceeded
+              setPhoneAuthError("Too many failed attempts");
+              Alert.alert(
+                "Verification Failed",
+                "Maximum attempts reached. Request a new code",
+                [{ 
+                  text: "OK",
+                  onPress: () => {
+                    // Reset verification state to allow requesting a new code
+                    setShowVerificationPanel(false);
+                    setVerificationCode('');
+                    setAttemptsLeft(MAX_INVALID_ATTEMPTS);
+                    setVerificationId('');
+                    setIsAuthInProgress(false);
+                  }
+                }]
+              );
+              break;
+            }
+            break;
+          }
+          case 'auth/code-expired':
+            errorTitle = "Code Expired";
+            errorMessage = "Code expired. Request a new one";
+            isCriticalError = true;
+            break;
+          case 'auth/invalid-verification-id':
+            errorTitle = "Session Expired";
+            errorMessage = "Session expired. Request a new code";
+            isCriticalError = true;
+            break;
+          case 'auth/network-request-failed':
+            errorTitle = "Network Error";
+            errorMessage = "Check your connection and try again";
+            break;
+          case 'auth/too-many-requests':
+            errorTitle = "Too Many Attempts";
+            errorMessage = "Too many attempts. Try again later";
+            isCriticalError = true;
+            
+            // Implement security cooldown
+            setVerificationCooldown(true);
+            endTime = Date.now() + COOLDOWN_DURATION;
+            setCooldownEndTime(endTime);
+            
+            if (cooldownTimerRef.current) {
+              clearTimeout(cooldownTimerRef.current);
+            }
+            cooldownTimerRef.current = setTimeout(() => {
+              setVerificationCooldown(false);
+              setInvalidAttempts(0);
+            }, COOLDOWN_DURATION) as unknown as number;
+            break;
+          case 'auth/user-disabled':
+            errorTitle = "Account Disabled";
+            errorMessage = "This account is disabled";
+            isCriticalError = true;
+            break;
+          case 'auth/user-not-found':
+            errorTitle = "No Account Found";
+            errorMessage = "Account doesn't exist. Sign up?";
+            isCriticalError = true;
+            break;
+          case 'auth/captcha-check-failed':
+            errorTitle = "Verification Failed";
+            errorMessage = "Security check failed. Try again";
+            break;
+          case 'auth/missing-verification-code':
+            errorTitle = "Missing Code";
+            errorMessage = "Enter the verification code";
+            break;
+          case 'auth/account-exists-with-different-credential':
+            errorTitle = "Account Exists";
+            errorMessage = "Try signing in with email instead";
+            isCriticalError = true;
+            break;
+          case 'auth/internal-error':
+            errorTitle = "Something Went Wrong";
+            errorMessage = "Please try again or use email sign-in";
+            isCriticalError = true;
+            break;
+          default:
+            errorTitle = "Verification Failed";
+            errorMessage = "Unable to verify right now";
+        }
+      }
+      
+      // Set error message
+      setPhoneAuthError(errorMessage);
+      
+      // Log the error with timestamp for security monitoring
+      console.error("Phone verification error at", new Date().toISOString(), ":", error);
+      
+      // For critical errors, reset the verification panel and offer email alternative
+      if (isCriticalError) {
+        Alert.alert(
+          errorTitle, 
+          `${errorMessage} Would you like to try signing in with email instead?`,
+          [
+            { 
+              text: "Use Email Instead", 
+              onPress: () => {
+                // Reset verification state
+                setShowVerificationPanel(false);
+                setVerificationCode('');
+                setVerificationId('');
+                setIsAuthInProgress(false);
+                
+                // Switch to email authentication
+                toggleAuthMethod('email');
+              }
+            },
+            { 
+              text: "Try Again Later",
+              onPress: () => {
+                // Reset verification state
+                setShowVerificationPanel(false);
+                setVerificationCode('');
+                setVerificationId('');
+                setIsAuthInProgress(false);
+              }
+            }
+          ]
+        );
+      } else {
+        // For non-critical errors, just show alert
+        Alert.alert(errorTitle, errorMessage, [{ text: "OK" }]);
+        
+        // Clear the verification code and let the user try again if they have attempts left
+        if (attemptsLeft > 0) {
+          setVerificationCode('');
+          // Focus the code input again
+          if (codeInputRef.current) {
+            codeInputRef.current.focusLastInput();
+          }
+        }
+      }
+    } finally {
+      setVerifyingCode(false);
+    }
+  };
+
+  // Clean up all timers on unmount
+  useEffect(() => {
+    return () => {
+      // If verification was in progress but never completed when component unmounts
+      if (isAuthInProgress && showVerificationPanel) {
+        // Track this abandonment as a verification failure
+        // We can't use the trackVerificationFailure function directly here 
+        // because state updates won't work in cleanup function
+        console.log(`Verification failure at ${new Date().toISOString()} - Reason: Component unmounted during verification`);
+        
+        // In a production app with analytics, we would track this event
+        // trackEvent('verification_failure', { 
+        //   reason: 'Component unmounted during verification', 
+        //   timestamp: Date.now() 
+        // });
+      }
+      
+      // Clean up timers
+      if (identifierTimer.current) clearTimeout(identifierTimer.current);
+      if (passwordTimer.current) clearTimeout(passwordTimer.current);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      if (resendTimerRef.current) clearInterval(resendTimerRef.current);
+      if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+      if (verificationTimerRef.current) clearInterval(verificationTimerRef.current);
+    };
+  }, [isAuthInProgress, showVerificationPanel]);
+
+  // Fix the verification expiry timer initialization
+  const startVerificationExpiryTimer = () => {
+    // Clear any existing timer
+    if (verificationTimerRef.current) {
+      clearInterval(verificationTimerRef.current);
+    }
+    
+    // Calculate initial remaining time (should be VERIFICATION_EXPIRY_SECONDS initially)
+    const initialRemaining = Math.max(0, Math.floor((verificationExpiryTime - Date.now()) / 1000));
+    setVerificationRemainingTime(initialRemaining);
+    
+    // Start the timer
+    verificationTimerRef.current = setInterval(() => {
+      const remaining = Math.floor((verificationExpiryTime - Date.now()) / 1000);
+      
+      if (remaining <= 0) {
+        // Verification code has expired
+        if (verificationTimerRef.current) {
+          clearInterval(verificationTimerRef.current);
+          verificationTimerRef.current = null;
+        }
+        
+        setVerificationRemainingTime(0);
+        
+        // Only show expiration alert if verification panel is still shown
+        if (showVerificationPanel) {
+          setPhoneAuthError("Verification code has expired. Please request a new code.");
+          Alert.alert(
+            "Verification Code Expired",
+            "The verification code has expired. Please request a new code.",
+            [{ 
+              text: "OK",
+              onPress: () => {
+                // Reset verification state to allow requesting a new code
+                setShowVerificationPanel(false);
+                setVerificationCode('');
+                setAttemptsLeft(MAX_INVALID_ATTEMPTS);
+              }
+            }]
+          );
+        }
+      } else {
+        setVerificationRemainingTime(remaining);
+      }
+    }, 1000) as unknown as number;
+  };
+
+  // Add tracking for verification failures
+  const trackVerificationFailure = (reason: string) => {
+    // Increment resend attempts counter
+    const updatedResendAttempts = resendAttempts + 1;
+    setResendAttempts(updatedResendAttempts);
+    
+    // Check if we've hit the resend limit
+    if (updatedResendAttempts >= MAX_RESEND_ATTEMPTS) {
+      setResendLimitReached(true);
+      
+      // Reset the limit after 1 hour
+      setTimeout(() => {
+        setResendLimitReached(false);
+        setResendAttempts(0);
+      }, 60 * 60 * 1000); // 1 hour
+    }
+    
+    // Log the failure with timestamp and reason
+    console.log(`Verification failure at ${new Date().toISOString()} - Reason: ${reason}`);
+    
+    // In a production app, we would also send this to analytics/monitoring
+    // trackEvent('verification_failure', { reason, timestamp: Date.now() });
+  };
+
+  // Add sync effect to keep UI in sync with biometric state
+  useEffect(() => {
+    // Sync local toggle state with hook state
+    setUseFaceId(isBiometricEnabled);
+  }, [isBiometricEnabled]);
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <TouchableWithoutFeedback onPress={dismissKeyboard}>
+        <View style={styles.container}>
+          {/* Back Button */}
+          <TouchableOpacity style={[styles.backButton, { top: Platform.OS === 'ios' ? normalize(15) : normalize(10) }]} onPress={handleBackPress}>
+            <Icon name="arrow-left" size={normalize(24)} color={theme.text.primary} />
+          </TouchableOpacity>
+
+          <View style={[styles.content, { paddingTop: normalize(20) }]}>
+            <Text style={[authStyles.title, { marginTop: normalize(10) }]}>{text.auth.signIn.title}</Text>
+            <Text style={[authStyles.subtitle, { marginBottom: normalize(16) }]}>{text.auth.signIn.subtitle}</Text>
+
+            {/* Email/Phone Toggle */}
+            <View style={[styles.toggleContainer, { marginBottom: normalize(12) }]}>
+              {/* Email Toggle */}
+              <TouchableOpacity
+                style={[
+                  styles.toggleButton,
+                  authMethod === 'email' ? styles.toggleButtonActive : null,
+                ]}
+                onPress={() => {
+                  // If verification is in progress, show confirmation first
+                  if (authMethod === 'phone' && isAuthInProgress && showVerificationPanel) {
+                    Alert.alert(
+                      "Cancel Verification?",
+                      "Switching to Email/Username will cancel your current phone verification process and count as a failed attempt. Are you sure?",
+                      [
+                        { text: "Stay with Phone", style: "cancel" },
+                        { 
+                          text: "Switch to Email", 
+                          style: "destructive",
+                          onPress: () => {
+                            // Track this as a verification failure
+                            trackVerificationFailure('User switched from phone to email during verification');
+                            
+                            // Reset verification state
+                            setIsAuthInProgress(false);
+                            setShowVerificationPanel(false);
+                            setVerificationCode('');
+                            setVerificationId('');
+                            
+                            // Switch to email auth
+                            performAuthMethodSwitch('email');
+                          }
+                        }
+                      ]
+                    );
+                  } else {
+                    toggleAuthMethod('email');
+                  }
+                }}
+              >
+                <Text 
+                  style={[
+                    styles.toggleText,
+                    authMethod === 'email' ? styles.toggleTextActive : null,
+                    (authMethod === 'phone' && isAuthInProgress && showVerificationPanel) ? styles.toggleTextDisabled : null,
+                  ]}
+                >
+                  Email/Username
+                </Text>
+              </TouchableOpacity>
+              
+              {/* Phone Toggle */}
+              <TouchableOpacity
+                style={[
+                  styles.toggleButton,
+                  authMethod === 'phone' ? styles.toggleButtonActive : null,
+                  resendLimitReached && authMethod !== 'phone' ? styles.toggleButtonDisabled : null
+                ]}
+                onPress={() => {
+                  // If verification is in progress on email, show confirmation first
+                  if (authMethod === 'email' && isAuthInProgress) {
+                    Alert.alert(
+                      "Cancel Email Verification?",
+                      "Switching to Phone will cancel your current email verification process. Are you sure?",
+                      [
+                        { text: "Stay with Email", style: "cancel" },
+                        { 
+                          text: "Switch to Phone", 
+                          style: "destructive",
+                          onPress: () => toggleAuthMethod('phone')
+                        }
+                      ]
+                    );
+                  } else {
+                    toggleAuthMethod('phone');
+                  }
+                }}
+                disabled={resendLimitReached}
+              >
+                <Text 
+                  style={[
+                    styles.toggleText,
+                    authMethod === 'phone' ? styles.toggleTextActive : null,
+                    resendLimitReached ? styles.toggleTextDisabled : null,
+                  ]}
+                >
+                  Phone
+                  {resendLimitReached && authMethod !== 'phone' && <Text style={styles.disabledLabel}> (Limit Reached)</Text>}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Identifier Input - Always visible */}
+            <Animated.View 
+              style={[
+                styles.inputContainer,
+                { 
+                  opacity: emailOpacity,
+                  transform: [{ translateY: emailTranslateY }]
+                }
+              ]}
+            >
+              {/* Error Prompt for Identifier - Moved ABOVE the input */}
+              {identifierError ? (
+                <View style={styles.errorPromptNoBg}>
+                  <Icon name="alert-circle-outline" size={16} color={theme.error} />
+                  <Text style={styles.errorText}>{identifierError}</Text>
+                </View>
+              ) : null}
+              
+              <FormInput
+                value={identifier}
+                onChangeText={handleIdentifierChange}
+                placeholder={getIdentifierPlaceholder()}
+                keyboardType={authMethod === 'phone' || identifierType === IdentifierType.PHONE ? "phone-pad" : "default"}
+                autoCapitalize="none"
+                isValid={identifierValid}
+                error={identifierError ? " " : undefined}
+                onFocus={handleIdentifierFocus}
+                onBlur={handleIdentifierBlur}
+              />
+            </Animated.View>
+
+            {/* Password Input - For Email Auth Only */}
+            {authMethod === 'email' && shouldShowPasswordField && (
+              <Animated.View 
+                style={[
+                  styles.inputContainer,
+                  { 
+                    opacity: passwordOpacity,
+                    transform: [{ translateY: passwordTranslateY }]
+                  }
+                ]}
+              >
+                {/* Error Prompt for Password - Moved ABOVE the input */}
+                {passwordError ? (
+                  <View style={styles.errorPromptNoBg}>
+                    <Icon name="alert-circle-outline" size={16} color={theme.error} />
+                    <Text style={styles.errorText}>{passwordError}</Text>
+                  </View>
+                ) : null}
+                
+                <FormInput
+                  value={password}
+                  onChangeText={handlePasswordChange}
+                  placeholder={text.auth.signIn.passwordPlaceholder}
+                  secureTextEntry={!showPassword}
+                  isValid={passwordValid}
+                  error={passwordError ? " " : undefined}
+                  onFocus={handlePasswordFocus}
+                  onBlur={(e) => {
+                    // Preserve password value when blurring
+                    handlePasswordBlur();
+                  }}
+                  key="password-input"
+                  rightIcon={
+                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                      <Icon 
+                        name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                        size={20} 
+                        color={theme.text.secondary}
+                      />
+                    </TouchableOpacity>
+                  }
+                />
+                
+                {/* Forgot Password Link - Only show for email identifiers */}
+                {identifierType === IdentifierType.EMAIL && (
+                  <Animated.View 
+                    style={[
+                      styles.forgotPasswordContainer,
+                      { opacity: forgotPasswordOpacity }
+                    ]}
+                  >
+                    <TouchableOpacity 
+                      onPress={handleForgotPassword}
+                      hitSlop={{ top: 10, bottom: 10, left: 5, right: 5 }}
+                    >
+                      <Animated.Text 
+                        style={[
+                          styles.forgotPassword,
+                          { transform: [{ translateY: forgotPasswordTranslateY }] }
+                        ]}
+                      >
+                        {text.auth.signIn.forgotPassword}
+                      </Animated.Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                )}
+              </Animated.View>
+            )}
+
+            {/* Phone Verification Panel - extracted to component */}
+            <PhoneVerificationPanel
+              authMethod={authMethod}
+              showVerificationPanel={showVerificationPanel}
+              verificationCode={verificationCode}
+              verificationRemainingTime={verificationRemainingTime}
+              phoneAuthError={phoneAuthError}
+              remainingTime={remainingTime}
+              resendLimitReached={resendLimitReached}
+              codeInputRef={codeInputRef}
+              theme={theme}
+              styles={styles}
+              onVerificationCodeChange={handleVerificationCodeChange}
+              onVerifyCode={handleVerifyCode}
+              onResendCode={handleResendCode}
+              formatRemainingTime={formatRemainingTime}
+            />
+
+            {/* Button - Different based on auth method */}
+            {(
+              (authMethod === 'email' && (!identifierValid || (shouldShowPasswordField && !passwordValid) || !isTermsChecked)) ||
+              (authMethod === 'phone' && !identifierValid)
+            ) ? (
+              // Render wrapped button when invalid to show error messages
+              <TouchableOpacity 
+                activeOpacity={0.9}
+                onPress={() => validateAndShowErrors()}
+                style={{ width: '100%', marginTop: normalize(10) }}
+              >
+                <Button
+                  title={
+                    authMethod === 'phone' 
+                      ? (showVerificationPanel ? "Verify Code" : "Send Code") 
+                      : text.auth.signIn.button
+                  }
+                  onPress={() => {}} // Empty handler since parent handles it
+                  loading={loading}
+                  disabled={true}
+                  style={{
+                    ...authStyles.button,
+                    ...theme.elevation.medium,
+                    width: '100%',
+                  }}
+                />
+              </TouchableOpacity>
+            ) : (
+              // Render direct button when valid for normal functionality
+              <Button
+                title={
+                  authMethod === 'phone' 
+                    ? (showVerificationPanel ? "Verify Code" : "Send Code") 
+                    : text.auth.signIn.button
+                }
+                onPress={handleSignIn}
+                loading={loading || verifyingCode}
+                disabled={showVerificationPanel && verificationCode.length !== 6}
+                style={{
+                  ...authStyles.button,
+                  ...theme.elevation.medium,
+                  width: '100%',
+                  marginTop: normalize(10),
+                  ...(showVerificationPanel && verificationCode.length !== 6 ? styles.disabledButton : {})
+                }}
+              />
+            )}
+            
+            {/* Resend functionality now handled in PhoneVerificationPanel */}
+            
+            {/* Face ID button and toggle - extracted to component */}
+            <BiometricAuthSection
+              authMethod={authMethod}
+              useFaceId={useFaceId}
+              isBiometricAvailable={isBiometricAvailable}
+              isBiometricLocked={isBiometricLocked}
+              biometricType={biometricType}
+              theme={theme}
+              styles={styles}
+              onFaceIdIconPress={handleFaceIdIconPress}
+              onToggleBiometric={handleToggleBiometric}
+            />
+          </View>
+
+          {/* Footer section - extracted to component */}
+          <SignInFooter
+            isTermsChecked={isTermsChecked}
+            onTermsToggle={() => setIsTermsChecked(!isTermsChecked)}
+            onSignUpPress={handleSignUp}
+            styles={styles}
+            text={text}
+          />
+        </View>
+      </TouchableWithoutFeedback>
+      
+      {/* Onboarding Options Sheet - Moved outside the TouchableWithoutFeedback */}
+      <SuccessOptionsSheet
+        visible={showOptionsSheet}
+        onDismiss={handleDismissSheet}
+        onCompleteOnboarding={handleCompleteOnboarding}
+        onProceedToHome={handleProceedToHome}
+        onDragProgress={handleSheetDragProgress}
+        isSignIn={true}
+        firstName={userFirstName}
+      />
+    </SafeAreaView>
+  );
+};
+
+export default SignInScreen;

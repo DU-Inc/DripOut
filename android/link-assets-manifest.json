@@ -1,0 +1,13 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "src/assets/fonts/Billabong.otf",
+      "sha1": "b589f2fdace5463b9483e7b52d3e85d00f024439"
+    },
+    {
+      "path": "src/assets/fonts/font-info.txt",
+      "sha1": "cb88510d46e915722d7351089b6acc89fa6c4025"
+    }
+  ]
+}
